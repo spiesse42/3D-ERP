@@ -22,7 +22,6 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Log alle requests
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.url}`);
   next();
@@ -30,16 +29,46 @@ app.use((req, res, next) => {
 
 initDb();
 
-app.use('/api/klanten',    klanten);
-app.use('/api/printers',   printers);
-app.use('/api/filament',   filament);
-app.use('/api/jobs',       jobs);
-app.use('/api/kosten',     kosten);
-app.use('/api/offertes',   offertes);
-app.use('/api/betalingen', betalingen);
-app.use('/api/tarieven',   tarieven);
-app.use('/api/ha',         ha);
-app.use('/api/rapportage', rapportage);
+// Monteer routes op beide mogelijke paden
+function mountRoutes(app, prefix) {
+  app.use(`${prefix}/klanten`,    klanten);
+  app.use(`${prefix}/printers`,   printers);
+  app.use(`${prefix}/filament`,   filament);
+  app.use(`${prefix}/jobs`,       jobs);
+  app.use(`${prefix}/kosten`,     kosten);
+  app.use(`${prefix}/offertes`,   offertes);
+  app.use(`${prefix}/betalingen`, betalingen);
+  app.use(`${prefix}/tarieven`,   tarieven);
+  app.use(`${prefix}/ha`,         ha);
+  app.use(`${prefix}/rapportage`, rapportage);
+}
+
+// Lokaal: /api/...
+mountRoutes(app, '/api');
+
+// HA Ingress: /app/SLUG/api/...
+app.use('/app', express.Router().use('/:slug/api', (req, res, next) => {
+  req.url = req.url.replace(/^\/[^/]+\/api/, '') || '/';
+  mountRoutes(app, '');
+  next();
+}));
+
+// Wildcard: vang /app/SLUG/api/... rechtstreeks op
+app.use(/^\/app\/[^/]+\/api(.*)/, (req, res, next) => {
+  const apiPath = req.params[0] || '/';
+  req.url = apiPath;
+  express.Router()
+    .use('/klanten',    klanten)
+    .use('/printers',   printers)
+    .use('/filament',   filament)
+    .use('/jobs',       jobs)
+    .use('/kosten',     kosten)
+    .use('/offertes',   offertes)
+    .use('/betalingen', betalingen)
+    .use('/tarieven',   tarieven)
+    .use('/ha',         ha)
+    .use('/rapportage', rapportage)(req, res, next);
+});
 
 const frontendPath = path.join(__dirname, '..', 'frontend', 'dist');
 app.use(express.static(frontendPath));

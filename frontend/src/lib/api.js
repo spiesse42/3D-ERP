@@ -1,7 +1,11 @@
-const BASE = '/api';
+// Haal het Ingress pad op uit de huidige URL
+// bv. window.location = http://192.168.0.105:8123/app/ff3e3c91_3d_print_erp/
+// Dan is de base: /app/ff3e3c91_3d_print_erp/api
+const _p = window.location.pathname.replace(/\/$/, '');
+const _base = _p.includes('/app/') ? _p + '/api' : '/api';
 
 async function req(method, path, body) {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${_base}${path}`, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined,
