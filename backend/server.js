@@ -22,52 +22,30 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Log alle requests inclusief headers
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.url}`);
+  console.log(`${req.method} ${req.url} | ingress: ${req.headers['x-ingress-path'] || 'none'}`);
   next();
 });
 
 initDb();
 
-// Monteer routes op beide mogelijke paden
-function mountRoutes(app, prefix) {
-  app.use(`${prefix}/klanten`,    klanten);
-  app.use(`${prefix}/printers`,   printers);
-  app.use(`${prefix}/filament`,   filament);
-  app.use(`${prefix}/jobs`,       jobs);
-  app.use(`${prefix}/kosten`,     kosten);
-  app.use(`${prefix}/offertes`,   offertes);
-  app.use(`${prefix}/betalingen`, betalingen);
-  app.use(`${prefix}/tarieven`,   tarieven);
-  app.use(`${prefix}/ha`,         ha);
-  app.use(`${prefix}/rapportage`, rapportage);
-}
+// API routes op /api
+app.use('/api/klanten',    klanten);
+app.use('/api/printers',   printers);
+app.use('/api/filament',   filament);
+app.use('/api/jobs',       jobs);
+app.use('/api/kosten',     kosten);
+app.use('/api/offertes',   offertes);
+app.use('/api/betalingen', betalingen);
+app.use('/api/tarieven',   tarieven);
+app.use('/api/ha',         ha);
+app.use('/api/rapportage', rapportage);
 
-// Lokaal: /api/...
-mountRoutes(app, '/api');
-
-// HA Ingress: /app/SLUG/api/...
-app.use('/app', express.Router().use('/:slug/api', (req, res, next) => {
-  req.url = req.url.replace(/^\/[^/]+\/api/, '') || '/';
-  mountRoutes(app, '');
-  next();
-}));
-
-// Wildcard: vang /app/SLUG/api/... rechtstreeks op
-app.use(/^\/app\/[^/]+\/api(.*)/, (req, res, next) => {
-  const apiPath = req.params[0] || '/';
-  req.url = apiPath;
-  express.Router()
-    .use('/klanten',    klanten)
-    .use('/printers',   printers)
-    .use('/filament',   filament)
-    .use('/jobs',       jobs)
-    .use('/kosten',     kosten)
-    .use('/offertes',   offertes)
-    .use('/betalingen', betalingen)
-    .use('/tarieven',   tarieven)
-    .use('/ha',         ha)
-    .use('/rapportage', rapportage)(req, res, next);
+// Geef ingress pad mee aan frontend via een endpoint
+app.get('/ingress-path', (req, res) => {
+  const ingressPath = req.headers['x-ingress-path'] || '';
+  res.json({ path: ingressPath });
 });
 
 const frontendPath = path.join(__dirname, '..', 'frontend', 'dist');

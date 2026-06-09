@@ -1,11 +1,23 @@
-// Haal het Ingress pad op uit de huidige URL
-// bv. window.location = http://192.168.0.105:8123/app/ff3e3c91_3d_print_erp/
-// Dan is de base: /app/ff3e3c91_3d_print_erp/api
-const _p = window.location.pathname.replace(/\/$/, '');
-const _base = _p.includes('/app/') ? _p + '/api' : '/api';
+// Haal het Ingress pad op van de server
+async function getBase() {
+  try {
+    const res = await fetch('/ingress-path');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.path) {
+        console.log('Ingress pad:', data.path);
+        return data.path + '/api';
+      }
+    }
+  } catch (e) {}
+  return '/api';
+}
+
+let basePromise = getBase();
 
 async function req(method, path, body) {
-  const res = await fetch(`${_base}${path}`, {
+  const BASE = await basePromise;
+  const res = await fetch(`${BASE}${path}`, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined,
