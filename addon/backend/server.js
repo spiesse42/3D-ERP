@@ -22,38 +22,28 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Log alle requests
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.url}`);
+  next();
+});
+
 initDb();
 
-// Registreer API routes op zowel /api als /app/SLUG/api (voor HA Ingress)
-const apiRoutes = (router) => {
-  router.use('/klanten',    klanten);
-  router.use('/printers',   printers);
-  router.use('/filament',   filament);
-  router.use('/jobs',       jobs);
-  router.use('/kosten',     kosten);
-  router.use('/offertes',   offertes);
-  router.use('/betalingen', betalingen);
-  router.use('/tarieven',   tarieven);
-  router.use('/ha',         ha);
-  router.use('/rapportage', rapportage);
-};
-
-// Lokaal dev pad
-const localRouter = express.Router();
-apiRoutes(localRouter);
-app.use('/api', localRouter);
-
-// HA Ingress pad — matcht /app/SLUG/api/...
-app.use('/app/:slug/api', (req, res, next) => {
-  const ingressRouter = express.Router();
-  apiRoutes(ingressRouter);
-  ingressRouter(req, res, next);
-});
+app.use('/api/klanten',    klanten);
+app.use('/api/printers',   printers);
+app.use('/api/filament',   filament);
+app.use('/api/jobs',       jobs);
+app.use('/api/kosten',     kosten);
+app.use('/api/offertes',   offertes);
+app.use('/api/betalingen', betalingen);
+app.use('/api/tarieven',   tarieven);
+app.use('/api/ha',         ha);
+app.use('/api/rapportage', rapportage);
 
 const frontendPath = path.join(__dirname, '..', 'frontend', 'dist');
 app.use(express.static(frontendPath));
 
-// Vang alle overige paden op — stuur index.html terug (React Router)
 app.get('*', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
