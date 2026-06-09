@@ -4,7 +4,7 @@ import { api } from '../lib/api.js';
 const STATUSSEN = ['gepland','bezig','voltooid','gefaald','geannuleerd'];
 
 function StatusDot({ status }) {
-  const colors = { running: '#ef4444', printing: '#ef4444', finish: '#22c55e', complete: '#22c55e', success: '#22c55e', idle: '#f59e0b', standby: '#f59e0b', unavailable: '#555' };
+  const colors = { running:'#ef4444', printing:'#ef4444', finish:'#22c55e', complete:'#22c55e', success:'#22c55e', idle:'#f59e0b', standby:'#f59e0b', unavailable:'#555' };
   const c = colors[status?.toLowerCase()] || '#f59e0b';
   return <span style={{ display:'inline-block', width:8, height:8, borderRadius:'50%', background:c, marginRight:6, boxShadow:`0 0 6px ${c}` }} />;
 }
@@ -23,28 +23,61 @@ function ProgressRing({ pct, color, size=80 }) {
   );
 }
 
-function PrinterCard({ name, data, loading }) {
+function PrinterCard({ name, printerId, data, klanten, onJobCreated }) {
   const status = data?.status || 'unavailable';
   const isRunning = ['running','printing'].includes(status.toLowerCase());
   const isDone = ['finish','complete','success'].includes(status.toLowerCase());
   const color = isRunning ? '#ef4444' : isDone ? '#22c55e' : '#f59e0b';
   const pct = parseFloat(data?.progress) || 0;
+  const [showJobForm, setShowJobForm] = useState(false);
+  const [klantId, setKlantId] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function maakJob() {
+    setSaving(true);
+    try {
+      const naam = data?.filename?.replace(/\.(gcode|3mf|stl)$/i,'') || name;
+      const uren = data?.elapsed_sec ? Math.round(data.elapsed_sec / 360) / 10 : null;
+      await api.post('/jobs', {
+        printer_id: printerId,
+        klant_id: klantId || null,
+        naam,
+        status: isRunning ? 'bezig' : isDone ? 'voltooid' : 'gepland',
+        stl_bestandsnaam: data?.filename || null,
+        print_uren_geschat: uren,
+        is_multicolor: false,
+        aantal_kleuren: 1,
+        notities: `Aangemaakt vanuit live dashboard — ${pct.toFixed(0)}% voltooid`,
+      });
+      setShowJobForm(false);
+      setKlantId('');
+      onJobCreated();
+    } catch(e) { alert(e.message); }
+    finally { setSaving(false); }
+  }
 
   return (
     <div className="card" style={{ flex:1, minWidth:0 }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' }}>
-        <div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem' }}>
+        <div style={{ flex:1 }}>
           <div style={{ fontWeight:600, fontSize:14 }}>{name}</div>
           <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
-            <StatusDot status={status} />
-            {status}
+            <StatusDot status={status} />{status}
           </div>
         </div>
-        <div style={{ position:'relative', width:80, height:80 }}>
-          <ProgressRing pct={pct} color={color} size={80} />
-          <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:700, color }}>
-            {pct.toFixed(0)}%
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
+          <div style={{ position:'relative', width:80, height:80 }}>
+            <ProgressRing pct={pct} color={color} size={80} />
+            <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:700, color }}>
+              {pct.toFixed(0)}%
+            </div>
           </div>
+          {(isRunning || isDone) && (
+            <button className="btn primary" style={{ fontSize:11, padding:'4px 10px', whiteSpace:'nowrap' }}
+              onClick={() => setShowJobForm(v => !v)}>
+              {showJobForm ? '✕ Annuleer' : '+ Maak job'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -69,19 +102,37 @@ function PrinterCard({ name, data, loading }) {
           </div>
         ))}
       </div>
+
+      {showJobForm && (
+        <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid var(--border)' }}>
+          <p style={{ fontSize:12, color:'var(--muted)', marginBottom:8 }}>
+            Job aanmaken voor <strong style={{ color:'var(--text)' }}>{data?.filename?.replace(/\.(gcode|3mf|stl)$/i,'') || name}</strong>
+          </p>
+          <div className="form-group" style={{ marginBottom:8 }}>
+            <label>Klant (optioneel)</label>
+            <select value={klantId} onChange={e => setKlantId(e.target.value)}>
+              <option value="">— voor mezelf —</option>
+              {klanten.map(k => <option key={k.id} value={k.id}>{k.naam}</option>)}
+            </select>
+          </div>
+          <button className="btn primary" style={{ width:'100%' }} onClick={maakJob} disabled={saving}>
+            {saving ? 'Bezig...' : '✓ Job aanmaken'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 function JobModal({ job, printers, klanten, onClose, onSaved }) {
-  const [form, setForm] = useState(job || { printer_id: printers[0]?.id || '', naam: '', status: 'gepland', is_multicolor: false, aantal_kleuren: 1, print_uren_geschat: '', notities: '' });
+  const [form, setForm] = useState(job || { printer_id: printers[0]?.id || '', naam:'', status:'gepland', is_multicolor:false, aantal_kleuren:1, print_uren_geschat:'', notities:'' });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   async function save() {
     try {
       if (job?.id) await api.put(`/jobs/${job.id}`, form);
       else await api.post('/jobs', form);
       onSaved();
-    } catch (e) { alert(e.message); }
+    } catch(e) { alert(e.message); }
   }
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -116,7 +167,7 @@ function JobModal({ job, printers, klanten, onClose, onSaved }) {
         </div>
         <div className="form-row">
           <div className="form-group"><label>Print uren (werkelijk)</label>
-            <input type="number" step="0.1" value={form.print_uren_werkelijk || ''} onChange={e => set('print_uren_werkelijk', e.target.value)} placeholder="na voltooiing" />
+            <input type="number" step="0.1" value={form.print_uren_werkelijk || ''} onChange={e => set('print_uren_werkelijk', e.target.value)} />
           </div>
           <div className="form-group"><label>STL bestandsnaam</label>
             <input value={form.stl_bestandsnaam || ''} onChange={e => set('stl_bestandsnaam', e.target.value)} placeholder="bestand.stl" />
@@ -156,12 +207,15 @@ function KostenModal({ job, onClose }) {
   }, [job.id]);
   async function bereken() {
     try { const r = await api.post(`/kosten/bereken/${job.id}`, { kwh_verbruikt: parseFloat(kwh) || 0 }); setResult(r); }
-    catch (e) { alert(e.message); }
+    catch(e) { alert(e.message); }
   }
   async function voegToe() {
     if (!selectedRol || !gram) return alert('Selecteer een rol en geef gram op');
-    try { await api.post(`/jobs/${job.id}/materialen`, { filament_rol_id: parseInt(selectedRol), gram_gebruikt: parseFloat(gram) }); setSelectedRol(''); setGram(''); alert('Materiaal toegevoegd'); }
-    catch (e) { alert(e.message); }
+    try {
+      await api.post(`/jobs/${job.id}/materialen`, { filament_rol_id: parseInt(selectedRol), gram_gebruikt: parseFloat(gram) });
+      setSelectedRol(''); setGram('');
+      alert('Materiaal toegevoegd');
+    } catch(e) { alert(e.message); }
   }
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -181,8 +235,8 @@ function KostenModal({ job, onClose }) {
         </div>
         <div style={{ display:'flex', gap:8, alignItems:'flex-end', marginBottom:'1rem' }}>
           <div className="form-group" style={{ flex:1, marginBottom:0 }}>
-            <label>kWh verbruikt</label>
-            <input type="number" step="0.01" value={kwh} onChange={e => setKwh(e.target.value)} placeholder="bv. 0.45" />
+            <label>kWh verbruikt (van smart plug of handmatig)</label>
+            <input type="number" step="0.001" value={kwh} onChange={e => setKwh(e.target.value)} placeholder="bv. 0.245" />
           </div>
           <button className="btn primary" onClick={bereken}>Bereken</button>
         </div>
@@ -191,13 +245,20 @@ function KostenModal({ job, onClose }) {
             <table style={{ fontSize:13 }}>
               <tbody>
                 {[['Materiaal', result.materiaal_kost],['Energie', result.energie_kost],['Machine', result.machine_kost],['Arbeid', result.arbeid_kost],['BMCU slijtage', result.bmcu_slijtage]].map(([label, val]) => (
-                  <tr key={label}><td style={{ color:'var(--muted)', borderBottom:'1px solid var(--border)', paddingLeft:0 }}>{label}</td><td style={{ textAlign:'right', borderBottom:'1px solid var(--border)' }}>€{val?.toFixed(2)}</td></tr>
+                  <tr key={label}>
+                    <td style={{ color:'var(--muted)', borderBottom:'1px solid var(--border)', paddingLeft:0 }}>{label}</td>
+                    <td style={{ textAlign:'right', borderBottom:'1px solid var(--border)' }}>€{val?.toFixed(3)}</td>
+                  </tr>
                 ))}
+                <tr>
+                  <td style={{ paddingLeft:0, color:'var(--muted)', fontSize:11 }}>+ {result.faalfactor_pct}% faal + {result.winstmarge_pct}% marge</td>
+                  <td style={{ textAlign:'right', color:'var(--muted)', fontSize:11 }}>€{result.totaal_kost?.toFixed(2)}</td>
+                </tr>
               </tbody>
             </table>
             <div style={{ display:'flex', justifyContent:'space-between', marginTop:12, paddingTop:12, borderTop:'1px solid var(--border)', fontWeight:600 }}>
               <span>Verkoopprijs</span>
-              <span style={{ color:'var(--accent2)', fontSize:18 }}>€{result.verkoopprijs?.toFixed(2)}</span>
+              <span style={{ color:'var(--accent2)', fontSize:22 }}>€{result.verkoopprijs?.toFixed(2)}</span>
             </div>
           </div>
         )}
@@ -232,18 +293,17 @@ export default function Jobs() {
     api.get('/klanten').then(setKlanten);
   }, []);
 
-  // Live HA polling
   useEffect(() => {
-    const BAMBU_PREFIX = 'sensor.a1mini_0300da611800680_';
+    const BAMBU = 'sensor.a1mini_0300da611800680_';
     const entities = {
-      bambu_status:    `${BAMBU_PREFIX}printstatus`,
-      bambu_progress:  `${BAMBU_PREFIX}printvoortgang`,
-      bambu_file:      `${BAMBU_PREFIX}gcode_bestandsnaam`,
-      bambu_remaining: `${BAMBU_PREFIX}resterende_tijd`,
-      bambu_layer_cur: `${BAMBU_PREFIX}huidige_laag`,
-      bambu_layer_tot: `${BAMBU_PREFIX}hoeveelheid_lagen`,
-      bambu_filament:  `${BAMBU_PREFIX}gewicht_van_print`,
-      bambu_start:     `${BAMBU_PREFIX}starttijd`,
+      bambu_status:    `${BAMBU}printstatus`,
+      bambu_progress:  `${BAMBU}printvoortgang`,
+      bambu_file:      `${BAMBU}gcode_bestandsnaam`,
+      bambu_remaining: `${BAMBU}resterende_tijd`,
+      bambu_layer_cur: `${BAMBU}huidige_laag`,
+      bambu_layer_tot: `${BAMBU}hoeveelheid_lagen`,
+      bambu_filament:  `${BAMBU}gewicht_van_print`,
+      bambu_start:     `${BAMBU}starttijd`,
       bambu_kwh:       'sensor.lsc_power_plug_fr_incl_power_meter_6_totaal_energieverbruik',
       ender_status:    'sensor.ender_3_s1_pro_current_print_state',
       ender_progress:  'sensor.ender_3_s1_pro_progress',
@@ -265,35 +325,28 @@ export default function Jobs() {
         );
         const s = Object.fromEntries(results);
 
-        // Bambu elapsed via starttijd
         let bambuElapsed = 0;
         if (s.bambu_start && s.bambu_start !== 'unavailable') {
           const ms = new Date(s.bambu_start).getTime();
           if (!isNaN(ms)) bambuElapsed = Math.max(0, (Date.now() - ms) / 1000);
         }
-
-        // Ender elapsed (uren als float)
         const enderElapsedSec = (parseFloat(s.ender_elapsed) || 0) * 3600;
 
-        // Bambu remaining (seconden)
         let bambuRem = 0;
         if (s.bambu_remaining && s.bambu_remaining !== 'unavailable') bambuRem = parseFloat(s.bambu_remaining) || 0;
-
-        // Ender remaining (ISO timestamp)
         let enderRem = 0;
-        if (s.ender_remaining && s.ender_remaining.includes('T')) {
+        if (s.ender_remaining?.includes('T')) {
           const diff = (new Date(s.ender_remaining).getTime() - Date.now()) / 1000;
           if (diff > 0) enderRem = diff;
         }
 
-        // kWh delta
         const bambuKwh = parseFloat(s.bambu_kwh) || 0;
         const enderKwh = parseFloat(s.ender_kwh) || 0;
+        const bambuRunning = ['running','printing'].includes((s.bambu_status||'').toLowerCase());
+        const enderRunning = ['running','printing'].includes((s.ender_status||'').toLowerCase());
 
         setKwhStart(prev => {
           const next = { ...prev };
-          const bambuRunning = ['running','printing'].includes((s.bambu_status||'').toLowerCase());
-          const enderRunning = ['running','printing'].includes((s.ender_status||'').toLowerCase());
           if (bambuRunning && !prev.bambu && bambuKwh > 0) next.bambu = bambuKwh;
           if (!bambuRunning) next.bambu = null;
           if (enderRunning && !prev.ender && enderKwh > 0) next.ender = enderKwh;
@@ -303,26 +356,28 @@ export default function Jobs() {
 
         setPrinterData(prev => ({
           bambu: {
-            status:   s.bambu_status || 'unavailable',
-            progress: parseFloat(s.bambu_progress) || 0,
-            filename: s.bambu_file,
-            elapsed:  formatSec(bambuElapsed),
-            remaining: formatSec(bambuRem),
-            filament: `${parseFloat(s.bambu_filament)?.toFixed(1) || '—'} g`,
-            layer:    `${s.bambu_layer_cur || '0'} / ${s.bambu_layer_tot || '0'}`,
-            kwh_delta: bambuKwh > 0 && prev.bambu?.kwh_start ? bambuKwh - prev.bambu.kwh_start : (bambuKwh > 0 && kwhStart.bambu ? bambuKwh - kwhStart.bambu : null),
-            kwh_start: kwhStart.bambu || null,
+            status:      s.bambu_status || 'unavailable',
+            progress:    parseFloat(s.bambu_progress) || 0,
+            filename:    s.bambu_file,
+            elapsed:     formatSec(bambuElapsed),
+            elapsed_sec: bambuElapsed,
+            remaining:   formatSec(bambuRem),
+            filament:    `${parseFloat(s.bambu_filament)?.toFixed(1) || '—'} g`,
+            filament_g:  parseFloat(s.bambu_filament) || 0,
+            layer:       `${s.bambu_layer_cur || '0'} / ${s.bambu_layer_tot || '0'}`,
+            kwh_delta:   bambuKwh > 0 && kwhStart.bambu ? bambuKwh - kwhStart.bambu : null,
           },
           ender: {
-            status:   s.ender_status || 'unavailable',
-            progress: parseFloat(s.ender_progress) || 0,
-            filename: s.ender_file,
-            elapsed:  formatSec(enderElapsedSec),
-            remaining: formatSec(enderRem),
-            filament: `${(parseFloat(s.ender_filament) * 2.98)?.toFixed(1) || '—'} g`,
-            layer:    `${s.ender_layer_cur || '0'} / ${s.ender_layer_tot || '0'}`,
-            kwh_delta: enderKwh > 0 && kwhStart.ender ? enderKwh - kwhStart.ender : null,
-            kwh_start: kwhStart.ender || null,
+            status:      s.ender_status || 'unavailable',
+            progress:    parseFloat(s.ender_progress) || 0,
+            filename:    s.ender_file,
+            elapsed:     formatSec(enderElapsedSec),
+            elapsed_sec: enderElapsedSec,
+            remaining:   formatSec(enderRem),
+            filament:    `${((parseFloat(s.ender_filament)||0) * 2.98).toFixed(1)} g`,
+            filament_g:  (parseFloat(s.ender_filament)||0) * 2.98,
+            layer:       `${s.ender_layer_cur || '0'} / ${s.ender_layer_tot || '0'}`,
+            kwh_delta:   enderKwh > 0 && kwhStart.ender ? enderKwh - kwhStart.ender : null,
           },
         }));
       } catch {}
@@ -331,7 +386,7 @@ export default function Jobs() {
     poll();
     intervalRef.current = setInterval(poll, 5000);
     return () => clearInterval(intervalRef.current);
-  }, []);
+  }, [kwhStart]);
 
   const filtered = filter ? jobs.filter(j => j.status === filter) : jobs;
 
@@ -340,6 +395,10 @@ export default function Jobs() {
     await api.delete(`/jobs/${id}`);
     loadJobs();
   }
+
+  // Zoek printer ID op naam
+  const bambuId = printers.find(p => p.naam.toLowerCase().includes('bambu'))?.id;
+  const enderId = printers.find(p => p.naam.toLowerCase().includes('ender'))?.id;
 
   return (
     <div>
@@ -354,13 +413,11 @@ export default function Jobs() {
         </div>
       </div>
 
-      {/* Live printer dashboard */}
       <div style={{ display:'flex', gap:'1rem', marginBottom:'1.5rem' }}>
-        <PrinterCard name="Bambu A1 Mini" data={printerData.bambu} />
-        <PrinterCard name="Ender 3 S1 Pro" data={printerData.ender} />
+        <PrinterCard name="Bambu A1 Mini" printerId={bambuId} data={printerData.bambu} klanten={klanten} onJobCreated={loadJobs} />
+        <PrinterCard name="Ender 3 S1 Pro" printerId={enderId} data={printerData.ender} klanten={klanten} onJobCreated={loadJobs} />
       </div>
 
-      {/* Joblijst */}
       {filtered.length === 0
         ? <div className="empty">Geen jobs gevonden</div>
         : <div className="card" style={{ padding:0 }}>
