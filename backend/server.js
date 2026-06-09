@@ -10,10 +10,10 @@ import filament from './routes/filament.js';
 import jobs from './routes/jobs.js';
 import kosten from './routes/kosten.js';
 import offertes from './routes/offertes.js';
-import betalingen from './routes/betalingen.js';
 import tarieven from './routes/tarieven.js';
 import ha from './routes/ha.js';
 import rapportage from './routes/rapportage.js';
+import { betalingen } from './routes/_combined.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -24,19 +24,36 @@ app.use(express.json());
 
 initDb();
 
-app.use('/api/klanten',    klanten);
-app.use('/api/printers',   printers);
-app.use('/api/filament',   filament);
-app.use('/api/jobs',       jobs);
-app.use('/api/kosten',     kosten);
-app.use('/api/offertes',   offertes);
-app.use('/api/betalingen', betalingen);
-app.use('/api/tarieven',   tarieven);
-app.use('/api/ha',         ha);
-app.use('/api/rapportage', rapportage);
+// Registreer API routes op zowel /api als /app/SLUG/api (voor HA Ingress)
+const apiRoutes = (router) => {
+  router.use('/klanten',    klanten);
+  router.use('/printers',   printers);
+  router.use('/filament',   filament);
+  router.use('/jobs',       jobs);
+  router.use('/kosten',     kosten);
+  router.use('/offertes',   offertes);
+  router.use('/betalingen', betalingen);
+  router.use('/tarieven',   tarieven);
+  router.use('/ha',         ha);
+  router.use('/rapportage', rapportage);
+};
+
+// Lokaal dev pad
+const localRouter = express.Router();
+apiRoutes(localRouter);
+app.use('/api', localRouter);
+
+// HA Ingress pad — matcht /app/SLUG/api/...
+app.use('/app/:slug/api', (req, res, next) => {
+  const ingressRouter = express.Router();
+  apiRoutes(ingressRouter);
+  ingressRouter(req, res, next);
+});
 
 const frontendPath = path.join(__dirname, '..', 'frontend', 'dist');
 app.use(express.static(frontendPath));
+
+// Vang alle overige paden op — stuur index.html terug (React Router)
 app.get('*', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
