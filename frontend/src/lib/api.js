@@ -1,22 +1,28 @@
-// Haal het Ingress pad op van de server
-async function getBase() {
-  try {
-    const res = await fetch('/ingress-path');
-    if (res.ok) {
-      const data = await res.json();
-      if (data.path) {
-        console.log('Ingress pad:', data.path);
-        return data.path + '/api';
-      }
-    }
-  } catch (e) {}
+// HA Ingress URL is: /api/hassio_ingress/TOKEN/
+// We halen het pad uit window.location
+function getBase() {
+  const loc = window.location;
+  const pathname = loc.pathname;
+  
+  // Ingress pad: /api/hassio_ingress/TOKEN
+  const ingressMatch = pathname.match(/^(\/api\/hassio_ingress\/[^/]+)/);
+  if (ingressMatch) {
+    return loc.origin + ingressMatch[1] + '/api';
+  }
+  
+  // Oud Ingress pad: /app/SLUG
+  const appMatch = pathname.match(/^(\/app\/[^/]+)/);
+  if (appMatch) {
+    return loc.origin + appMatch[1] + '/api';
+  }
+  
   return '/api';
 }
 
-let basePromise = getBase();
+const BASE = getBase();
+console.log('API base:', BASE);
 
 async function req(method, path, body) {
-  const BASE = await basePromise;
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : {},
