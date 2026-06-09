@@ -1,4 +1,4 @@
-const BASE = window.__API_BASE__ || '/api';
+const BASE = '/api';
 
 async function req(method, path, body) {
   const res = await fetch(`${BASE}${path}`, {
