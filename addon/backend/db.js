@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
-import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
+import { migrateDb } from './db_migration.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'erp.db');
@@ -45,7 +45,6 @@ export function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       merk TEXT NOT NULL,
       materiaal TEXT NOT NULL,
-      kleur TEXT NOT NULL,
       inkoop_prijs_per_kg REAL NOT NULL,
       dichtheid_g_per_cm3 REAL NOT NULL DEFAULT 1.24,
       leverancier TEXT,
@@ -55,6 +54,7 @@ export function initDb() {
     CREATE TABLE IF NOT EXISTS filament_rollen (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       filament_type_id INTEGER NOT NULL REFERENCES filament_types(id) ON DELETE RESTRICT,
+      kleur TEXT,
       gewicht_gram_start REAL NOT NULL DEFAULT 1000.0,
       gewicht_gram_huidig REAL NOT NULL DEFAULT 1000.0,
       locatie TEXT,
@@ -155,20 +155,22 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_betalingen     ON betalingen(offerte_id);
   `);
 
+  // Migraties
+  migrateDb(db);
+
   const printerCount = db.prepare('SELECT COUNT(*) as c FROM printers').get().c;
   if (printerCount === 0) {
-    db.prepare(`INSERT INTO printers (naam,type,ha_entity_prefix,kwh_entity,machine_kost_per_uur,heeft_bmcu,actief)
-      VALUES (?,?,?,?,?,?,?)`).run('Ender 3 S1 Pro','FDM',null,'sensor.ender3_kwh',0.13,0,1);
-    db.prepare(`INSERT INTO printers (naam,type,ha_entity_prefix,kwh_entity,machine_kost_per_uur,heeft_bmcu,actief)
-      VALUES (?,?,?,?,?,?,?)`).run('Bambu A1 Mini','FDM','sensor.a1mini_0300da611800680_','sensor.bambu_kwh',0.13,1,1);
+    db.prepare(`INSERT INTO printers (naam,type,ha_entity_prefix,kwh_entity,machine_kost_per_uur,heeft_bmcu,actief) VALUES (?,?,?,?,?,?,?)`)
+      .run('Ender 3 S1 Pro','FDM',null,'sensor.lsc_power_plug_fr_incl_power_meter_5_totaal_energieverbruik',0.13,0,1);
+    db.prepare(`INSERT INTO printers (naam,type,ha_entity_prefix,kwh_entity,machine_kost_per_uur,heeft_bmcu,actief) VALUES (?,?,?,?,?,?,?)`)
+      .run('Bambu A1 Mini','FDM','sensor.a1mini_0300da611800680_','sensor.lsc_power_plug_fr_incl_power_meter_6_totaal_energieverbruik',0.13,1,1);
   }
 
   const tarievenCount = db.prepare('SELECT COUNT(*) as c FROM tarieven').get().c;
   if (tarievenCount === 0) {
     const ins = db.prepare('INSERT INTO tarieven (sleutel,waarde,eenheid,label) VALUES (?,?,?,?)');
-    ins.run('kwh_prijs',        0.25,  'EUR/kWh', 'Elektriciteitsprijs');
+    ins.run('kwh_prijs',        0.35,  'EUR/kWh', 'Elektriciteitsprijs');
     ins.run('arbeid_per_uur',  15.00,  'EUR/u',   'Arbeidskost');
-    ins.run('machine_per_uur',  0.13,  'EUR/u',   'Machinekost');
     ins.run('faalfactor_pct',  10.00,  '%',        'Faalfactor');
     ins.run('winstmarge_pct',  10.00,  '%',        'Winstmarge');
     ins.run('bmcu_per_job',     0.10,  'EUR',      'BMCU slijtage per multicolor job');
@@ -176,11 +178,11 @@ export function initDb() {
 
   const filamentCount = db.prepare('SELECT COUNT(*) as c FROM filament_types').get().c;
   if (filamentCount === 0) {
-    const ins = db.prepare('INSERT INTO filament_types (merk,materiaal,kleur,inkoop_prijs_per_kg,dichtheid_g_per_cm3,leverancier) VALUES (?,?,?,?,?,?)');
-    ins.run('Elegoo',   'Rapid PLA+', 'Wit',   16.00, 1.24, 'Amazon');
-    ins.run('Tinmorry', 'PETG-Eco',   'Zwart', 20.00, 1.27, 'Amazon');
-    ins.run('Bambu',    'PLA Basic',  'Grijs', 22.00, 1.24, 'Bambu Lab');
-    ins.run('Cailab',   'PLA+ Bio',   'Beige', 26.00, 1.24, 'Cailab');
+    const ins = db.prepare('INSERT INTO filament_types (merk,materiaal,inkoop_prijs_per_kg,dichtheid_g_per_cm3,leverancier) VALUES (?,?,?,?,?)');
+    ins.run('Elegoo',   'Rapid PLA+', 16.00, 1.24, 'Amazon');
+    ins.run('Tinmorry', 'PETG-Eco',   20.00, 1.27, 'Amazon');
+    ins.run('Bambu',    'PLA Basic',  22.00, 1.24, 'Bambu Lab');
+    ins.run('Cailab',   'PLA+ Bio',   26.00, 1.24, 'Cailab');
   }
 
   console.log('Database geïnitialiseerd:', DB_PATH);
