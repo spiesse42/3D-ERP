@@ -1,4 +1,13 @@
-const BASE = '/api';
+// Detecteer het Ingress base pad automatisch
+// Via Ingress is de URL: /app/SLUG/...
+// Lokaal dev is de URL: /
+const getBase = () => {
+  const path = window.location.pathname;
+  const match = path.match(/^(\/app\/[^/]+)/);
+  return match ? `${match[1]}/api` : '/api';
+};
+
+const BASE = getBase();
 
 async function req(method, path, body) {
   const res = await fetch(`${BASE}${path}`, {
