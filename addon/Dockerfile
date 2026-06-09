@@ -1,7 +1,4 @@
-ARG BUILD_FROM
-FROM $BUILD_FROM
-
-RUN apk add --no-cache nodejs npm python3 make g++
+FROM ghcr.io/home-assistant/amd64-base-nodejs:20
 
 WORKDIR /app
 
