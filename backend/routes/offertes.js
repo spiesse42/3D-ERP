@@ -1,176 +1,362 @@
-import { useState, useEffect } from 'react';
-import { api } from '../lib/api.js';
+import { Router } from 'express';
+import { getDb } from '../db.js';
 
-const STATUS_VOLGORDE = ['concept','verstuurd','goedgekeurd','gefactureerd','betaald','geannuleerd'];
+const r = Router();
 
-function statusKleur(s) {
-  return { concept:'#f59e0b', verstuurd:'#60a5fa', goedgekeurd:'#34d399',
-           gefactureerd:'#a78bfa', betaald:'#22c55e', geannuleerd:'#6b7280' }[s] || '#6b7280';
+function getTarieven(db) {
+  const rows = db.prepare('SELECT sleutel, waarde FROM tarieven').all();
+  return Object.fromEntries(rows.map(r => [r.sleutel, r.waarde]));
 }
 
-export default function Offertes() {
-  const [offertes, setOffertes] = useState([]);
-  const [detail, setDetail] = useState(null);
+function nextNummer(db) {
+  const jaar = new Date().getFullYear();
+  const last = db.prepare(`SELECT nummer FROM offertes_v2 WHERE nummer LIKE ? ORDER BY id DESC LIMIT 1`)
+    .get(`OFF-${jaar}-%`);
+  if (!last) return `OFF-${jaar}-001`;
+  const n = parseInt(last.nummer.split('-')[2]) + 1;
+  return `OFF-${jaar}-${String(n).padStart(3, '0')}`;
+}
 
-  const load = () => api.get('/offertes').then(setOffertes);
-  useEffect(() => { load(); }, []);
+function berekenOfferte(data, t) {
+  const {
+    geschat_gewicht_g = 0,
+    geschatte_tijd_u = 0,
+    geschatte_tijd_min = 0,
+    voorbereiding_min = t.voorbereiding_min || 15,
+    nabewerking_min = t.nabewerking_min || 10,
+    ontwerp_min = 0,
+    ontwerp_tarief = t.ontwerp_tarief || 15,
+    nabewerking_extra_min = 0,
+    nabewerking_extra_tarief = t.nabewerking_tarief || 15,
+    is_multicolor = 0,
+    extra_per_stuk = 0,
+    extra_eenmalig = 0,
+    aantal = 1,
+    filament_prijs_per_kg = 0,
+    printer_watt = 120,
+  } = data;
 
-  async function updateStatus(id, status) {
-    await api.patch(`/offertes/${id}/status`, { status });
-    load();
-    if (detail?.id === id) setDetail(d => ({ ...d, status }));
+  const arbeid_per_uur = t.arbeid_per_uur || 15;
+  const kwh_prijs = t.kwh_prijs || 0.35;
+  const faalfactor = 1 + (t.faalfactor_pct || 10) / 100;
+  const bmcu = is_multicolor ? (t.bmcu_per_job || 0.10) : 0;
+
+  const totale_tijd_u = parseInt(geschatte_tijd_u) + parseInt(geschatte_tijd_min) / 60;
+
+  // Materiaal
+  const materiaal_kost = (parseFloat(geschat_gewicht_g) / 1000) * parseFloat(filament_prijs_per_kg) * faalfactor * parseInt(aantal);
+
+  // Energie (schatting op basis van wattage)
+  const kwh_schat = (printer_watt / 1000) * totale_tijd_u * parseInt(aantal);
+  const energie_kost_schat = kwh_schat * kwh_prijs;
+
+  // Machine (intern)
+  const machine_kost = totale_tijd_u * (t.machine_per_uur || 0.13) * parseInt(aantal);
+
+  // Arbeid
+  const totale_voorb = parseInt(voorbereiding_min);
+  const totale_nab = parseInt(nabewerking_min);
+  const arbeid_kost = ((totale_voorb + totale_nab) / 60 * arbeid_per_uur)
+    + (parseInt(ontwerp_min) / 60 * parseFloat(ontwerp_tarief))
+    + (parseInt(nabewerking_extra_min) / 60 * parseFloat(nabewerking_extra_tarief));
+
+  // Extra
+  const extra_totaal = parseFloat(extra_per_stuk) * parseInt(aantal) + parseFloat(extra_eenmalig);
+
+  const subtotaal = materiaal_kost + energie_kost_schat + machine_kost + arbeid_kost + extra_totaal + bmcu;
+
+  // Marge
+  const marge_grens = t.marge_grens_uur || 4;
+  const marge_pct = totale_tijd_u >= marge_grens ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
+  const verkoopprijs = subtotaal * (1 + marge_pct / 100);
+
+  return {
+    materiaal_kost: Math.round(materiaal_kost * 1000) / 1000,
+    energie_kost_schat: Math.round(energie_kost_schat * 1000) / 1000,
+    machine_kost: Math.round(machine_kost * 1000) / 1000,
+    arbeid_kost: Math.round(arbeid_kost * 1000) / 1000,
+    extra_totaal: Math.round(extra_totaal * 1000) / 1000,
+    subtotaal: Math.round(subtotaal * 1000) / 1000,
+    marge_pct,
+    verkoopprijs: Math.round(verkoopprijs * 100) / 100,
+  };
+}
+
+function buildOfferteHtml(offerte, klant, berekening, filamentType, printer) {
+  const nu = new Date().toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const totaleUren = (offerte.geschatte_tijd_u || 0) + (offerte.geschatte_tijd_min || 0) / 60;
+
+  return `<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<style>
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#fff;color:#1a1a1a;margin:0;padding:40px}
+  .header{display:flex;justify-content:space-between;border-bottom:3px solid #5b8dee;padding-bottom:20px;margin-bottom:28px}
+  .logo{font-size:1.6rem;font-weight:900;color:#5b8dee;letter-spacing:2px}
+  .doc-nr{font-size:1.1rem;font-weight:bold}
+  .klant{background:#f8f9fa;border-radius:8px;padding:14px 18px;margin-bottom:20px}
+  .klant h3{margin:0 0 6px;font-size:.7rem;text-transform:uppercase;letter-spacing:1.5px;color:#5b8dee}
+  .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;margin-bottom:20px;font-size:.9rem}
+  .info-item{padding:6px 0;border-bottom:1px solid #eee}
+  .info-label{font-size:.75rem;color:#666;margin-bottom:2px}
+  table{width:100%;border-collapse:collapse;margin-bottom:20px}
+  th{background:#5b8dee;color:#fff;padding:9px 12px;text-align:left;font-size:.78rem;text-transform:uppercase}
+  td{padding:9px 12px;border-bottom:1px solid #eee;font-size:.88rem}
+  tr:nth-child(even) td{background:#f8f9fa}
+  .totaal{background:#0c0c0c;color:#fff;border-radius:8px;padding:18px 22px;display:flex;justify-content:space-between;align-items:center}
+  .totaal-label{color:#a0a0a0;font-size:.85rem}
+  .totaal-bedrag{font-size:2rem;font-weight:900;color:#5b8dee}
+  .footer{margin-top:32px;border-top:1px solid #eee;padding-top:14px;font-size:.72rem;color:#999;text-align:center}
+  .tag{font-size:.72rem;color:#5b8dee;background:#eff6ff;padding:2px 7px;border-radius:4px;margin-left:6px}
+  .opmerking{margin-top:16px;padding:12px 16px;border-left:4px solid #f59e0b;background:#fffbeb;border-radius:4px;font-size:.88rem;color:#664400}
+  .schatting{font-size:.72rem;color:#999;font-style:italic}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="logo">▲ 3D PRINT ERP</div>
+  <div style="text-align:right;color:#666;font-size:.85rem">
+    <div class="doc-nr">OFFERTE ${offerte.nummer}</div>
+    <div>${nu}</div>
+    ${offerte.geldig_tot ? `<div>Geldig tot: ${offerte.geldig_tot}</div>` : ''}
+  </div>
+</div>
+
+<div class="klant">
+  <h3>Klant</h3>
+  <strong>${klant.voornaam ? klant.voornaam + ' ' : ''}${klant.naam}</strong>
+  ${klant.straat ? `<br>${klant.straat} ${klant.huisnummer || ''}, ${klant.postcode || ''} ${klant.gemeente || ''}` : ''}
+  ${klant.email ? `<br>✉ ${klant.email}` : ''}
+  ${klant.btw_nummer ? `<br>BTW: ${klant.btw_nummer}` : ''}
+</div>
+
+<div class="info-grid">
+  <div class="info-item">
+    <div class="info-label">Object</div>
+    <div>${offerte.object_naam || '—'}${offerte.object_link ? ` <a href="${offerte.object_link}" style="color:#5b8dee;font-size:.8rem">(link)</a>` : ''}</div>
+  </div>
+  <div class="info-item">
+    <div class="info-label">Printer</div>
+    <div>${printer?.naam || '—'}</div>
+  </div>
+  <div class="info-item">
+    <div class="info-label">Filament</div>
+    <div>${filamentType ? `${filamentType.merk} ${filamentType.materiaal}` : '—'}</div>
+  </div>
+  <div class="info-item">
+    <div class="info-label">Geschatte printtijd</div>
+    <div>${offerte.geschatte_tijd_u || 0}u ${offerte.geschatte_tijd_min || 0}min</div>
+  </div>
+  <div class="info-item">
+    <div class="info-label">Gewicht (slicer)</div>
+    <div>${offerte.geschat_gewicht_g || 0}g ${offerte.is_multicolor ? '<span class="tag">multicolor</span>' : ''}</div>
+  </div>
+  <div class="info-item">
+    <div class="info-label">Aantal</div>
+    <div>${offerte.aantal || 1} stuk(s)</div>
+  </div>
+</div>
+
+<table>
+  <thead><tr><th>Post</th><th>Detail</th><th>Bedrag</th></tr></thead>
+  <tbody>
+    <tr><td>Materiaal <span class="schatting">(incl. faalfactor)</span></td><td>${offerte.geschat_gewicht_g}g × ${offerte.aantal}x</td><td>€${berekening.materiaal_kost.toFixed(2)}</td></tr>
+    <tr><td>Energie <span class="schatting">(schatting)</span></td><td>${totaleUren.toFixed(2)}u × ${offerte.aantal}x</td><td>€${berekening.energie_kost_schat.toFixed(2)}</td></tr>
+    <tr><td>Voorbereiding</td><td>${offerte.voorbereiding_min} min</td><td>€${((offerte.voorbereiding_min / 60) * (berekening.arbeid_per_uur || 15)).toFixed(2)}</td></tr>
+    <tr><td>Nabewerking</td><td>${offerte.nabewerking_min} min</td><td>€${((offerte.nabewerking_min / 60) * (berekening.arbeid_per_uur || 15)).toFixed(2)}</td></tr>
+    ${offerte.ontwerp_min > 0 ? `<tr><td>Ontwerp regie</td><td>${offerte.ontwerp_min} min</td><td>€${((offerte.ontwerp_min / 60) * offerte.ontwerp_tarief).toFixed(2)}</td></tr>` : ''}
+    ${offerte.nabewerking_extra_min > 0 ? `<tr><td>Nabewerking extra</td><td>${offerte.nabewerking_extra_min} min</td><td>€${((offerte.nabewerking_extra_min / 60) * offerte.nabewerking_extra_tarief).toFixed(2)}</td></tr>` : ''}
+    ${berekening.extra_totaal > 0 ? `<tr><td>Extra${offerte.extra_omschrijving ? ' — ' + offerte.extra_omschrijving : ''}</td><td>—</td><td>€${berekening.extra_totaal.toFixed(2)}</td></tr>` : ''}
+    <tr style="font-weight:600"><td colspan="2">Subtotaal</td><td>€${berekening.subtotaal.toFixed(2)}</td></tr>
+    <tr><td colspan="2">Winstmarge (${berekening.marge_pct}%)</td><td>€${(berekening.verkoopprijs - berekening.subtotaal).toFixed(2)}</td></tr>
+  </tbody>
+</table>
+
+<div class="totaal">
+  <div>
+    <div class="totaal-label">VERKOOPPRIJS ${offerte.aantal > 1 ? `(${offerte.aantal}× — €${(berekening.verkoopprijs / offerte.aantal).toFixed(2)}/stuk)` : '(schatting)'}</div>
+  </div>
+  <div class="totaal-bedrag">€${berekening.verkoopprijs.toFixed(2)}</div>
+</div>
+
+${offerte.notities ? `<div class="opmerking">📝 ${offerte.notities}</div>` : ''}
+<div class="footer">Offerte ${offerte.nummer} &nbsp;|&nbsp; ${nu} &nbsp;|&nbsp; Geldig ${offerte.geldig_tot || '30 dagen'} &nbsp;|&nbsp; Vrijgesteld van BTW — art. 56bis BTW-wetboek</div>
+</body></html>`;
+}
+
+// GET alle offertes
+r.get('/', (req, res) => {
+  const rows = getDb().prepare(`
+    SELECT o.*, k.naam as klant_naam, k.voornaam as klant_voornaam,
+      p.naam as printer_naam, ft.merk as filament_merk, ft.materiaal as filament_materiaal
+    FROM offertes_v2 o
+    JOIN klanten k ON k.id = o.klant_id
+    LEFT JOIN printers p ON p.id = o.printer_id
+    LEFT JOIN filament_types ft ON ft.id = o.filament_type_id
+    ORDER BY o.aangemaakt_op DESC
+  `).all();
+  res.json(rows);
+});
+
+// GET één offerte
+r.get('/:id', (req, res) => {
+  const db = getDb();
+  const offerte = db.prepare(`
+    SELECT o.*, k.naam as klant_naam, k.voornaam as klant_voornaam,
+      k.email, k.straat, k.huisnummer, k.postcode, k.gemeente, k.btw_nummer,
+      p.naam as printer_naam, ft.merk as filament_merk, ft.materiaal as filament_materiaal,
+      ft.inkoop_prijs_per_kg
+    FROM offertes_v2 o
+    JOIN klanten k ON k.id = o.klant_id
+    LEFT JOIN printers p ON p.id = o.printer_id
+    LEFT JOIN filament_types ft ON ft.id = o.filament_type_id
+    WHERE o.id = ?
+  `).get(req.params.id);
+  if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
+  res.json(offerte);
+});
+
+// POST nieuwe offerte
+r.post('/', (req, res) => {
+  const db = getDb();
+  const t = getTarieven(db);
+  const {
+    klant_id, object_naam, object_link, printer_id, filament_type_id,
+    geschat_gewicht_g, geschatte_tijd_u = 0, geschatte_tijd_min = 0,
+    voorbereiding_min, nabewerking_min, ontwerp_min = 0, ontwerp_tarief,
+    nabewerking_extra_min = 0, nabewerking_extra_tarief,
+    is_multicolor = 0, extra_per_stuk = 0, extra_eenmalig = 0,
+    extra_omschrijving, aantal = 1, btw_pct = 21, geldig_tot, notities,
+  } = req.body;
+
+  if (!klant_id) return res.status(400).json({ error: 'Klant is verplicht' });
+
+  // Filamentprijs ophalen
+  let filament_prijs_per_kg = 0;
+  if (filament_type_id) {
+    const ft = db.prepare('SELECT inkoop_prijs_per_kg FROM filament_types WHERE id = ?').get(filament_type_id);
+    filament_prijs_per_kg = ft?.inkoop_prijs_per_kg || 0;
   }
 
-  async function herhaal(id) {
-    try {
-      const r = await api.post(`/offertes/${id}/herhaal`, {});
-      alert(`${r.bericht}\nNieuwe job ID: ${r.job_id} — ga naar Jobs om de kostprijs te berekenen.`);
-    } catch(e) { alert(e.message); }
+  // Printer wattage
+  let printer_watt = 120;
+  if (printer_id) {
+    const p = db.prepare('SELECT naam FROM printers WHERE id = ?').get(printer_id);
+    printer_watt = p?.naam?.toLowerCase().includes('ender') ? (t.ender_watt || 150) : (t.bambu_watt || 120);
   }
 
-  async function openDetail(id) {
-    const d = await api.get(`/offertes/${id}`);
-    setDetail(d);
-  }
+  const berData = {
+    geschat_gewicht_g: parseFloat(geschat_gewicht_g) || 0,
+    geschatte_tijd_u: parseInt(geschatte_tijd_u) || 0,
+    geschatte_tijd_min: parseInt(geschatte_tijd_min) || 0,
+    voorbereiding_min: parseInt(voorbereiding_min) || (t.voorbereiding_min || 15),
+    nabewerking_min: parseInt(nabewerking_min) || (t.nabewerking_min || 10),
+    ontwerp_min: parseInt(ontwerp_min) || 0,
+    ontwerp_tarief: parseFloat(ontwerp_tarief) || (t.ontwerp_tarief || 15),
+    nabewerking_extra_min: parseInt(nabewerking_extra_min) || 0,
+    nabewerking_extra_tarief: parseFloat(nabewerking_extra_tarief) || (t.nabewerking_tarief || 15),
+    is_multicolor: parseInt(is_multicolor) || 0,
+    extra_per_stuk: parseFloat(extra_per_stuk) || 0,
+    extra_eenmalig: parseFloat(extra_eenmalig) || 0,
+    aantal: parseInt(aantal) || 1,
+    filament_prijs_per_kg,
+    printer_watt,
+  };
 
-  async function del(id) {
-    if (!confirm('Offerte verwijderen?')) return;
-    await api.delete(`/offertes/${id}`);
-    load();
-    if (detail?.id === id) setDetail(null);
-  }
+  const ber = berekenOfferte(berData, t);
+  const btw_bedrag = Math.round(ber.verkoopprijs * btw_pct) / 100;
+  const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
+  const nummer = nextNummer(db);
 
-  return (
-    <div>
-      <div className="page-header">
-        <h1>Offertes</h1>
-        <p style={{ fontSize:12, color:'var(--muted)' }}>
-          Offertes worden aangemaakt vanuit de kostprijsberekening bij een job.
-        </p>
-      </div>
-
-      <div style={{ display:'grid', gridTemplateColumns: detail ? '1fr 1fr' : '1fr', gap:'1rem' }}>
-        {/* Lijst */}
-        <div>
-          {offertes.length === 0
-            ? <div className="empty">
-                <p>Nog geen offertes</p>
-                <p style={{ fontSize:12, color:'var(--muted)', marginTop:8 }}>
-                  Ga naar Jobs → € Kost → bereken → klik "📋 Maak offerte"
-                </p>
-              </div>
-            : <div className="card" style={{ padding:0 }}>
-                <table>
-                  <thead>
-                    <tr><th>Nummer</th><th>Klant</th><th>Print</th><th>Status</th><th>Totaal</th><th>Acties</th></tr>
-                  </thead>
-                  <tbody>
-                    {offertes.map(o => (
-                      <tr key={o.id} style={{ cursor:'pointer' }} onClick={() => openDetail(o.id)}>
-                        <td style={{ fontWeight:600, fontFamily:'monospace', fontSize:12 }}>{o.nummer}</td>
-                        <td>{o.klant_voornaam ? `${o.klant_voornaam} ${o.klant_naam}` : o.klant_naam}</td>
-                        <td style={{ fontSize:12, color:'var(--muted)' }}>{o.job_naam || '—'}</td>
-                        <td>
-                          <span style={{ fontSize:11, fontWeight:600, color: statusKleur(o.status),
-                            background: statusKleur(o.status)+'22', padding:'2px 8px', borderRadius:20 }}>
-                            {o.status}
-                          </span>
-                        </td>
-                        <td style={{ color:'var(--accent2)', fontWeight:500 }}>€{o.totaal?.toFixed(2)}</td>
-                        <td onClick={e => e.stopPropagation()}>
-                          <div style={{ display:'flex', gap:4 }}>
-                            <button className="btn" style={{ fontSize:10, padding:'3px 7px' }}
-                              onClick={() => herhaal(o.id)} title="Herhaalorder">🔄</button>
-                            <button className="btn danger" style={{ fontSize:10, padding:'3px 7px' }}
-                              onClick={() => del(o.id)}>✕</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-          }
-        </div>
-
-        {/* Detail */}
-        {detail && (
-          <div className="card">
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' }}>
-              <h2 style={{ fontSize:16, fontWeight:700 }}>{detail.nummer}</h2>
-              <button className="btn" onClick={() => setDetail(null)}>✕</button>
-            </div>
-
-            {/* Klantinfo */}
-            <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'1rem', fontSize:13 }}>
-              <div style={{ fontWeight:600 }}>
-                {detail.klant_voornaam ? `${detail.klant_voornaam} ${detail.klant_naam}` : detail.klant_naam}
-              </div>
-              {detail.email && <div style={{ color:'var(--muted)' }}>✉ {detail.email}</div>}
-            </div>
-
-            {/* Status */}
-            <div className="form-group">
-              <label>Status</label>
-              <select value={detail.status} onChange={e => updateStatus(detail.id, e.target.value)}>
-                {STATUS_VOLGORDE.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-
-            {/* Kostendetail uit snapshot */}
-            {detail.kostprijs_snapshot && (() => {
-              const snap = JSON.parse(detail.kostprijs_snapshot);
-              return (
-                <div style={{ fontSize:12, marginBottom:'1rem' }}>
-                  <div style={{ fontWeight:600, marginBottom:6, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.05em', fontSize:11 }}>Kostprijsdetail</div>
-                  {[
-                    ['Materiaal', snap.materiaal_kost],
-                    ['Energie', snap.energie_kost],
-                    ['Arbeid', snap.arbeid_kost],
-                    ['Extra', snap.extra_totaal],
-                  ].filter(([,v]) => v > 0).map(([label, val]) => (
-                    <div key={label} style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)' }}>
-                      <span style={{ color:'var(--muted)' }}>{label}</span>
-                      <span>€{(val||0).toFixed(2)}</span>
-                    </div>
-                  ))}
-                  <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', color:'var(--muted)' }}>
-                    <span>Subtotaal</span><span>€{snap.totaal_kost?.toFixed(2)}</span>
-                  </div>
-                  <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', color:'var(--muted)' }}>
-                    <span>Marge ({snap.winstmarge_pct}%)</span>
-                    <span>€{((snap.verkoopprijs||0)-(snap.totaal_kost||0)).toFixed(2)}</span>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Totalen */}
-            <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', fontSize:13, color:'var(--muted)' }}>
-              <span>Excl. BTW</span><span>€{detail.subtotaal?.toFixed(2)}</span>
-            </div>
-            <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', fontSize:13, color:'var(--muted)' }}>
-              <span>BTW {detail.btw_pct}%</span><span>€{detail.btw_bedrag?.toFixed(2)}</span>
-            </div>
-            <div style={{ display:'flex', justifyContent:'space-between', padding:'10px 0', fontWeight:700, fontSize:18 }}>
-              <span>Totaal</span>
-              <span style={{ color:'var(--accent2)' }}>€{detail.totaal?.toFixed(2)}</span>
-            </div>
-
-            {detail.notities && (
-              <div style={{ background:'#fffbeb', borderLeft:'3px solid #f59e0b', padding:'8px 12px', borderRadius:4, fontSize:12, color:'#664400', marginTop:8 }}>
-                📝 {detail.notities}
-              </div>
-            )}
-
-            <div style={{ marginTop:'1rem', display:'flex', gap:8 }}>
-              <button className="btn" style={{ flex:1 }} onClick={() => herhaal(detail.id)}>
-                🔄 Herhaalorder
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+  const result = db.prepare(`
+    INSERT INTO offertes_v2 (
+      klant_id, nummer, object_naam, object_link, printer_id, filament_type_id,
+      geschat_gewicht_g, geschatte_tijd_u, geschatte_tijd_min,
+      voorbereiding_min, nabewerking_min, ontwerp_min, ontwerp_tarief,
+      nabewerking_extra_min, nabewerking_extra_tarief, is_multicolor,
+      extra_per_stuk, extra_eenmalig, extra_omschrijving, aantal,
+      materiaal_kost, energie_kost_schat, arbeid_kost, machine_kost, extra_totaal,
+      subtotaal, marge_pct, verkoopprijs, btw_pct, btw_bedrag, totaal,
+      geldig_tot, notities
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).run(
+    klant_id, nummer, object_naam||null, object_link||null, printer_id||null, filament_type_id||null,
+    berData.geschat_gewicht_g, berData.geschatte_tijd_u, berData.geschatte_tijd_min,
+    berData.voorbereiding_min, berData.nabewerking_min, berData.ontwerp_min, berData.ontwerp_tarief,
+    berData.nabewerking_extra_min, berData.nabewerking_extra_tarief, berData.is_multicolor,
+    berData.extra_per_stuk, berData.extra_eenmalig, extra_omschrijving||null, berData.aantal,
+    ber.materiaal_kost, ber.energie_kost_schat, ber.arbeid_kost, ber.machine_kost, ber.extra_totaal,
+    ber.subtotaal, ber.marge_pct, ber.verkoopprijs, btw_pct, btw_bedrag, totaal,
+    geldig_tot||null, notities||null
   );
-}
+
+  res.status(201).json({ id: result.lastInsertRowid, nummer, ...ber });
+});
+
+// PATCH status
+r.patch('/:id/status', (req, res) => {
+  getDb().prepare('UPDATE offertes_v2 SET status = ? WHERE id = ?').run(req.body.status, req.params.id);
+  res.json({ ok: true });
+});
+
+// POST maak werkbon job van offerte
+r.post('/:id/maak-job', (req, res) => {
+  const db = getDb();
+  const offerte = db.prepare('SELECT * FROM offertes_v2 WHERE id = ?').get(req.params.id);
+  if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
+  if (!offerte.printer_id) return res.status(400).json({ error: 'Offerte heeft geen printer — bewerk de offerte eerst' });
+
+  const totaleUren = (offerte.geschatte_tijd_u || 0) + (offerte.geschatte_tijd_min || 0) / 60;
+
+  const result = db.prepare(`
+    INSERT INTO jobs (klant_id, printer_id, naam, status, print_uren_geschat, is_multicolor, notities, offerte_id)
+    VALUES (?,?,?,?,?,?,?,?)
+  `).run(
+    offerte.klant_id, offerte.printer_id,
+    offerte.object_naam || `Job van offerte ${offerte.nummer}`,
+    'gepland', totaleUren, offerte.is_multicolor,
+    `Werkbon van offerte ${offerte.nummer}`, offerte.id
+  );
+
+  // Koppel job aan offerte
+  db.prepare('UPDATE offertes_v2 SET job_id = ?, status = ? WHERE id = ?')
+    .run(result.lastInsertRowid, 'goedgekeurd', offerte.id);
+
+  res.status(201).json({ job_id: result.lastInsertRowid });
+});
+
+// GET PDF
+r.get('/:id/pdf', (req, res) => {
+  const db = getDb();
+  const offerte = db.prepare(`
+    SELECT o.*, k.naam as klant_naam, k.voornaam, k.email, k.straat, k.huisnummer,
+      k.postcode, k.gemeente, k.btw_nummer
+    FROM offertes_v2 o JOIN klanten k ON k.id = o.klant_id WHERE o.id = ?
+  `).get(req.params.id);
+  if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
+
+  const klant = { naam: offerte.klant_naam, voornaam: offerte.voornaam, email: offerte.email,
+    straat: offerte.straat, huisnummer: offerte.huisnummer, postcode: offerte.postcode,
+    gemeente: offerte.gemeente, btw_nummer: offerte.btw_nummer };
+  const printer = offerte.printer_id ? db.prepare('SELECT naam FROM printers WHERE id = ?').get(offerte.printer_id) : null;
+  const ft = offerte.filament_type_id ? db.prepare('SELECT * FROM filament_types WHERE id = ?').get(offerte.filament_type_id) : null;
+  const t = getTarieven(db);
+  const ber = { materiaal_kost: offerte.materiaal_kost, energie_kost_schat: offerte.energie_kost_schat,
+    arbeid_kost: offerte.arbeid_kost, machine_kost: offerte.machine_kost, extra_totaal: offerte.extra_totaal,
+    subtotaal: offerte.subtotaal, marge_pct: offerte.marge_pct, verkoopprijs: offerte.verkoopprijs,
+    arbeid_per_uur: t.arbeid_per_uur || 15 };
+
+  const html = buildOfferteHtml(offerte, klant, ber, ft, printer);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="offerte-${offerte.nummer}.html"`);
+  res.send(html);
+});
+
+// DELETE
+r.delete('/:id', (req, res) => {
+  getDb().prepare('DELETE FROM offertes_v2 WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+export default r;
