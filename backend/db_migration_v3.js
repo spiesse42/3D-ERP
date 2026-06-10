@@ -1,13 +1,32 @@
-export function migrateDbV2(db) {
+export function migrateDbV3(db) {
   // Kleur op rollen
   try { db.exec('ALTER TABLE filament_rollen ADD COLUMN kleur TEXT'); } catch {}
 
-  // Ender prefix
+  // Ender prefix fix
   try {
-    db.prepare(`UPDATE printers SET ha_entity_prefix = 'sensor.ender_3_s1_pro_' WHERE naam = 'Ender 3 S1 Pro' AND (ha_entity_prefix IS NULL OR ha_entity_prefix = '')`).run();
+    db.prepare(`UPDATE printers SET ha_entity_prefix = 'sensor.ender_3_s1_pro_'
+      WHERE naam = 'Ender 3 S1 Pro' AND (ha_entity_prefix IS NULL OR ha_entity_prefix = '')`).run();
   } catch {}
 
-  // Alle tarieven — INSERT OR IGNORE zodat bestaande waarden niet overschreven worden
+  // Klanten uitbreiden
+  const klantenCols = [
+    ['voornaam', 'TEXT'],
+    ['straat', 'TEXT'],
+    ['huisnummer', 'TEXT'],
+    ['postcode', 'TEXT'],
+    ['gemeente', 'TEXT'],
+    ['type', "TEXT DEFAULT 'particulier'"],
+    ['gsm', 'TEXT'],
+  ];
+  for (const [col, def] of klantenCols) {
+    try { db.exec(`ALTER TABLE klanten ADD COLUMN ${col} ${def}`); } catch {}
+  }
+
+  // Offertes uitbreiden
+  try { db.exec('ALTER TABLE offertes ADD COLUMN job_id INTEGER REFERENCES jobs(id)'); } catch {}
+  try { db.exec('ALTER TABLE offertes ADD COLUMN kostprijs_snapshot TEXT'); } catch {}
+
+  // Alle tarieven
   const alle = [
     ['kwh_prijs',          0.35,  'EUR/kWh', 'Elektriciteitsprijs'],
     ['arbeid_per_uur',    15.00,  'EUR/u',   'Arbeidskost'],
@@ -28,5 +47,5 @@ export function migrateDbV2(db) {
     } catch {}
   }
 
-  console.log('Migratie v2 uitgevoerd');
+  console.log('Migratie v3 uitgevoerd');
 }

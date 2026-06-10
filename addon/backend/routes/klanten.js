@@ -24,26 +24,31 @@ r.get('/:id', (req, res) => {
 
 r.post('/', (req, res) => {
   const db = getDb();
-  const { naam, email, telefoon, adres, btw_nummer, notities } = req.body;
+  const { naam, voornaam, email, telefoon, gsm, straat, huisnummer, postcode, gemeente, btw_nummer, type, notities } = req.body;
   if (!naam) return res.status(400).json({ error: 'Naam is verplicht' });
-  const result = db.prepare(
-    'INSERT INTO klanten (naam,email,telefoon,adres,btw_nummer,notities) VALUES (?,?,?,?,?,?)'
-  ).run(naam, email||null, telefoon||null, adres||null, btw_nummer||null, notities||null);
+  const result = db.prepare(`
+    INSERT INTO klanten (naam,voornaam,email,telefoon,gsm,straat,huisnummer,postcode,gemeente,btw_nummer,type,notities)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+  `).run(naam, voornaam||null, email||null, telefoon||null, gsm||null,
+         straat||null, huisnummer||null, postcode||null, gemeente||null,
+         btw_nummer||null, type||'particulier', notities||null);
   res.status(201).json({ id: result.lastInsertRowid });
 });
 
 r.put('/:id', (req, res) => {
   const db = getDb();
-  const { naam, email, telefoon, adres, btw_nummer, notities } = req.body;
-  db.prepare(
-    'UPDATE klanten SET naam=?,email=?,telefoon=?,adres=?,btw_nummer=?,notities=? WHERE id=?'
-  ).run(naam, email||null, telefoon||null, adres||null, btw_nummer||null, notities||null, req.params.id);
+  const { naam, voornaam, email, telefoon, gsm, straat, huisnummer, postcode, gemeente, btw_nummer, type, notities } = req.body;
+  db.prepare(`
+    UPDATE klanten SET naam=?,voornaam=?,email=?,telefoon=?,gsm=?,straat=?,huisnummer=?,
+    postcode=?,gemeente=?,btw_nummer=?,type=?,notities=? WHERE id=?
+  `).run(naam, voornaam||null, email||null, telefoon||null, gsm||null,
+         straat||null, huisnummer||null, postcode||null, gemeente||null,
+         btw_nummer||null, type||'particulier', notities||null, req.params.id);
   res.json({ ok: true });
 });
 
 r.delete('/:id', (req, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM klanten WHERE id = ?').run(req.params.id);
+  getDb().prepare('DELETE FROM klanten WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 

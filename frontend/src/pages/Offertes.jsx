@@ -3,159 +3,174 @@ import { api } from '../lib/api.js';
 
 const STATUS_VOLGORDE = ['concept','verstuurd','goedgekeurd','gefactureerd','betaald','geannuleerd'];
 
-function OfferteModal({ klanten, jobs, onClose, onSaved }) {
-  const [klant_id, setKlantId] = useState('');
-  const [btw_pct, setBtw] = useState(21);
-  const [geldig_tot, setGeldig] = useState('');
-  const [notities, setNotities] = useState('');
-  const [regels, setRegels] = useState([{ omschrijving: '', aantal: 1, eenheidsprijs: '', job_id: null }]);
-
-  function addRegel() { setRegels(r => [...r, { omschrijving: '', aantal: 1, eenheidsprijs: '', job_id: null }]); }
-  function setRegel(i, k, v) { setRegels(r => r.map((x, idx) => idx === i ? { ...x, [k]: v } : x)); }
-  function removeRegel(i) { setRegels(r => r.filter((_, idx) => idx !== i)); }
-
-  function fillFromJob(i, jobId) {
-    const job = jobs.find(j => j.id === parseInt(jobId));
-    if (job) {
-      setRegel(i, 'job_id', job.id);
-      setRegel(i, 'omschrijving', job.naam);
-      if (job.verkoopprijs) setRegel(i, 'eenheidsprijs', job.verkoopprijs);
-    }
-  }
-
-  const subtotaal = regels.reduce((s, r) => s + ((r.aantal || 0) * (parseFloat(r.eenheidsprijs) || 0)), 0);
-  const btw = subtotaal * btw_pct / 100;
-
-  async function save() {
-    if (!klant_id) return alert('Selecteer een klant');
-    try {
-      await api.post('/offertes', { klant_id: parseInt(klant_id), btw_pct, geldig_tot: geldig_tot || null, notities: notities || null, regels: regels.map(r => ({ ...r, eenheidsprijs: parseFloat(r.eenheidsprijs) || 0 })) });
-      onSaved();
-    } catch (e) { alert(e.message); }
-  }
-
-  return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ width: 600 }}>
-        <div className="modal-header"><h2>Nieuwe offerte</h2><button className="btn" onClick={onClose}>✕</button></div>
-        <div className="form-row">
-          <div className="form-group">
-            <label>Klant *</label>
-            <select value={klant_id} onChange={e => setKlantId(e.target.value)}>
-              <option value="">— selecteer klant —</option>
-              {klanten.map(k => <option key={k.id} value={k.id}>{k.naam}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>BTW %</label>
-            <input type="number" value={btw_pct} onChange={e => setBtw(parseFloat(e.target.value))} />
-          </div>
-        </div>
-        <div className="form-row">
-          <div className="form-group"><label>Geldig tot</label><input type="date" value={geldig_tot} onChange={e => setGeldig(e.target.value)} /></div>
-          <div className="form-group"><label>Notities</label><input value={notities} onChange={e => setNotities(e.target.value)} /></div>
-        </div>
-
-        <div style={{ marginBottom: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <p style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Regels</p>
-            <button className="btn" style={{ fontSize: 11 }} onClick={addRegel}>+ Regel</button>
-          </div>
-          {regels.map((regel, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-              <div>
-                <select style={{ marginBottom: 4, fontSize: 12 }} value={regel.job_id || ''} onChange={e => fillFromJob(i, e.target.value)}>
-                  <option value="">— koppel job (optioneel) —</option>
-                  {jobs.map(j => <option key={j.id} value={j.id}>{j.naam} {j.verkoopprijs ? `(€${j.verkoopprijs.toFixed(2)})` : ''}</option>)}
-                </select>
-                <input placeholder="Omschrijving *" value={regel.omschrijving} onChange={e => setRegel(i, 'omschrijving', e.target.value)} />
-              </div>
-              <input type="number" min="1" placeholder="Aantal" value={regel.aantal} onChange={e => setRegel(i, 'aantal', parseInt(e.target.value))} />
-              <input type="number" step="0.01" placeholder="Prijs/stuk" value={regel.eenheidsprijs} onChange={e => setRegel(i, 'eenheidsprijs', e.target.value)} />
-              <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => removeRegel(i)}>✕</button>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ background: 'var(--bg3)', borderRadius: 'var(--radius)', padding: '1rem', fontSize: 13 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ color: 'var(--muted)' }}>Subtotaal</span><span>€{subtotaal.toFixed(2)}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <span style={{ color: 'var(--muted)' }}>BTW {btw_pct}%</span><span>€{btw.toFixed(2)}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: 16 }}>
-            <span>Totaal</span><span style={{ color: 'var(--accent2)' }}>€{(subtotaal + btw).toFixed(2)}</span>
-          </div>
-        </div>
-
-        <div className="modal-footer">
-          <button className="btn" onClick={onClose}>Annuleer</button>
-          <button className="btn primary" onClick={save}>Offerte aanmaken</button>
-        </div>
-      </div>
-    </div>
-  );
+function statusKleur(s) {
+  return { concept:'#f59e0b', verstuurd:'#60a5fa', goedgekeurd:'#34d399',
+           gefactureerd:'#a78bfa', betaald:'#22c55e', geannuleerd:'#6b7280' }[s] || '#6b7280';
 }
 
 export default function Offertes() {
   const [offertes, setOffertes] = useState([]);
-  const [klanten, setKlanten] = useState([]);
-  const [jobs, setJobs] = useState([]);
-  const [modal, setModal] = useState(false);
+  const [detail, setDetail] = useState(null);
 
   const load = () => api.get('/offertes').then(setOffertes);
-  useEffect(() => {
-    load();
-    api.get('/klanten').then(setKlanten);
-    api.get('/jobs').then(setJobs);
-  }, []);
+  useEffect(() => { load(); }, []);
 
   async function updateStatus(id, status) {
     await api.patch(`/offertes/${id}/status`, { status });
     load();
+    if (detail?.id === id) setDetail(d => ({ ...d, status }));
+  }
+
+  async function herhaal(id) {
+    try {
+      const r = await api.post(`/offertes/${id}/herhaal`, {});
+      alert(`${r.bericht}\nNieuwe job ID: ${r.job_id} — ga naar Jobs om de kostprijs te berekenen.`);
+    } catch(e) { alert(e.message); }
+  }
+
+  async function openDetail(id) {
+    const d = await api.get(`/offertes/${id}`);
+    setDetail(d);
+  }
+
+  async function del(id) {
+    if (!confirm('Offerte verwijderen?')) return;
+    await api.delete(`/offertes/${id}`);
+    load();
+    if (detail?.id === id) setDetail(null);
   }
 
   return (
     <div>
       <div className="page-header">
         <h1>Offertes</h1>
-        <button className="btn primary" onClick={() => setModal(true)}>+ Nieuwe offerte</button>
+        <p style={{ fontSize:12, color:'var(--muted)' }}>
+          Offertes worden aangemaakt vanuit de kostprijsberekening bij een job.
+        </p>
       </div>
 
-      {offertes.length === 0
-        ? <div className="empty">Geen offertes</div>
-        : <div className="card" style={{ padding: 0 }}>
-            <table>
-              <thead><tr><th>Nummer</th><th>Klant</th><th>Status</th><th>Totaal</th><th>Aangemaakt</th><th>Acties</th></tr></thead>
-              <tbody>
-                {offertes.map(o => (
-                  <tr key={o.id}>
-                    <td style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 13 }}>{o.nummer}</td>
-                    <td>{o.klant_naam}</td>
-                    <td><span className={`badge ${o.status}`}>{o.status}</span></td>
-                    <td style={{ color: 'var(--accent2)', fontWeight: 500 }}>€{o.totaal.toFixed(2)}</td>
-                    <td style={{ color: 'var(--muted)', fontSize: 12 }}>{o.aangemaakt_op?.split('T')[0]}</td>
-                    <td>
-                      <select style={{ fontSize: 11, padding: '3px 6px', width: 'auto' }} value={o.status} onChange={e => updateStatus(o.id, e.target.value)}>
-                        {STATUS_VOLGORDE.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-      }
+      <div style={{ display:'grid', gridTemplateColumns: detail ? '1fr 1fr' : '1fr', gap:'1rem' }}>
+        {/* Lijst */}
+        <div>
+          {offertes.length === 0
+            ? <div className="empty">
+                <p>Nog geen offertes</p>
+                <p style={{ fontSize:12, color:'var(--muted)', marginTop:8 }}>
+                  Ga naar Jobs → € Kost → bereken → klik "📋 Maak offerte"
+                </p>
+              </div>
+            : <div className="card" style={{ padding:0 }}>
+                <table>
+                  <thead>
+                    <tr><th>Nummer</th><th>Klant</th><th>Print</th><th>Status</th><th>Totaal</th><th>Acties</th></tr>
+                  </thead>
+                  <tbody>
+                    {offertes.map(o => (
+                      <tr key={o.id} style={{ cursor:'pointer' }} onClick={() => openDetail(o.id)}>
+                        <td style={{ fontWeight:600, fontFamily:'monospace', fontSize:12 }}>{o.nummer}</td>
+                        <td>{o.klant_voornaam ? `${o.klant_voornaam} ${o.klant_naam}` : o.klant_naam}</td>
+                        <td style={{ fontSize:12, color:'var(--muted)' }}>{o.job_naam || '—'}</td>
+                        <td>
+                          <span style={{ fontSize:11, fontWeight:600, color: statusKleur(o.status),
+                            background: statusKleur(o.status)+'22', padding:'2px 8px', borderRadius:20 }}>
+                            {o.status}
+                          </span>
+                        </td>
+                        <td style={{ color:'var(--accent2)', fontWeight:500 }}>€{o.totaal?.toFixed(2)}</td>
+                        <td onClick={e => e.stopPropagation()}>
+                          <div style={{ display:'flex', gap:4 }}>
+                            <button className="btn" style={{ fontSize:10, padding:'3px 7px' }}
+                              onClick={() => herhaal(o.id)} title="Herhaalorder">🔄</button>
+                            <button className="btn danger" style={{ fontSize:10, padding:'3px 7px' }}
+                              onClick={() => del(o.id)}>✕</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+          }
+        </div>
 
-      {modal && (
-        <OfferteModal
-          klanten={klanten}
-          jobs={jobs}
-          onClose={() => setModal(false)}
-          onSaved={() => { setModal(false); load(); }}
-        />
-      )}
+        {/* Detail */}
+        {detail && (
+          <div className="card">
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' }}>
+              <h2 style={{ fontSize:16, fontWeight:700 }}>{detail.nummer}</h2>
+              <button className="btn" onClick={() => setDetail(null)}>✕</button>
+            </div>
+
+            {/* Klantinfo */}
+            <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'1rem', fontSize:13 }}>
+              <div style={{ fontWeight:600 }}>
+                {detail.klant_voornaam ? `${detail.klant_voornaam} ${detail.klant_naam}` : detail.klant_naam}
+              </div>
+              {detail.email && <div style={{ color:'var(--muted)' }}>✉ {detail.email}</div>}
+            </div>
+
+            {/* Status */}
+            <div className="form-group">
+              <label>Status</label>
+              <select value={detail.status} onChange={e => updateStatus(detail.id, e.target.value)}>
+                {STATUS_VOLGORDE.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+
+            {/* Kostendetail uit snapshot */}
+            {detail.kostprijs_snapshot && (() => {
+              const snap = JSON.parse(detail.kostprijs_snapshot);
+              return (
+                <div style={{ fontSize:12, marginBottom:'1rem' }}>
+                  <div style={{ fontWeight:600, marginBottom:6, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.05em', fontSize:11 }}>Kostprijsdetail</div>
+                  {[
+                    ['Materiaal', snap.materiaal_kost],
+                    ['Energie', snap.energie_kost],
+                    ['Arbeid', snap.arbeid_kost],
+                    ['Extra', snap.extra_totaal],
+                  ].filter(([,v]) => v > 0).map(([label, val]) => (
+                    <div key={label} style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)' }}>
+                      <span style={{ color:'var(--muted)' }}>{label}</span>
+                      <span>€{(val||0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                  <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', color:'var(--muted)' }}>
+                    <span>Subtotaal</span><span>€{snap.totaal_kost?.toFixed(2)}</span>
+                  </div>
+                  <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', color:'var(--muted)' }}>
+                    <span>Marge ({snap.winstmarge_pct}%)</span>
+                    <span>€{((snap.verkoopprijs||0)-(snap.totaal_kost||0)).toFixed(2)}</span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Totalen */}
+            <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', fontSize:13, color:'var(--muted)' }}>
+              <span>Excl. BTW</span><span>€{detail.subtotaal?.toFixed(2)}</span>
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', fontSize:13, color:'var(--muted)' }}>
+              <span>BTW {detail.btw_pct}%</span><span>€{detail.btw_bedrag?.toFixed(2)}</span>
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', padding:'10px 0', fontWeight:700, fontSize:18 }}>
+              <span>Totaal</span>
+              <span style={{ color:'var(--accent2)' }}>€{detail.totaal?.toFixed(2)}</span>
+            </div>
+
+            {detail.notities && (
+              <div style={{ background:'#fffbeb', borderLeft:'3px solid #f59e0b', padding:'8px 12px', borderRadius:4, fontSize:12, color:'#664400', marginTop:8 }}>
+                📝 {detail.notities}
+              </div>
+            )}
+
+            <div style={{ marginTop:'1rem', display:'flex', gap:8 }}>
+              <button className="btn" style={{ flex:1 }} onClick={() => herhaal(detail.id)}>
+                🔄 Herhaalorder
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
