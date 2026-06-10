@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api.js';
+import { useNavigate } from 'react-router-dom';
 
 function StatusDot({ status }) {
-  const colors = { running:'#ef4444', printing:'#ef4444', finish:'#22c55e', complete:'#22c55e', success:'#22c55e', idle:'#f59e0b', standby:'#f59e0b', unavailable:'#555' };
+  const colors = { running:'#ef4444', printing:'#ef4444', finish:'#22c55e', complete:'#22c55e', success:'#22c55e', idle:'#f59e0b', standby:'#f59e0b', unavailable:'#555', failed:'#ef4444' };
   const c = colors[status?.toLowerCase()] || '#f59e0b';
   return <span style={{ display:'inline-block', width:8, height:8, borderRadius:'50%', background:c, marginRight:6, boxShadow:`0 0 6px ${c}` }} />;
 }
@@ -63,8 +64,7 @@ function PrinterMini({ name, data }) {
           ['📐', data?.layer || '—'],
         ].map(([icon, val]) => (
           <div key={icon} style={{ display:'flex', gap:4 }}>
-            <span>{icon}</span>
-            <span style={{ color:'var(--muted)' }}>{val}</span>
+            <span>{icon}</span><span style={{ color:'var(--muted)' }}>{val}</span>
           </div>
         ))}
       </div>
@@ -78,6 +78,7 @@ export default function Dashboard() {
   const [printerData, setPrinterData] = useState({});
   const [kwhStart, setKwhStart] = useState({});
   const intervalRef = useRef(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     api.get('/jobs').then(setJobs);
@@ -87,22 +88,18 @@ export default function Dashboard() {
   useEffect(() => {
     const BAMBU = 'sensor.a1mini_0300da611800680_';
     const entities = {
-      bambu_status:    `${BAMBU}printstatus`,
-      bambu_progress:  `${BAMBU}printvoortgang`,
-      bambu_file:      `${BAMBU}gcode_bestandsnaam`,
-      bambu_remaining: `${BAMBU}resterende_tijd`,
-      bambu_layer_cur: `${BAMBU}huidige_laag`,
-      bambu_layer_tot: `${BAMBU}hoeveelheid_lagen`,
-      bambu_filament:  `${BAMBU}gewicht_van_print`,
-      bambu_start:     `${BAMBU}starttijd`,
-      ender_status:    'sensor.ender_3_s1_pro_current_print_state',
-      ender_progress:  'sensor.ender_3_s1_pro_progress',
-      ender_file:      'sensor.ender_3_s1_pro_filename',
+      bambu_status: `${BAMBU}printstatus`, bambu_progress: `${BAMBU}printvoortgang`,
+      bambu_file: `${BAMBU}gcode_bestandsnaam`, bambu_remaining: `${BAMBU}resterende_tijd`,
+      bambu_layer_cur: `${BAMBU}huidige_laag`, bambu_layer_tot: `${BAMBU}hoeveelheid_lagen`,
+      bambu_filament: `${BAMBU}gewicht_van_print`, bambu_start: `${BAMBU}starttijd`,
+      ender_status: 'sensor.ender_3_s1_pro_current_print_state',
+      ender_progress: 'sensor.ender_3_s1_pro_progress',
+      ender_file: 'sensor.ender_3_s1_pro_filename',
       ender_remaining: 'sensor.ender_3_s1_pro_print_eta',
       ender_layer_cur: 'sensor.ender_3_s1_pro_current_layer',
       ender_layer_tot: 'sensor.ender_3_s1_pro_total_layer',
-      ender_filament:  'sensor.ender_3_s1_pro_filament_used',
-      ender_elapsed:   'sensor.ender_3_s1_pro_print_duration',
+      ender_filament: 'sensor.ender_3_s1_pro_filament_used',
+      ender_elapsed: 'sensor.ender_3_s1_pro_print_duration',
     };
 
     async function poll() {
@@ -113,7 +110,6 @@ export default function Dashboard() {
           )
         );
         const s = Object.fromEntries(results);
-
         let bambuElapsed = 0;
         if (s.bambu_start && s.bambu_start !== 'unavailable') {
           const ms = new Date(s.bambu_start).getTime();
@@ -127,26 +123,15 @@ export default function Dashboard() {
           const diff = (new Date(s.ender_remaining).getTime() - Date.now()) / 1000;
           if (diff > 0) enderRem = diff;
         }
-
         setPrinterData({
-          bambu: {
-            status: s.bambu_status || 'unavailable',
-            progress: parseFloat(s.bambu_progress) || 0,
-            filename: s.bambu_file,
-            elapsed: formatSec(bambuElapsed),
-            remaining: formatSec(bambuRem),
+          bambu: { status: s.bambu_status || 'unavailable', progress: parseFloat(s.bambu_progress) || 0,
+            filename: s.bambu_file, elapsed: formatSec(bambuElapsed), remaining: formatSec(bambuRem),
             filament: `${parseFloat(s.bambu_filament)?.toFixed(1) || '—'} g`,
-            layer: `${s.bambu_layer_cur || '0'} / ${s.bambu_layer_tot || '0'}`,
-          },
-          ender: {
-            status: s.ender_status || 'unavailable',
-            progress: parseFloat(s.ender_progress) || 0,
-            filename: s.ender_file,
-            elapsed: formatSec(enderElapsedSec),
-            remaining: formatSec(enderRem),
+            layer: `${s.bambu_layer_cur || '0'} / ${s.bambu_layer_tot || '0'}` },
+          ender: { status: s.ender_status || 'unavailable', progress: parseFloat(s.ender_progress) || 0,
+            filename: s.ender_file, elapsed: formatSec(enderElapsedSec), remaining: formatSec(enderRem),
             filament: `${((parseFloat(s.ender_filament)||0)*2.98).toFixed(1)} g`,
-            layer: `${s.ender_layer_cur || '0'} / ${s.ender_layer_tot || '0'}`,
-          },
+            layer: `${s.ender_layer_cur || '0'} / ${s.ender_layer_tot || '0'}` },
         });
       } catch {}
     }
@@ -169,7 +154,6 @@ export default function Dashboard() {
         </span>
       </div>
 
-      {/* Printers */}
       <div style={{ display:'flex', gap:'1rem', marginBottom:'1.5rem' }}>
         <PrinterMini name="Bambu A1 Mini" data={printerData.bambu} />
         <PrinterMini name="Ender 3 S1 Pro" data={printerData.ender} />
@@ -184,10 +168,16 @@ export default function Dashboard() {
           {wachtrij.length === 0
             ? <p style={{ color:'var(--muted)', fontSize:12 }}>Geen jobs in wachtrij</p>
             : wachtrij.map(j => (
-              <div key={j.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
+              <div key={j.id}
+                onClick={() => navigate('/jobs')}
+                style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                  padding:'7px 8px', borderBottom:'1px solid var(--border)', fontSize:12,
+                  cursor:'pointer', borderRadius:6, transition:'background .1s' }}
+                onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
+                onMouseLeave={e => e.currentTarget.style.background='transparent'}>
                 <div>
                   <div style={{ fontWeight:500 }}>{j.naam}</div>
-                  <div style={{ color:'var(--muted)' }}>{j.printer_naam}</div>
+                  <div style={{ color:'var(--muted)', fontSize:11 }}>{j.printer_naam}</div>
                 </div>
                 <span className={`badge ${j.status}`}>{j.status}</span>
               </div>
@@ -195,22 +185,23 @@ export default function Dashboard() {
           }
         </div>
 
-        {/* Voltooide jobs */}
+        {/* Recent voltooid */}
         <div className="card">
-          <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.75rem' }}>
-            ✅ Recent voltooid
-          </h2>
+          <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.75rem' }}>✅ Recent voltooid</h2>
           {voltooid.length === 0
             ? <p style={{ color:'var(--muted)', fontSize:12 }}>Nog geen voltooide jobs</p>
             : voltooid.map(j => (
-              <div key={j.id} style={{ display:'flex', justifyContent:'space-between', padding:'6px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
+              <div key={j.id}
+                onClick={() => navigate('/jobs')}
+                style={{ display:'flex', justifyContent:'space-between', padding:'7px 8px',
+                  borderBottom:'1px solid var(--border)', fontSize:12, cursor:'pointer', borderRadius:6 }}
+                onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
+                onMouseLeave={e => e.currentTarget.style.background='transparent'}>
                 <div>
                   <div style={{ fontWeight:500 }}>{j.naam}</div>
-                  <div style={{ color:'var(--muted)' }}>{j.klant_naam || 'Eigen print'}</div>
+                  <div style={{ color:'var(--muted)', fontSize:11 }}>{j.klant_naam || 'Eigen print'}</div>
                 </div>
-                {j.verkoopprijs != null && (
-                  <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span>
-                )}
+                {j.verkoopprijs != null && <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span>}
               </div>
             ))
           }
@@ -219,7 +210,7 @@ export default function Dashboard() {
         {/* Filamentstock */}
         <div className="card">
           <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.75rem' }}>
-            🧵 Filamentstock <span style={{ fontSize:12, color:'var(--muted)', fontWeight:400 }}>({activeRollen.length} rollen)</span>
+            🧵 Filamentstock <span style={{ fontSize:12, color:'var(--muted)', fontWeight:400 }}>({activeRollen.length})</span>
           </h2>
           {activeRollen.length === 0
             ? <p style={{ color:'var(--muted)', fontSize:12 }}>Geen actieve rollen</p>

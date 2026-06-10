@@ -360,3 +360,72 @@ r.delete('/:id', (req, res) => {
 });
 
 export default r;
+
+// PUT update offerte
+r.put('/:id', (req, res) => {
+  const db = getDb();
+  const t = getTarieven(db);
+  const existing = db.prepare('SELECT * FROM offertes_v2 WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Niet gevonden' });
+
+  const data = { ...existing, ...req.body };
+
+  let filament_prijs_per_kg = 0;
+  if (data.filament_type_id) {
+    const ft = db.prepare('SELECT inkoop_prijs_per_kg FROM filament_types WHERE id = ?').get(data.filament_type_id);
+    filament_prijs_per_kg = ft?.inkoop_prijs_per_kg || 0;
+  }
+
+  let printer_watt = 120;
+  if (data.printer_id) {
+    const p = db.prepare('SELECT naam FROM printers WHERE id = ?').get(data.printer_id);
+    printer_watt = p?.naam?.toLowerCase().includes('ender') ? (t.ender_watt || 150) : (t.bambu_watt || 120);
+  }
+
+  const berData = {
+    geschat_gewicht_g: parseFloat(data.geschat_gewicht_g) || 0,
+    geschatte_tijd_u: parseInt(data.geschatte_tijd_u) || 0,
+    geschatte_tijd_min: parseInt(data.geschatte_tijd_min) || 0,
+    voorbereiding_min: parseInt(data.voorbereiding_min) || 15,
+    nabewerking_min: parseInt(data.nabewerking_min) || 10,
+    ontwerp_min: parseInt(data.ontwerp_min) || 0,
+    ontwerp_tarief: parseFloat(data.ontwerp_tarief) || 15,
+    nabewerking_extra_min: parseInt(data.nabewerking_extra_min) || 0,
+    nabewerking_extra_tarief: parseFloat(data.nabewerking_extra_tarief) || 15,
+    is_multicolor: parseInt(data.is_multicolor) || 0,
+    extra_per_stuk: parseFloat(data.extra_per_stuk) || 0,
+    extra_eenmalig: parseFloat(data.extra_eenmalig) || 0,
+    aantal: parseInt(data.aantal) || 1,
+    filament_prijs_per_kg, printer_watt,
+  };
+
+  const ber = berekenOfferte(berData, t);
+  const btw_pct = parseFloat(data.btw_pct) || 21;
+  const btw_bedrag = Math.round(ber.verkoopprijs * btw_pct) / 100;
+  const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
+
+  db.prepare(`
+    UPDATE offertes_v2 SET
+      klant_id=?, object_naam=?, object_link=?, printer_id=?, filament_type_id=?,
+      geschat_gewicht_g=?, geschatte_tijd_u=?, geschatte_tijd_min=?,
+      voorbereiding_min=?, nabewerking_min=?, ontwerp_min=?, ontwerp_tarief=?,
+      nabewerking_extra_min=?, nabewerking_extra_tarief=?, is_multicolor=?,
+      extra_per_stuk=?, extra_eenmalig=?, extra_omschrijving=?, aantal=?,
+      materiaal_kost=?, energie_kost_schat=?, arbeid_kost=?, machine_kost=?,
+      extra_totaal=?, subtotaal=?, marge_pct=?, verkoopprijs=?,
+      btw_pct=?, btw_bedrag=?, totaal=?, geldig_tot=?, notities=?
+    WHERE id=?
+  `).run(
+    data.klant_id, data.object_naam||null, data.object_link||null,
+    data.printer_id||null, data.filament_type_id||null,
+    berData.geschat_gewicht_g, berData.geschatte_tijd_u, berData.geschatte_tijd_min,
+    berData.voorbereiding_min, berData.nabewerking_min, berData.ontwerp_min, berData.ontwerp_tarief,
+    berData.nabewerking_extra_min, berData.nabewerking_extra_tarief, berData.is_multicolor,
+    berData.extra_per_stuk, berData.extra_eenmalig, data.extra_omschrijving||null, berData.aantal,
+    ber.materiaal_kost, ber.energie_kost_schat, ber.arbeid_kost, ber.machine_kost, ber.extra_totaal,
+    ber.subtotaal, ber.marge_pct, ber.verkoopprijs, btw_pct, btw_bedrag, totaal,
+    data.geldig_tot||null, data.notities||null, req.params.id
+  );
+
+  res.json({ ok: true, ...ber });
+});
