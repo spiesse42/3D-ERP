@@ -2,52 +2,36 @@ import { useState, useEffect } from 'react';
 import { api } from '../lib/api.js';
 
 const GROEPEN = [
-  {
-    titel: 'Kosten & energie',
-    sleutels: ['kwh_prijs','arbeid_per_uur','faalfactor_pct'],
-  },
-  {
-    titel: 'Marge',
-    sleutels: ['marge_grens_uur','marge_klein_pct','marge_groot_pct'],
-    info: 'Klein = print korter dan grens, Groot = print langer dan grens',
-  },
-  {
-    titel: 'Standaard arbeid',
-    sleutels: ['voorbereiding_min','nabewerking_min'],
-    info: 'Automatisch verrekend bij elke print',
-  },
-  {
-    titel: 'Regie tarieven',
-    sleutels: ['ontwerp_tarief','nabewerking_tarief'],
-    info: 'Gebruikt bij ontwerp op maat of uitgebreide nabewerking',
-  },
-  {
-    titel: 'BMCU',
-    sleutels: ['bmcu_per_job'],
-  },
+  { titel: 'Kosten & energie', sleutels: ['kwh_prijs','arbeid_per_uur','faalfactor_pct'] },
+  { titel: 'Marge', sleutels: ['marge_grens_uur','marge_klein_pct','marge_groot_pct'], info: 'Klein = print korter dan grens · Groot = print langer dan grens' },
+  { titel: 'Standaard arbeid', sleutels: ['voorbereiding_min','nabewerking_min'], info: 'Automatisch verrekend bij elke print' },
+  { titel: 'Regie tarieven', sleutels: ['ontwerp_tarief','nabewerking_tarief'], info: 'Gebruikt bij ontwerp op maat of uitgebreide nabewerking' },
+  { titel: 'BMCU', sleutels: ['bmcu_per_job'] },
 ];
 
 export default function Instellingen() {
-  const [tarieven, setTarieven] = useState([]);
+  const [tarieven, setTarieven] = useState({});
+  const [geladen, setGeladen] = useState(false);
   const [printers, setPrinters] = useState([]);
   const [saved, setSaved] = useState('');
 
   useEffect(() => {
-    api.get('/tarieven').then(setTarieven);
+    api.get('/tarieven').then(rows => {
+      const map = {};
+      rows.forEach(r => { map[r.sleutel] = { ...r }; });
+      setTarieven(map);
+      setGeladen(true);
+    });
     api.get('/printers').then(setPrinters);
   }, []);
 
   function setTarief(sleutel, waarde) {
-    setTarieven(t => t.map(x => x.sleutel === sleutel ? { ...x, waarde: parseFloat(waarde) || 0 } : x));
-  }
-
-  function getTarief(sleutel) {
-    return tarieven.find(t => t.sleutel === sleutel);
+    setTarieven(t => ({ ...t, [sleutel]: { ...t[sleutel], waarde: parseFloat(waarde) || 0 } }));
   }
 
   async function saveTarieven() {
-    for (const t of tarieven) {
-      await api.put(`/tarieven/${t.sleutel}`, { waarde: t.waarde });
+    for (const [sleutel, t] of Object.entries(tarieven)) {
+      await api.put(`/tarieven/${sleutel}`, { waarde: t.waarde });
     }
     setSaved('Tarieven opgeslagen!');
     setTimeout(() => setSaved(''), 3000);
@@ -63,6 +47,8 @@ export default function Instellingen() {
     setTimeout(() => setSaved(''), 3000);
   }
 
+  if (!geladen) return <div style={{ padding:'2rem', color:'var(--muted)' }}>Laden...</div>;
+
   return (
     <div>
       <div className="page-header">
@@ -72,22 +58,25 @@ export default function Instellingen() {
 
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1.5rem', alignItems:'start' }}>
         <div>
-          {GROEPEN.map(g => (
-            <div key={g.titel} className="card" style={{ marginBottom:'1rem' }}>
-              <h2 style={{ fontSize:14, fontWeight:600, marginBottom: g.info ? 4 : '1rem' }}>{g.titel}</h2>
-              {g.info && <p style={{ fontSize:11, color:'var(--muted)', marginBottom:'0.75rem' }}>{g.info}</p>}
-              {g.sleutels.map(s => {
-                const t = getTarief(s);
-                if (!t) return null;
-                return (
-                  <div key={s} className="form-group">
-                    <label>{t.label} <span style={{ color:'var(--muted)', fontWeight:400 }}>({t.eenheid})</span></label>
-                    <input type="number" step="0.01" value={t.waarde} onChange={e => setTarief(s, e.target.value)} />
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+          {GROEPEN.map(g => {
+            const velden = g.sleutels.map(s => tarieven[s]).filter(Boolean);
+            return (
+              <div key={g.titel} className="card" style={{ marginBottom:'1rem' }}>
+                <h2 style={{ fontSize:14, fontWeight:600, marginBottom: g.info ? 4 : '1rem' }}>{g.titel}</h2>
+                {g.info && <p style={{ fontSize:11, color:'var(--muted)', marginBottom:'0.75rem' }}>{g.info}</p>}
+                {velden.length === 0
+                  ? <p style={{ fontSize:12, color:'var(--muted)' }}>Geen tarieven gevonden — herstart de addon.</p>
+                  : velden.map(t => (
+                    <div key={t.sleutel} className="form-group">
+                      <label>{t.label} <span style={{ color:'var(--muted)', fontWeight:400 }}>({t.eenheid})</span></label>
+                      <input type="number" step="0.01" value={t.waarde}
+                        onChange={e => setTarief(t.sleutel, e.target.value)} />
+                    </div>
+                  ))
+                }
+              </div>
+            );
+          })}
           <button className="btn primary" style={{ width:'100%' }} onClick={saveTarieven}>
             Tarieven opslaan
           </button>
