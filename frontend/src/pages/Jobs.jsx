@@ -398,12 +398,14 @@ export default function Jobs() {
       {kostenJob && (
         <KostenModal
           job={kostenJob}
+          klanten={klanten}
           printerLiveData={
             kostenJob.printer_naam?.toLowerCase().includes('bambu')
               ? printerData.bambu
               : printerData.ender
           }
           onClose={() => setKostenJob(null)}
+          onJobUpdated={loadJobs}
         />
       )}
     </div>
