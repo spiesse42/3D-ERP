@@ -1,6 +1,32 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api.js';
 
+const GROEPEN = [
+  {
+    titel: 'Kosten & energie',
+    sleutels: ['kwh_prijs','arbeid_per_uur','faalfactor_pct'],
+  },
+  {
+    titel: 'Marge',
+    sleutels: ['marge_grens_uur','marge_klein_pct','marge_groot_pct'],
+    info: 'Klein = print korter dan grens, Groot = print langer dan grens',
+  },
+  {
+    titel: 'Standaard arbeid',
+    sleutels: ['voorbereiding_min','nabewerking_min'],
+    info: 'Automatisch verrekend bij elke print',
+  },
+  {
+    titel: 'Regie tarieven',
+    sleutels: ['ontwerp_tarief','nabewerking_tarief'],
+    info: 'Gebruikt bij ontwerp op maat of uitgebreide nabewerking',
+  },
+  {
+    titel: 'BMCU',
+    sleutels: ['bmcu_per_job'],
+  },
+];
+
 export default function Instellingen() {
   const [tarieven, setTarieven] = useState([]);
   const [printers, setPrinters] = useState([]);
@@ -13,6 +39,10 @@ export default function Instellingen() {
 
   function setTarief(sleutel, waarde) {
     setTarieven(t => t.map(x => x.sleutel === sleutel ? { ...x, waarde: parseFloat(waarde) || 0 } : x));
+  }
+
+  function getTarief(sleutel) {
+    return tarieven.find(t => t.sleutel === sleutel);
   }
 
   async function saveTarieven() {
@@ -33,9 +63,6 @@ export default function Instellingen() {
     setTimeout(() => setSaved(''), 3000);
   }
 
-  // Filter: verberg machine_per_uur uit tarieven (staat al per printer)
-  const zichtbareTarieven = tarieven.filter(t => t.sleutel !== 'machine_per_uur');
-
   return (
     <div>
       <div className="page-header">
@@ -44,15 +71,24 @@ export default function Instellingen() {
       </div>
 
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1.5rem', alignItems:'start' }}>
-        <div className="card">
-          <h2 style={{ fontSize:15, fontWeight:600, marginBottom:'1.25rem' }}>Tarieven & marges</h2>
-          {zichtbareTarieven.map(t => (
-            <div key={t.sleutel} className="form-group">
-              <label>{t.label} <span style={{ color:'var(--muted)', fontWeight:400 }}>({t.eenheid})</span></label>
-              <input type="number" step="0.01" value={t.waarde} onChange={e => setTarief(t.sleutel, e.target.value)} />
+        <div>
+          {GROEPEN.map(g => (
+            <div key={g.titel} className="card" style={{ marginBottom:'1rem' }}>
+              <h2 style={{ fontSize:14, fontWeight:600, marginBottom: g.info ? 4 : '1rem' }}>{g.titel}</h2>
+              {g.info && <p style={{ fontSize:11, color:'var(--muted)', marginBottom:'0.75rem' }}>{g.info}</p>}
+              {g.sleutels.map(s => {
+                const t = getTarief(s);
+                if (!t) return null;
+                return (
+                  <div key={s} className="form-group">
+                    <label>{t.label} <span style={{ color:'var(--muted)', fontWeight:400 }}>({t.eenheid})</span></label>
+                    <input type="number" step="0.01" value={t.waarde} onChange={e => setTarief(s, e.target.value)} />
+                  </div>
+                );
+              })}
             </div>
           ))}
-          <button className="btn primary" style={{ width:'100%', marginTop:4 }} onClick={saveTarieven}>
+          <button className="btn primary" style={{ width:'100%' }} onClick={saveTarieven}>
             Tarieven opslaan
           </button>
         </div>
@@ -60,14 +96,16 @@ export default function Instellingen() {
         <div>
           {printers.map(p => (
             <div key={p.id} className="card" style={{ marginBottom:'1rem' }}>
-              <h2 style={{ fontSize:15, fontWeight:600, marginBottom:'1.25rem' }}>{p.naam}</h2>
+              <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'1rem' }}>{p.naam}</h2>
               <div className="form-group">
                 <label>HA entity prefix</label>
-                <input value={p.ha_entity_prefix || ''} onChange={e => setPrinter(p.id, 'ha_entity_prefix', e.target.value)} placeholder="sensor.a1mini_0300da611800680_" />
+                <input value={p.ha_entity_prefix || ''} onChange={e => setPrinter(p.id, 'ha_entity_prefix', e.target.value)}
+                  placeholder="sensor.a1mini_0300da611800680_" />
               </div>
               <div className="form-group">
                 <label>kWh entity (smart plug)</label>
-                <input value={p.kwh_entity || ''} onChange={e => setPrinter(p.id, 'kwh_entity', e.target.value)} placeholder="sensor.ender3_kwh" />
+                <input value={p.kwh_entity || ''} onChange={e => setPrinter(p.id, 'kwh_entity', e.target.value)}
+                  placeholder="sensor.lsc_power_plug_..." />
               </div>
               <div className="form-row">
                 <div className="form-group">
@@ -83,18 +121,16 @@ export default function Instellingen() {
                   </select>
                 </div>
               </div>
-              <button className="btn primary" style={{ width:'100%', marginTop:4 }} onClick={() => savePrinter(p)}>
+              <button className="btn primary" style={{ width:'100%' }} onClick={() => savePrinter(p)}>
                 Opslaan
               </button>
             </div>
           ))}
-        </div>
-      </div>
 
-      <div className="card" style={{ marginTop:'1.5rem' }}>
-        <h2 style={{ fontSize:15, fontWeight:600, marginBottom:'1rem' }}>Data export</h2>
-        <div style={{ display:'flex', gap:8 }}>
-          <a className="btn" href="/api/rapportage/csv/jobs" download>↓ Jobs exporteren (CSV)</a>
+          <div className="card">
+            <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'1rem' }}>Data export</h2>
+            <a className="btn" href="/api/rapportage/csv/jobs" download>↓ Jobs exporteren (CSV)</a>
+          </div>
         </div>
       </div>
     </div>

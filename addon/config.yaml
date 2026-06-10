@@ -1,6 +1,6 @@
 name: "3D Print ERP"
 description: "ERP systeem voor 3D print hobbyisten — jobs, klanten, kosten, offertes"
-version: "1.0.16"
+version: "2.0.1"
 slug: "3d_print_erp"
 init: false
 arch:
@@ -13,7 +13,13 @@ panel_icon: mdi:printer-3d
 panel_title: "3D Print ERP"
 options:
   ha_token: ""
+  smtp_user: "davidspiesschaert1@gmail.com"
+  smtp_pass: "vnsh rdwi usve leei"
+  smtp_from: "davidspiesschaert1@gmail.com"
 schema:
   ha_token: str?
+  smtp_user: str?
+  smtp_pass: str?
+  smtp_from: str?
 map:
   - data

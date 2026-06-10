@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { migrateDb } from './db_migration.js';
+import { migrateDbV2 } from './db_migration_v2.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'erp.db');
@@ -157,6 +158,7 @@ export function initDb() {
 
   // Migraties
   migrateDb(db);
+  migrateDbV2(db);
 
   const printerCount = db.prepare('SELECT COUNT(*) as c FROM printers').get().c;
   if (printerCount === 0) {

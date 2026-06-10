@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api.js';
+import KostenModal from '../components/KostenModal.jsx';
 
 const STATUSSEN = ['gepland','bezig','voltooid','gefaald','geannuleerd'];
 
@@ -10,13 +11,13 @@ function StatusDot({ status }) {
 }
 
 function ProgressRing({ pct, color, size=80 }) {
-  const r = size/2 - 8;
-  const circ = 2 * Math.PI * r;
+  const r2 = size/2 - 8;
+  const circ = 2 * Math.PI * r2;
   const dash = (pct / 100) * circ;
   return (
     <svg width={size} height={size} style={{ transform:'rotate(-90deg)' }}>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#1e2330" strokeWidth={6} />
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={6}
+      <circle cx={size/2} cy={size/2} r={r2} fill="none" stroke="#1e2330" strokeWidth={6} />
+      <circle cx={size/2} cy={size/2} r={r2} fill="none" stroke={color} strokeWidth={6}
         strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
         style={{ transition:'stroke-dasharray 1s ease' }} />
     </svg>
@@ -93,12 +94,14 @@ function PrinterCard({ name, printerId, data, klanten, onJobCreated }) {
           ['⏳ Resterend', data?.remaining || '—'],
           ['🧵 Filament', data?.filament || '—'],
           ['📐 Laag', data?.layer || '—'],
-          ['⚡ Δ kWh', data?.kwh_delta != null ? `${data.kwh_delta.toFixed(3)} kWh` : '—'],
+          ['⚡ Start kWh', data?.kwh_start != null ? data.kwh_start.toFixed(3) : '—'],
+          ['⚡ Huidig kWh', data?.kwh_current != null ? data.kwh_current.toFixed(3) : '—'],
+          ['⚡ Δ Verbruikt', data?.kwh_delta != null ? `${data.kwh_delta.toFixed(3)} kWh` : '—'],
           ['💶 Energiekost', data?.kwh_delta != null ? `€${(data.kwh_delta * 0.35).toFixed(3)}` : '—'],
         ].map(([label, val]) => (
           <div key={label}>
             <div style={{ color:'var(--muted)', fontSize:11 }}>{label}</div>
-            <div style={{ fontWeight:500, color: label.includes('kWh') || label.includes('kost') ? '#fbbf24' : 'var(--text)' }}>{val}</div>
+            <div style={{ fontWeight:500, color: label.includes('kWh') || label.includes('kost') || label.includes('Start') || label.includes('Huidig') ? '#fbbf24' : 'var(--text)' }}>{val}</div>
           </div>
         ))}
       </div>
@@ -170,7 +173,7 @@ function JobModal({ job, printers, klanten, onClose, onSaved }) {
             <input type="number" step="0.1" value={form.print_uren_werkelijk || ''} onChange={e => set('print_uren_werkelijk', e.target.value)} />
           </div>
           <div className="form-group"><label>STL bestandsnaam</label>
-            <input value={form.stl_bestandsnaam || ''} onChange={e => set('stl_bestandsnaam', e.target.value)} placeholder="bestand.stl" />
+            <input value={form.stl_bestandsnaam || ''} onChange={e => set('stl_bestandsnaam', e.target.value)} />
           </div>
         </div>
         <div className="form-row">
@@ -195,79 +198,6 @@ function JobModal({ job, printers, klanten, onClose, onSaved }) {
   );
 }
 
-function KostenModal({ job, onClose }) {
-  const [kwh, setKwh] = useState('');
-  const [result, setResult] = useState(null);
-  const [rollen, setRollen] = useState([]);
-  const [selectedRol, setSelectedRol] = useState('');
-  const [gram, setGram] = useState('');
-  useEffect(() => {
-    api.get('/filament/rollen').then(r => setRollen(r.filter(rol => rol.actief)));
-    api.get(`/kosten/job/${job.id}`).then(setResult).catch(() => {});
-  }, [job.id]);
-  async function bereken() {
-    try { const r = await api.post(`/kosten/bereken/${job.id}`, { kwh_verbruikt: parseFloat(kwh) || 0 }); setResult(r); }
-    catch(e) { alert(e.message); }
-  }
-  async function voegToe() {
-    if (!selectedRol || !gram) return alert('Selecteer een rol en geef gram op');
-    try {
-      await api.post(`/jobs/${job.id}/materialen`, { filament_rol_id: parseInt(selectedRol), gram_gebruikt: parseFloat(gram) });
-      setSelectedRol(''); setGram('');
-      alert('Materiaal toegevoegd');
-    } catch(e) { alert(e.message); }
-  }
-  return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ width:540 }}>
-        <div className="modal-header"><h2>Kostprijs — {job.naam}</h2><button className="btn" onClick={onClose}>✕</button></div>
-        <p style={{ fontSize:12, color:'var(--muted)', marginBottom:'1rem' }}>Printer: {job.printer_naam} {job.is_multicolor ? '· BMCU multicolor' : ''}</p>
-        <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'1rem', marginBottom:'1rem' }}>
-          <p style={{ fontSize:12, color:'var(--muted)', marginBottom:8 }}>Filament toevoegen</p>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 120px auto', gap:8, alignItems:'end' }}>
-            <select value={selectedRol} onChange={e => setSelectedRol(e.target.value)}>
-              <option value="">— selecteer rol —</option>
-              {rollen.map(r => <option key={r.id} value={r.id}>{r.merk} {r.materiaal} {r.kleur} ({r.gewicht_gram_huidig}g)</option>)}
-            </select>
-            <input type="number" placeholder="gram" value={gram} onChange={e => setGram(e.target.value)} />
-            <button className="btn primary" onClick={voegToe}>+ Voeg toe</button>
-          </div>
-        </div>
-        <div style={{ display:'flex', gap:8, alignItems:'flex-end', marginBottom:'1rem' }}>
-          <div className="form-group" style={{ flex:1, marginBottom:0 }}>
-            <label>kWh verbruikt (van smart plug of handmatig)</label>
-            <input type="number" step="0.001" value={kwh} onChange={e => setKwh(e.target.value)} placeholder="bv. 0.245" />
-          </div>
-          <button className="btn primary" onClick={bereken}>Bereken</button>
-        </div>
-        {result && (
-          <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'1rem' }}>
-            <table style={{ fontSize:13 }}>
-              <tbody>
-                {[['Materiaal', result.materiaal_kost],['Energie', result.energie_kost],['Machine', result.machine_kost],['Arbeid', result.arbeid_kost],['BMCU slijtage', result.bmcu_slijtage]].map(([label, val]) => (
-                  <tr key={label}>
-                    <td style={{ color:'var(--muted)', borderBottom:'1px solid var(--border)', paddingLeft:0 }}>{label}</td>
-                    <td style={{ textAlign:'right', borderBottom:'1px solid var(--border)' }}>€{val?.toFixed(3)}</td>
-                  </tr>
-                ))}
-                <tr>
-                  <td style={{ paddingLeft:0, color:'var(--muted)', fontSize:11 }}>+ {result.faalfactor_pct}% faal + {result.winstmarge_pct}% marge</td>
-                  <td style={{ textAlign:'right', color:'var(--muted)', fontSize:11 }}>€{result.totaal_kost?.toFixed(2)}</td>
-                </tr>
-              </tbody>
-            </table>
-            <div style={{ display:'flex', justifyContent:'space-between', marginTop:12, paddingTop:12, borderTop:'1px solid var(--border)', fontWeight:600 }}>
-              <span>Verkoopprijs</span>
-              <span style={{ color:'var(--accent2)', fontSize:22 }}>€{result.verkoopprijs?.toFixed(2)}</span>
-            </div>
-          </div>
-        )}
-        <div className="modal-footer"><button className="btn" onClick={onClose}>Sluiten</button></div>
-      </div>
-    </div>
-  );
-}
-
 function formatSec(sec) {
   if (!sec || sec <= 0) return '—';
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
@@ -283,6 +213,7 @@ export default function Jobs() {
   const [filter, setFilter] = useState('');
   const [printerData, setPrinterData] = useState({});
   const [kwhStart, setKwhStart] = useState({});
+  const [kwhCurrent, setKwhCurrent] = useState({});
   const intervalRef = useRef(null);
 
   const loadJobs = () => api.get('/jobs').then(setJobs);
@@ -345,6 +276,8 @@ export default function Jobs() {
         const bambuRunning = ['running','printing'].includes((s.bambu_status||'').toLowerCase());
         const enderRunning = ['running','printing'].includes((s.ender_status||'').toLowerCase());
 
+        setKwhCurrent({ bambu: bambuKwh, ender: enderKwh });
+
         setKwhStart(prev => {
           const next = { ...prev };
           if (bambuRunning && !prev.bambu && bambuKwh > 0) next.bambu = bambuKwh;
@@ -354,7 +287,7 @@ export default function Jobs() {
           return next;
         });
 
-        setPrinterData(prev => ({
+        setPrinterData({
           bambu: {
             status:      s.bambu_status || 'unavailable',
             progress:    parseFloat(s.bambu_progress) || 0,
@@ -365,6 +298,8 @@ export default function Jobs() {
             filament:    `${parseFloat(s.bambu_filament)?.toFixed(1) || '—'} g`,
             filament_g:  parseFloat(s.bambu_filament) || 0,
             layer:       `${s.bambu_layer_cur || '0'} / ${s.bambu_layer_tot || '0'}`,
+            kwh_start:   kwhStart.bambu || null,
+            kwh_current: bambuKwh || null,
             kwh_delta:   bambuKwh > 0 && kwhStart.bambu ? bambuKwh - kwhStart.bambu : null,
           },
           ender: {
@@ -377,9 +312,11 @@ export default function Jobs() {
             filament:    `${((parseFloat(s.ender_filament)||0) * 2.98).toFixed(1)} g`,
             filament_g:  (parseFloat(s.ender_filament)||0) * 2.98,
             layer:       `${s.ender_layer_cur || '0'} / ${s.ender_layer_tot || '0'}`,
+            kwh_start:   kwhStart.ender || null,
+            kwh_current: enderKwh || null,
             kwh_delta:   enderKwh > 0 && kwhStart.ender ? enderKwh - kwhStart.ender : null,
           },
-        }));
+        });
       } catch {}
     }
 
@@ -396,7 +333,6 @@ export default function Jobs() {
     loadJobs();
   }
 
-  // Zoek printer ID op naam
   const bambuId = printers.find(p => p.naam.toLowerCase().includes('bambu'))?.id;
   const enderId = printers.find(p => p.naam.toLowerCase().includes('ender'))?.id;
 
@@ -433,11 +369,16 @@ export default function Jobs() {
                     <td>{j.klant_naam || <span style={{ color:'var(--muted)' }}>—</span>}</td>
                     <td>{j.printer_naam}</td>
                     <td><span className={`badge ${j.status}`}>{j.status}</span></td>
-                    <td style={{ color:'var(--muted)' }}>{j.print_uren_werkelijk != null ? `${j.print_uren_werkelijk}u` : j.print_uren_geschat != null ? `~${j.print_uren_geschat}u` : '—'}</td>
+                    <td style={{ color:'var(--muted)' }}>
+                      {j.print_uren_werkelijk != null ? `${j.print_uren_werkelijk}u` : j.print_uren_geschat != null ? `~${j.print_uren_geschat}u` : '—'}
+                    </td>
                     <td>{j.verkoopprijs != null ? <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span> : <span style={{ color:'var(--muted)' }}>—</span>}</td>
                     <td>
                       <div style={{ display:'flex', gap:6 }}>
-                        <button className="btn" style={{ fontSize:11, padding:'4px 8px' }} onClick={() => setKostenJob(j)}>€ Kost</button>
+                        <button className="btn" style={{ fontSize:11, padding:'4px 8px' }}
+                          onClick={() => setKostenJob({ ...j,
+                            printer_naam: j.printer_naam,
+                          })}>€ Kost</button>
                         <button className="btn" style={{ fontSize:11, padding:'4px 8px' }} onClick={() => setModal(j)}>✏</button>
                         <button className="btn danger" style={{ fontSize:11, padding:'4px 8px' }} onClick={() => deleteJob(j.id)}>✕</button>
                       </div>
@@ -453,7 +394,18 @@ export default function Jobs() {
         <JobModal job={modal?.id ? modal : null} printers={printers} klanten={klanten}
           onClose={() => setModal(null)} onSaved={() => { setModal(null); loadJobs(); }} />
       )}
-      {kostenJob && <KostenModal job={kostenJob} onClose={() => setKostenJob(null)} />}
+
+      {kostenJob && (
+        <KostenModal
+          job={kostenJob}
+          printerLiveData={
+            kostenJob.printer_naam?.toLowerCase().includes('bambu')
+              ? printerData.bambu
+              : printerData.ender
+          }
+          onClose={() => setKostenJob(null)}
+        />
+      )}
     </div>
   );
 }
