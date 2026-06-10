@@ -1,8 +1,41 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api.js';
 
+const KLEUREN = [
+  { naam: 'Wit',      hex: '#f5f5f5' },
+  { naam: 'Zwart',    hex: '#1a1a1a' },
+  { naam: 'Grijs',    hex: '#808080' },
+  { naam: 'Rood',     hex: '#ef4444' },
+  { naam: 'Blauw',    hex: '#3b82f6' },
+  { naam: 'Groen',    hex: '#22c55e' },
+  { naam: 'Geel',     hex: '#eab308' },
+  { naam: 'Oranje',   hex: '#f97316' },
+  { naam: 'Paars',    hex: '#a855f7' },
+  { naam: 'Roze',     hex: '#ec4899' },
+  { naam: 'Bruin',    hex: '#92400e' },
+  { naam: 'Beige',    hex: '#d4b896' },
+  { naam: 'Zilver',   hex: '#c0c0c0' },
+  { naam: 'Goud',     hex: '#d4af37' },
+  { naam: 'Transparant', hex: '#e0f2fe' },
+];
+
+function kleurHex(naam) {
+  return KLEUREN.find(k => k.naam?.toLowerCase() === naam?.toLowerCase())?.hex || '#555';
+}
+
+function KleurDot({ kleur, size=12 }) {
+  const hex = kleurHex(kleur);
+  return (
+    <span style={{
+      display:'inline-block', width:size, height:size, borderRadius:'50%',
+      background: hex, border:'1px solid rgba(255,255,255,0.15)',
+      flexShrink:0, verticalAlign:'middle', marginRight:6
+    }} title={kleur} />
+  );
+}
+
 function TypeModal({ type, onClose, onSaved }) {
-  const [form, setForm] = useState(type || { merk: '', materiaal: 'PLA+', inkoop_prijs_per_kg: '', dichtheid_g_per_cm3: 1.24, leverancier: '' });
+  const [form, setForm] = useState(type || { merk:'', materiaal:'PLA+', inkoop_prijs_per_kg:'', dichtheid_g_per_cm3:1.24, leverancier:'' });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   async function save() {
     try {
@@ -36,31 +69,104 @@ function TypeModal({ type, onClose, onSaved }) {
   );
 }
 
-function RolModal({ types, onClose, onSaved }) {
-  const [form, setForm] = useState({ filament_type_id: types[0]?.id || '', kleur: '', gewicht_gram_start: 1000, locatie: '', gekocht_op: new Date().toISOString().split('T')[0] });
+function RolModal({ types, rol, onClose, onSaved }) {
+  const isEdit = !!rol?.id;
+  const [form, setForm] = useState(rol ? {
+    filament_type_id: rol.filament_type_id,
+    kleur: rol.kleur || '',
+    gewicht_gram_start: rol.gewicht_gram_start,
+    gewicht_gram_huidig: rol.gewicht_gram_huidig,
+    locatie: rol.locatie || '',
+    gekocht_op: rol.gekocht_op || new Date().toISOString().split('T')[0],
+    actief: rol.actief,
+  } : {
+    filament_type_id: types[0]?.id || '',
+    kleur: '',
+    gewicht_gram_start: 1000,
+    gewicht_gram_huidig: 1000,
+    locatie: '',
+    gekocht_op: new Date().toISOString().split('T')[0],
+    actief: 1,
+  });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  async function save() {
-    try { await api.post('/filament/rollen', form); onSaved(); }
-    catch (e) { alert(e.message); }
+
+  // Sync huidig gewicht met start als nieuw
+  function setStart(v) {
+    set('gewicht_gram_start', v);
+    if (!isEdit) set('gewicht_gram_huidig', v);
   }
+
+  async function save() {
+    try {
+      if (isEdit) await api.put(`/filament/rollen/${rol.id}`, form);
+      else await api.post('/filament/rollen', form);
+      onSaved();
+    } catch (e) { alert(e.message); }
+  }
+
+  const gekozenKleur = kleurHex(form.kleur);
+
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <div className="modal-header"><h2>Nieuwe rol toevoegen</h2><button className="btn" onClick={onClose}>✕</button></div>
+        <div className="modal-header">
+          <h2>{isEdit ? 'Rol bewerken' : 'Nieuwe rol toevoegen'}</h2>
+          <button className="btn" onClick={onClose}>✕</button>
+        </div>
+
+        {!isEdit && (
+          <div className="form-group">
+            <label>Filamenttype *</label>
+            <select value={form.filament_type_id} onChange={e => set('filament_type_id', e.target.value)}>
+              {types.map(t => <option key={t.id} value={t.id}>{t.merk} {t.materiaal}</option>)}
+            </select>
+          </div>
+        )}
+
         <div className="form-group">
-          <label>Filamenttype *</label>
-          <select value={form.filament_type_id} onChange={e => set('filament_type_id', e.target.value)}>
-            {types.map(t => <option key={t.id} value={t.id}>{t.merk} {t.materiaal}</option>)}
-          </select>
+          <label>Kleur</label>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+            <span style={{ width:24, height:24, borderRadius:'50%', background:gekozenKleur, border:'1px solid rgba(255,255,255,0.2)', flexShrink:0 }} />
+            <input value={form.kleur} onChange={e => set('kleur', e.target.value)} placeholder="bv. Wit, Zwart, Rood..." />
+          </div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+            {KLEUREN.map(k => (
+              <button key={k.naam} onClick={() => set('kleur', k.naam)}
+                style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 8px', borderRadius:20,
+                  border: form.kleur === k.naam ? '2px solid var(--accent)' : '1px solid var(--border)',
+                  background: form.kleur === k.naam ? 'var(--bg3)' : 'transparent',
+                  cursor:'pointer', fontSize:11, color:'var(--text)' }}>
+                <span style={{ width:10, height:10, borderRadius:'50%', background:k.hex, border:'1px solid rgba(255,255,255,0.2)' }} />
+                {k.naam}
+              </button>
+            ))}
+          </div>
         </div>
+
         <div className="form-row">
-          <div className="form-group"><label>Kleur *</label><input value={form.kleur} onChange={e => set('kleur', e.target.value)} placeholder="bv. Wit" /></div>
-          <div className="form-group"><label>Startgewicht (g)</label><input type="number" value={form.gewicht_gram_start} onChange={e => set('gewicht_gram_start', e.target.value)} /></div>
+          <div className="form-group">
+            <label>Startgewicht (g)</label>
+            <input type="number" value={form.gewicht_gram_start} onChange={e => setStart(parseFloat(e.target.value))} />
+          </div>
+          <div className="form-group">
+            <label>Huidig gewicht (g) {isEdit && <span style={{color:'var(--accent)', fontSize:11}}>← pas dit aan</span>}</label>
+            <input type="number" value={form.gewicht_gram_huidig} onChange={e => set('gewicht_gram_huidig', parseFloat(e.target.value))} />
+          </div>
         </div>
+
         <div className="form-row">
-          <div className="form-group"><label>Locatie</label><input value={form.locatie} onChange={e => set('locatie', e.target.value)} placeholder="bv. Rek A" /></div>
-          <div className="form-group"><label>Aankoopdatum</label><input type="date" value={form.gekocht_op} onChange={e => set('gekocht_op', e.target.value)} /></div>
+          <div className="form-group">
+            <label>Locatie</label>
+            <input value={form.locatie} onChange={e => set('locatie', e.target.value)} placeholder="bv. Rek A" />
+          </div>
+          {!isEdit && (
+            <div className="form-group">
+              <label>Aankoopdatum</label>
+              <input type="date" value={form.gekocht_op} onChange={e => set('gekocht_op', e.target.value)} />
+            </div>
+          )}
         </div>
+
         <div className="modal-footer">
           <button className="btn" onClick={onClose}>Annuleer</button>
           <button className="btn primary" onClick={save}>Opslaan</button>
@@ -75,7 +181,7 @@ export default function Filament() {
   const [rollen, setRollen] = useState([]);
   const [tab, setTab] = useState('rollen');
   const [typeModal, setTypeModal] = useState(null);
-  const [rolModal, setRolModal] = useState(false);
+  const [rolModal, setRolModal] = useState(null);
 
   const load = () => {
     api.get('/filament/types').then(setTypes);
@@ -88,13 +194,27 @@ export default function Filament() {
     load();
   }
 
+  // Voortgangsbalk
+  function VoorraadBalk({ huidig, start }) {
+    const pct = Math.min(100, Math.round((huidig / (start || 1000)) * 100));
+    const kleur = pct > 50 ? '#22c55e' : pct > 20 ? '#f59e0b' : '#ef4444';
+    return (
+      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <div style={{ flex:1, height:4, background:'var(--bg3)', borderRadius:2 }}>
+          <div style={{ width:`${pct}%`, height:'100%', background:kleur, borderRadius:2, transition:'width .3s' }} />
+        </div>
+        <span style={{ fontSize:11, color:'var(--muted)', minWidth:30 }}>{pct}%</span>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="page-header">
         <h1>Filament</h1>
         <div style={{ display:'flex', gap:8 }}>
           {tab === 'types'  && <button className="btn primary" onClick={() => setTypeModal({})}>+ Nieuw type</button>}
-          {tab === 'rollen' && <button className="btn primary" onClick={() => setRolModal(true)}>+ Nieuwe rol</button>}
+          {tab === 'rollen' && <button className="btn primary" onClick={() => setRolModal({})}>+ Nieuwe rol</button>}
         </div>
       </div>
 
@@ -110,7 +230,9 @@ export default function Filament() {
         rollen.length === 0 ? <div className="empty">Geen rollen geregistreerd</div> :
         <div className="card" style={{ padding:0 }}>
           <table>
-            <thead><tr><th>Type</th><th>Kleur</th><th>Huidig gewicht</th><th>Restwaarde</th><th>Locatie</th><th>Status</th><th>Acties</th></tr></thead>
+            <thead>
+              <tr><th>Type</th><th>Kleur</th><th>Gewicht</th><th>Restwaarde</th><th>Locatie</th><th>Status</th><th>Acties</th></tr>
+            </thead>
             <tbody>
               {rollen.map(r => (
                 <tr key={r.id} style={{ opacity: r.actief ? 1 : 0.5 }}>
@@ -118,18 +240,26 @@ export default function Filament() {
                     <div style={{ fontWeight:500 }}>{r.merk} {r.materiaal}</div>
                     <div style={{ fontSize:11, color:'var(--muted)' }}>€{r.inkoop_prijs_per_kg?.toFixed(2)}/kg</div>
                   </td>
-                  <td>{r.kleur || <span style={{ color:'var(--muted)' }}>—</span>}</td>
                   <td>
-                    <div>{r.gewicht_gram_huidig}g</div>
-                    <div style={{ fontSize:11, color:'var(--muted)' }}>van {r.gewicht_gram_start}g</div>
+                    <div style={{ display:'flex', alignItems:'center' }}>
+                      <KleurDot kleur={r.kleur} size={14} />
+                      <span>{r.kleur || <span style={{ color:'var(--muted)' }}>—</span>}</span>
+                    </div>
+                  </td>
+                  <td style={{ minWidth:160 }}>
+                    <div style={{ marginBottom:4 }}>{r.gewicht_gram_huidig}g <span style={{ color:'var(--muted)', fontSize:11 }}>/ {r.gewicht_gram_start}g</span></div>
+                    <VoorraadBalk huidig={r.gewicht_gram_huidig} start={r.gewicht_gram_start} />
                   </td>
                   <td style={{ color:'var(--accent2)' }}>€{r.restwaarde_eur}</td>
                   <td style={{ color:'var(--muted)' }}>{r.locatie || '—'}</td>
                   <td><span className={`badge ${r.actief ? 'bezig' : 'geannuleerd'}`}>{r.actief ? 'actief' : 'leeg'}</span></td>
                   <td>
-                    <button className="btn" style={{ fontSize:11, padding:'4px 8px' }} onClick={() => toggleRol(r)}>
-                      {r.actief ? 'Markeer leeg' : 'Heractiveer'}
-                    </button>
+                    <div style={{ display:'flex', gap:6 }}>
+                      <button className="btn" style={{ fontSize:11, padding:'4px 8px' }} onClick={() => setRolModal(r)}>✏</button>
+                      <button className="btn" style={{ fontSize:11, padding:'4px 8px' }} onClick={() => toggleRol(r)}>
+                        {r.actief ? 'Leeg' : 'Heractiveer'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -165,7 +295,7 @@ export default function Filament() {
       )}
 
       {typeModal !== null && <TypeModal type={typeModal?.id ? typeModal : null} onClose={() => setTypeModal(null)} onSaved={() => { setTypeModal(null); load(); }} />}
-      {rolModal && <RolModal types={types} onClose={() => setRolModal(false)} onSaved={() => { setRolModal(false); load(); }} />}
+      {rolModal !== null && <RolModal types={types} rol={rolModal?.id ? rolModal : null} onClose={() => setRolModal(null)} onSaved={() => { setRolModal(null); load(); }} />}
     </div>
   );
 }
