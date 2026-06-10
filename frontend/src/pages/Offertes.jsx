@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../lib/api.js';
 
 const BASE = window.__API_BASE__ || '/api';
@@ -8,253 +8,294 @@ function statusKleur(s) {
   return { concept:'#f59e0b', verstuurd:'#60a5fa', goedgekeurd:'#22c55e', geannuleerd:'#6b7280' }[s] || '#6b7280';
 }
 
-// Normaliseer komma naar punt voor decimale invoer
-function normDec(v) {
-  return String(v).replace(',', '.');
-}
+// Stabiele numerieke invoer — cursor springt niet weg
+function useNumField(init) {
+  const [display, setDisplay] = useState(String(init ?? ''));
+  const [value, setValue] = useState(parseFloat(String(init).replace(',','.')) || 0);
+  const focused = useRef(false);
 
-function NumInput({ value, onChange, ...props }) {
-  const [local, setLocal] = useState(String(value));
-  const ref = useRef();
+  function onChange(e) {
+    const raw = e.target.value;
+    setDisplay(raw);
+    const num = parseFloat(raw.replace(',','.'));
+    if (!isNaN(num)) setValue(num);
+    else if (raw === '' || raw === '-') setValue(0);
+  }
 
-  useEffect(() => {
-    if (document.activeElement !== ref.current) {
-      setLocal(String(value));
+  function onBlur() {
+    focused.current = false;
+    setDisplay(String(value));
+  }
+
+  function onFocus() { focused.current = true; }
+
+  function set(v) {
+    if (!focused.current) {
+      setValue(parseFloat(v) || 0);
+      setDisplay(String(v ?? ''));
     }
-  }, [value]);
+  }
 
-  return (
-    <input
-      ref={ref}
-      type="text"
-      inputMode="decimal"
-      value={local}
-      onChange={e => {
-        const v = e.target.value;
-        setLocal(v);
-        const norm = normDec(v);
-        if (!isNaN(parseFloat(norm)) || norm === '' || norm === '-') {
-          onChange(norm === '' ? 0 : parseFloat(norm) || 0);
-        }
-      }}
-      onBlur={() => setLocal(String(value))}
-      {...props}
-    />
-  );
+  return { display, value, onChange, onBlur, onFocus, set };
 }
 
-function berekenPreview(form, tarieven, filamentTypes, printers) {
+function berekenLive(form, tarieven, filamentTypes, printers) {
   const ft = filamentTypes.find(f => f.id === parseInt(form.filament_type_id));
-  const printer = printers.find(p => p.id === parseInt(form.printer_id));
   if (!ft || !form.geschat_gewicht_g) return null;
 
   const t = tarieven;
-  const prijs = ft.inkoop_prijs_per_kg || 0;
   const faal = 1 + (t.faalfactor_pct || 10) / 100;
   const gram = parseFloat(form.geschat_gewicht_g) || 0;
   const u = parseInt(form.geschatte_tijd_u) || 0;
   const min = parseInt(form.geschatte_tijd_min) || 0;
   const totU = u + min / 60;
   const aantal = parseInt(form.aantal) || 1;
-  const watt = printer?.naam?.toLowerCase().includes('ender') ? (t.ender_watt || 150) : (t.bambu_watt || 120);
-  const kwh = t.kwh_prijs || 0.35;
-  const arbTarief = t.arbeid_per_uur || 15;
+  const printer = printers.find(p => p.id === parseInt(form.printer_id));
+  const watt = printer?.naam?.toLowerCase().includes('ender') ? (t.ender_watt||150) : (t.bambu_watt||120);
 
-  const mat = (gram / 1000) * prijs * faal * aantal;
-  const ener = (watt / 1000) * totU * kwh * aantal;
-  const mach = totU * (t.machine_per_uur || 0.13) * aantal;
-  const arb = ((parseInt(form.voorbereiding_min)||0) + (parseInt(form.nabewerking_min)||0)) / 60 * arbTarief
+  const mat = (gram / 1000) * ft.inkoop_prijs_per_kg * faal * aantal;
+  const ener = (watt / 1000) * totU * (t.kwh_prijs||0.35) * aantal;
+  const mach = totU * (t.machine_per_uur||0.13) * aantal;
+  const arb = ((parseInt(form.voorbereiding_min)||15) + (parseInt(form.nabewerking_min)||10)) / 60 * (t.arbeid_per_uur||15)
     + (parseInt(form.ontwerp_min)||0) / 60 * (parseFloat(form.ontwerp_tarief)||15)
     + (parseInt(form.nabewerking_extra_min)||0) / 60 * (parseFloat(form.nabewerking_extra_tarief)||15);
-  const bmcu = form.is_multicolor ? (t.bmcu_per_job || 0.10) : 0;
+  const bmcu = form.is_multicolor ? (t.bmcu_per_job||0.10) : 0;
+
+  // Multicolor materiaal: som van alle filamenttypes
+  let matMulti = 0;
+  if (form.is_multicolor && form.filament_rollen?.length > 1) {
+    matMulti = form.filament_rollen.reduce((s, fr) => {
+      const ft2 = filamentTypes.find(f => f.id === parseInt(fr.filament_type_id));
+      const g = parseFloat(fr.gram) || 0;
+      return s + (g / 1000) * (ft2?.inkoop_prijs_per_kg || ft.inkoop_prijs_per_kg) * faal;
+    }, 0) * aantal;
+  }
+
+  const matFinal = form.is_multicolor && form.filament_rollen?.length > 1 ? matMulti : mat;
   const extra = (parseFloat(form.extra_per_stuk)||0) * aantal + (parseFloat(form.extra_eenmalig)||0);
-  const sub = mat + ener + mach + arb + extra + bmcu;
+  const sub = matFinal + ener + mach + arb + extra + bmcu;
   const margeGrns = t.marge_grens_uur || 4;
-  const marge = totU >= margeGrns ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
+  const marge = totU >= margeGrns ? (t.marge_groot_pct||10) : (t.marge_klein_pct||18);
   const vkp = sub * (1 + marge / 100);
 
-  return { mat, ener, arb, extra, bmcu, sub, marge, vkp, aantal };
+  return { mat: matFinal, ener, arb, extra, bmcu, sub, marge, vkp, aantal };
 }
 
 function OfferteFormulier({ initForm, klanten, printers, filamentTypes, tarieven, onSaved, onCancel }) {
-  const [form, setForm] = useState(initForm);
+  const [form, setForm] = useState({
+    klant_id:'', printer_id: printers[0]?.id||'', filament_type_id:'',
+    object_naam:'', object_link:'',
+    geschat_gewicht_g:'', geschatte_tijd_u:0, geschatte_tijd_min:0,
+    voorbereiding_min: tarieven.voorbereiding_min||15,
+    nabewerking_min: tarieven.nabewerking_min||10,
+    ontwerp_min:0, ontwerp_tarief: tarieven.ontwerp_tarief||15,
+    nabewerking_extra_min:0, nabewerking_extra_tarief: tarieven.nabewerking_tarief||15,
+    is_multicolor:false, filament_rollen:[],
+    extra_per_stuk:0, extra_eenmalig:0, extra_omschrijving:'',
+    aantal:1, btw_pct:21, geldig_tot:'', notities:'',
+    ...initForm
+  });
   const [saving, setSaving] = useState(false);
   const set = useCallback((k, v) => setForm(f => ({ ...f, [k]: v })), []);
 
-  const preview = berekenPreview(form, tarieven, filamentTypes, printers);
+  const preview = berekenLive(form, tarieven, filamentTypes, printers);
+
+  function addFilamentRol() {
+    set('filament_rollen', [...(form.filament_rollen||[]), { filament_type_id: form.filament_type_id||'', gram:'' }]);
+  }
+
+  function setRolField(i, k, v) {
+    const rollen = [...(form.filament_rollen||[])];
+    rollen[i] = { ...rollen[i], [k]: v };
+    set('filament_rollen', rollen);
+  }
+
+  function removeRol(i) {
+    set('filament_rollen', (form.filament_rollen||[]).filter((_,idx) => idx !== i));
+  }
 
   async function save() {
     if (!form.klant_id) return alert('Selecteer een klant');
     setSaving(true);
     try {
       let r;
-      if (form.id) {
-        // Update bestaande offerte
-        r = await api.put(`/offertes2/${form.id}`, form);
-        r = { ...form, ...r };
-      } else {
-        r = await api.post('/offertes2', form);
-      }
+      if (form.id) r = await api.put(`/offertes2/${form.id}`, form);
+      else r = await api.post('/offertes2', form);
       onSaved(r);
     } catch(e) { alert(e.message); }
     finally { setSaving(false); }
   }
 
   const Sec = ({ title, children }) => (
-    <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'1rem', marginBottom:'1rem' }}>
-      <p style={{ fontSize:12, fontWeight:600, marginBottom:10 }}>{title}</p>
+    <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.85rem', marginBottom:'0.85rem' }}>
+      <p style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em', color:'var(--muted)', marginBottom:8 }}>{title}</p>
+      {children}
+    </div>
+  );
+
+  const F = ({ label, children, style }) => (
+    <div className="form-group" style={{ marginBottom:0, ...style }}>
+      <label style={{ fontSize:11 }}>{label}</label>
       {children}
     </div>
   );
 
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'1fr 300px', gap:'1.5rem', alignItems:'start' }}>
+    <div style={{ display:'grid', gridTemplateColumns:'1fr 260px', gap:'1.25rem', alignItems:'start' }}>
       <div>
-        <Sec title="👤 Klant & object">
+        <Sec title="Klant & object">
           <div className="form-row" style={{ marginBottom:8 }}>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label>Klant *</label>
+            <F label="Klant *">
               <select value={form.klant_id} onChange={e => set('klant_id', e.target.value)}>
-                <option value="">— selecteer klant —</option>
+                <option value="">— selecteer —</option>
                 {klanten.map(k => <option key={k.id} value={k.id}>{k.voornaam ? `${k.voornaam} ${k.naam}` : k.naam}</option>)}
               </select>
-            </div>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label>Printer</label>
+            </F>
+            <F label="Printer">
               <select value={form.printer_id} onChange={e => set('printer_id', e.target.value)}>
                 {printers.map(p => <option key={p.id} value={p.id}>{p.naam}</option>)}
               </select>
-            </div>
+            </F>
           </div>
-          <div className="form-group" style={{ marginBottom:8 }}>
-            <label>Object naam</label>
-            <input value={form.object_naam||''} onChange={e => set('object_naam', e.target.value)} placeholder="bv. Corgi hond, Naambordje..." />
-          </div>
-          <div className="form-group" style={{ marginBottom:0 }}>
-            <label>Link (Makerworld, Printables...)</label>
+          <F label="Object naam" style={{ marginBottom:8 }}>
+            <input value={form.object_naam||''} onChange={e => set('object_naam', e.target.value)} placeholder="bv. Corgi hond..." />
+          </F>
+          <F label="Link (Makerworld, Printables...)">
             <input value={form.object_link||''} onChange={e => set('object_link', e.target.value)} placeholder="https://..." />
-          </div>
+          </F>
         </Sec>
 
-        <Sec title="🧵 Slicer data">
+        <Sec title="Slicer data">
           <div className="form-row" style={{ marginBottom:8 }}>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label>Filamenttype</label>
+            <F label="Filamenttype (hoofd)">
               <select value={form.filament_type_id||''} onChange={e => set('filament_type_id', e.target.value)}>
-                <option value="">— selecteer type —</option>
+                <option value="">— selecteer —</option>
                 {filamentTypes.map(f => <option key={f.id} value={f.id}>{f.merk} {f.materiaal} — €{f.inkoop_prijs_per_kg?.toFixed(2)}/kg</option>)}
               </select>
-            </div>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label>Geschat gewicht (g)</label>
-              <NumInput value={form.geschat_gewicht_g||''} onChange={v => set('geschat_gewicht_g', v)} placeholder="uit slicer" />
-            </div>
+            </F>
+            <F label="Geschat gewicht (g)">
+              <input type="number" step="0.1" value={form.geschat_gewicht_g||''} onChange={e => set('geschat_gewicht_g', e.target.value)} placeholder="uit slicer" />
+            </F>
           </div>
           <div className="form-row" style={{ marginBottom:8 }}>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label>Geschatte tijd — uren</label>
+            <F label="Tijd — uren">
               <input type="number" min="0" value={form.geschatte_tijd_u||0} onChange={e => set('geschatte_tijd_u', parseInt(e.target.value)||0)} />
-            </div>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label>Geschatte tijd — minuten</label>
+            </F>
+            <F label="Tijd — minuten">
               <input type="number" min="0" max="59" value={form.geschatte_tijd_min||0} onChange={e => set('geschatte_tijd_min', parseInt(e.target.value)||0)} />
-            </div>
+            </F>
           </div>
-          <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, cursor:'pointer' }}>
-            <input type="checkbox" checked={!!form.is_multicolor} onChange={e => set('is_multicolor', e.target.checked)} />
-            Multicolor (BMCU +€{tarieven.bmcu_per_job || 0.10})
-          </label>
+
+          {/* Multicolor toggle */}
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: form.is_multicolor ? 8 : 0 }}>
+            <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, cursor:'pointer' }}>
+              <input type="checkbox" checked={!!form.is_multicolor} onChange={e => set('is_multicolor', e.target.checked)} />
+              Multicolor (BMCU +€{tarieven.bmcu_per_job || 0.10})
+            </label>
+          </div>
+
+          {/* Multicolor rollen */}
+          {form.is_multicolor && (
+            <div style={{ marginTop:8, padding:'0.75rem', background:'var(--bg2)', borderRadius:6 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                <span style={{ fontSize:11, color:'var(--muted)' }}>Filament per kleur</span>
+                <button className="btn" style={{ fontSize:10, padding:'2px 8px' }} onClick={addFilamentRol}>+ Kleur</button>
+              </div>
+              {(form.filament_rollen||[]).map((fr, i) => (
+                <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 80px auto', gap:6, marginBottom:5 }}>
+                  <select value={fr.filament_type_id||''} onChange={e => setRolField(i, 'filament_type_id', e.target.value)} style={{ fontSize:11 }}>
+                    <option value="">— type —</option>
+                    {filamentTypes.map(f => <option key={f.id} value={f.id}>{f.merk} {f.materiaal}</option>)}
+                  </select>
+                  <input type="number" placeholder="gram" value={fr.gram||''} onChange={e => setRolField(i, 'gram', e.target.value)} style={{ fontSize:11 }} />
+                  <button onClick={() => removeRol(i)} style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer' }}>✕</button>
+                </div>
+              ))}
+              <div style={{ fontSize:10, color:'var(--muted)', marginTop:4 }}>
+                Totaal slicer gewicht wordt gebruikt als fallback indien geen rollen ingevuld.
+              </div>
+            </div>
+          )}
         </Sec>
 
-        <Sec title="👷 Arbeid">
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10, fontSize:12 }}>
-            <div style={{ background:'var(--bg2)', borderRadius:6, padding:'8px 10px' }}>
-              <div style={{ color:'var(--muted)' }}>Voorbereiding</div>
-              <div style={{ fontWeight:600 }}>{form.voorbereiding_min} min → €{((form.voorbereiding_min||15)/60*(tarieven.arbeid_per_uur||15)).toFixed(2)}</div>
+        <Sec title="Arbeid">
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:8, fontSize:12 }}>
+            <div style={{ background:'var(--bg2)', borderRadius:6, padding:'7px 10px' }}>
+              <div style={{ color:'var(--muted)', fontSize:11 }}>Voorbereiding</div>
+              <div style={{ fontWeight:600 }}>{form.voorbereiding_min||15} min → €{((form.voorbereiding_min||15)/60*(tarieven.arbeid_per_uur||15)).toFixed(2)}</div>
             </div>
-            <div style={{ background:'var(--bg2)', borderRadius:6, padding:'8px 10px' }}>
-              <div style={{ color:'var(--muted)' }}>Nabewerking</div>
-              <div style={{ fontWeight:600 }}>{form.nabewerking_min} min → €{((form.nabewerking_min||10)/60*(tarieven.arbeid_per_uur||15)).toFixed(2)}</div>
+            <div style={{ background:'var(--bg2)', borderRadius:6, padding:'7px 10px' }}>
+              <div style={{ color:'var(--muted)', fontSize:11 }}>Nabewerking</div>
+              <div style={{ fontWeight:600 }}>{form.nabewerking_min||10} min → €{((form.nabewerking_min||10)/60*(tarieven.arbeid_per_uur||15)).toFixed(2)}</div>
             </div>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 80px', gap:8, marginBottom:8 }}>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label style={{ fontSize:11 }}>Ontwerp regie (min)</label>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 60px', gap:6, marginBottom:6 }}>
+            <F label="Ontwerp regie (min)">
               <input type="number" min="0" value={form.ontwerp_min||0} onChange={e => set('ontwerp_min', parseInt(e.target.value)||0)} />
-            </div>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label style={{ fontSize:11 }}>Tarief (€/u)</label>
-              <NumInput value={form.ontwerp_tarief||15} onChange={v => set('ontwerp_tarief', v)} />
-            </div>
-            <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2, fontSize:12, color:'var(--accent2)' }}>
+            </F>
+            <F label="Tarief (€/u)">
+              <input type="number" value={form.ontwerp_tarief||15} onChange={e => set('ontwerp_tarief', e.target.value)} />
+            </F>
+            <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2, fontSize:11, color:'var(--accent2)' }}>
               {(form.ontwerp_min||0) > 0 ? `€${((form.ontwerp_min||0)/60*(form.ontwerp_tarief||15)).toFixed(2)}` : ''}
             </div>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 80px', gap:8 }}>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label style={{ fontSize:11 }}>Nabewerking extra (min)</label>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 60px', gap:6 }}>
+            <F label="Nabewerking extra (min)">
               <input type="number" min="0" value={form.nabewerking_extra_min||0} onChange={e => set('nabewerking_extra_min', parseInt(e.target.value)||0)} />
-            </div>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label style={{ fontSize:11 }}>Tarief (€/u)</label>
-              <NumInput value={form.nabewerking_extra_tarief||15} onChange={v => set('nabewerking_extra_tarief', v)} />
-            </div>
-            <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2, fontSize:12, color:'var(--accent2)' }}>
+            </F>
+            <F label="Tarief (€/u)">
+              <input type="number" value={form.nabewerking_extra_tarief||15} onChange={e => set('nabewerking_extra_tarief', e.target.value)} />
+            </F>
+            <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2, fontSize:11, color:'var(--accent2)' }}>
               {(form.nabewerking_extra_min||0) > 0 ? `€${((form.nabewerking_extra_min||0)/60*(form.nabewerking_extra_tarief||15)).toFixed(2)}` : ''}
             </div>
           </div>
         </Sec>
 
-        <Sec title="➕ Extra kosten">
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:8 }}>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label style={{ fontSize:11 }}>Aantal stuks</label>
+        <Sec title="Extra kosten">
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginBottom:6 }}>
+            <F label="Aantal stuks">
               <input type="number" min="1" value={form.aantal||1} onChange={e => set('aantal', parseInt(e.target.value)||1)} />
-            </div>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label style={{ fontSize:11 }}>Extra/stuk (€) × aantal</label>
-              <NumInput value={form.extra_per_stuk||0} onChange={v => set('extra_per_stuk', v)} />
-            </div>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label style={{ fontSize:11 }}>Extra eenmalig (€)</label>
-              <NumInput value={form.extra_eenmalig||0} onChange={v => set('extra_eenmalig', v)} />
-            </div>
+            </F>
+            <F label="Extra/stuk (€)">
+              <input type="number" min="0" step="0.01" value={form.extra_per_stuk||0} onChange={e => set('extra_per_stuk', e.target.value)} />
+            </F>
+            <F label="Extra eenmalig (€)">
+              <input type="number" min="0" step="0.01" value={form.extra_eenmalig||0} onChange={e => set('extra_eenmalig', e.target.value)} />
+            </F>
           </div>
-          <div className="form-group" style={{ marginBottom:0 }}>
-            <label style={{ fontSize:11 }}>Omschrijving extra</label>
-            <input value={form.extra_omschrijving||''} onChange={e => set('extra_omschrijving', e.target.value)} placeholder="bv. 20 ringetjes + 1 nozzle 0.2mm" />
-          </div>
+          <F label="Omschrijving extra">
+            <input value={form.extra_omschrijving||''} onChange={e => set('extra_omschrijving', e.target.value)} placeholder="bv. 20 ringetjes" />
+          </F>
         </Sec>
 
-        <Sec title="📋 Offerte details">
-          <div className="form-row" style={{ marginBottom:8 }}>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label>Geldig tot</label>
+        <Sec title="Offerte details">
+          <div className="form-row" style={{ marginBottom:6 }}>
+            <F label="Geldig tot">
               <input type="date" value={form.geldig_tot||''} onChange={e => set('geldig_tot', e.target.value)} />
-            </div>
-            <div className="form-group" style={{ marginBottom:0 }}>
-              <label>BTW %</label>
-              <NumInput value={form.btw_pct||21} onChange={v => set('btw_pct', v)} />
-            </div>
+            </F>
+            <F label="BTW %">
+              <input type="number" value={form.btw_pct||21} onChange={e => set('btw_pct', parseFloat(e.target.value)||21)} />
+            </F>
           </div>
-          <div className="form-group" style={{ marginBottom:0 }}>
-            <label>Notities / opmerkingen</label>
+          <F label="Notities">
             <textarea rows={2} value={form.notities||''} onChange={e => set('notities', e.target.value)} />
-          </div>
+          </F>
         </Sec>
 
         <div style={{ display:'flex', gap:8 }}>
           <button className="btn" style={{ flex:1 }} onClick={onCancel}>Annuleer</button>
           <button className="btn primary" style={{ flex:2 }} onClick={save} disabled={saving}>
-            {saving ? 'Bezig...' : form.id ? '💾 Offerte bijwerken' : '📋 Offerte aanmaken'}
+            {saving ? 'Bezig...' : form.id ? '💾 Bijwerken' : '📋 Offerte aanmaken'}
           </button>
         </div>
       </div>
 
-      {/* Live preview — sticky */}
+      {/* Live preview */}
       <div style={{ position:'sticky', top:0 }}>
-        <div className="card">
-          <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'1rem' }}>📊 Prijsoverzicht (live)</h2>
+        <div className="card" style={{ padding:'1rem' }}>
+          <h2 style={{ fontSize:13, fontWeight:600, marginBottom:'0.75rem' }}>📊 Live prijsoverzicht</h2>
           {!preview
             ? <p style={{ color:'var(--muted)', fontSize:12 }}>Vul filamenttype en gewicht in</p>
             : <>
@@ -265,26 +306,22 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, tarieven
                 ...(preview.bmcu > 0 ? [['BMCU', preview.bmcu]] : []),
                 ...(preview.extra > 0 ? [['Extra', preview.extra]] : []),
               ].map(([label, val]) => (
-                <div key={label} style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
+                <div key={label} style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
                   <span style={{ color:'var(--muted)' }}>{label}</span>
                   <span>€{(val||0).toFixed(2)}</span>
                 </div>
               ))}
-              <div style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid var(--border)', fontSize:12, color:'var(--muted)' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:11, color:'var(--muted)' }}>
                 <span>Subtotaal</span><span>€{preview.sub.toFixed(2)}</span>
               </div>
-              <div style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid var(--border)', fontSize:12, color:'var(--muted)' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:11, color:'var(--muted)' }}>
                 <span>Marge ({preview.marge}%)</span><span>€{(preview.vkp-preview.sub).toFixed(2)}</span>
               </div>
-              <div style={{ display:'flex', justifyContent:'space-between', padding:'10px 0 4px', fontWeight:700 }}>
-                <span>Verkoopprijs{preview.aantal > 1 ? ` (${preview.aantal}×)` : ''}</span>
-                <span style={{ fontSize:22, color:'var(--accent2)' }}>€{preview.vkp.toFixed(2)}</span>
+              <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0 2px', fontWeight:700 }}>
+                <span style={{ fontSize:13 }}>Verkoopprijs{preview.aantal > 1 ? ` (${preview.aantal}×)` : ''}</span>
+                <span style={{ fontSize:20, color:'var(--accent2)' }}>€{preview.vkp.toFixed(2)}</span>
               </div>
-              {preview.aantal > 1 && (
-                <div style={{ textAlign:'right', fontSize:11, color:'var(--muted)' }}>
-                  €{(preview.vkp/preview.aantal).toFixed(2)} per stuk
-                </div>
-              )}
+              {preview.aantal > 1 && <div style={{ textAlign:'right', fontSize:11, color:'var(--muted)' }}>€{(preview.vkp/preview.aantal).toFixed(2)}/stuk</div>}
             </>
           }
         </div>
@@ -304,19 +341,6 @@ export default function Offertes() {
   const [editForm, setEditForm] = useState(null);
   const [jobStatus, setJobStatus] = useState('');
 
-  const defaultForm = () => ({
-    klant_id:'', object_naam:'', object_link:'',
-    printer_id: printers[0]?.id || '',
-    filament_type_id:'',
-    geschat_gewicht_g:'', geschatte_tijd_u:0, geschatte_tijd_min:0,
-    voorbereiding_min: tarieven.voorbereiding_min || 15,
-    nabewerking_min: tarieven.nabewerking_min || 10,
-    ontwerp_min:0, ontwerp_tarief: tarieven.ontwerp_tarief || 15,
-    nabewerking_extra_min:0, nabewerking_extra_tarief: tarieven.nabewerking_tarief || 15,
-    is_multicolor:false, extra_per_stuk:0, extra_eenmalig:0,
-    extra_omschrijving:'', aantal:1, btw_pct:21, geldig_tot:'', notities:'',
-  });
-
   const load = () => api.get('/offertes2').then(setOffertes);
 
   useEffect(() => {
@@ -331,6 +355,7 @@ export default function Offertes() {
     const d = await api.get(`/offertes2/${id}`);
     setDetail(d);
     setView('detail');
+    setJobStatus('');
   }
 
   async function updateStatus(id, status) {
@@ -343,7 +368,7 @@ export default function Offertes() {
     setJobStatus('Bezig...');
     try {
       const r = await api.post(`/offertes2/${id}/maak-job`, {});
-      setJobStatus(`✓ Job aangemaakt (ID: ${r.job_id})`);
+      setJobStatus(`✓ Job aangemaakt (ID: ${r.job_id}) — ga naar Jobs`);
       load();
       if (detail?.id === id) {
         const updated = await api.get(`/offertes2/${id}`);
@@ -359,46 +384,28 @@ export default function Offertes() {
     if (view === 'detail') { setDetail(null); setView('lijst'); }
   }
 
-  function startBewerk() {
-    if (!detail) return;
-    setEditForm({ ...detail });
-    setView('bewerk');
-  }
-
-  if (view === 'nieuw') {
+  if (view === 'nieuw' || (view === 'bewerk' && editForm)) {
+    const isEdit = view === 'bewerk';
     return (
       <div>
         <div className="page-header">
-          <h1>Nieuwe offerte</h1>
-          <button className="btn" onClick={() => setView('lijst')}>← Terug</button>
+          <h1>{isEdit ? `Offerte bewerken — ${editForm.nummer}` : 'Nieuwe offerte'}</h1>
+          <button className="btn" onClick={() => isEdit ? setView('detail') : setView('lijst')}>← Terug</button>
         </div>
         <OfferteFormulier
-          initForm={defaultForm()} klanten={klanten} printers={printers}
-          filamentTypes={filamentTypes} tarieven={tarieven}
-          onSaved={() => { load(); setView('lijst'); }}
-          onCancel={() => setView('lijst')}
-        />
-      </div>
-    );
-  }
-
-  if (view === 'bewerk' && editForm) {
-    return (
-      <div>
-        <div className="page-header">
-          <h1>Offerte bewerken — {editForm.nummer}</h1>
-          <button className="btn" onClick={() => setView('detail')}>← Terug</button>
-        </div>
-        <OfferteFormulier
-          initForm={editForm} klanten={klanten} printers={printers}
-          filamentTypes={filamentTypes} tarieven={tarieven}
+          initForm={isEdit ? editForm : {}}
+          klanten={klanten} printers={printers} filamentTypes={filamentTypes} tarieven={tarieven}
           onSaved={async () => {
             await load();
-            const updated = await api.get(`/offertes2/${editForm.id}`);
-            setDetail(updated);
-            setView('detail');
+            if (isEdit) {
+              const updated = await api.get(`/offertes2/${editForm.id}`);
+              setDetail(updated);
+              setView('detail');
+            } else {
+              setView('lijst');
+            }
           }}
-          onCancel={() => setView('detail')}
+          onCancel={() => isEdit ? setView('detail') : setView('lijst')}
         />
       </div>
     );
@@ -411,25 +418,21 @@ export default function Offertes() {
         <button className="btn primary" onClick={() => setView('nieuw')}>+ Nieuwe offerte</button>
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns: detail && view === 'detail' ? '1fr 400px' : '1fr', gap:'1rem' }}>
+      <div style={{ display:'grid', gridTemplateColumns: detail && view === 'detail' ? '1fr 380px' : '1fr', gap:'1rem' }}>
         <div>
           {offertes.length === 0
-            ? <div className="empty"><p>Nog geen offertes</p></div>
+            ? <div className="empty"><p>Nog geen offertes</p><p style={{ fontSize:12, color:'var(--muted)', marginTop:8 }}>Klik op "+ Nieuwe offerte" om te starten</p></div>
             : <div className="card" style={{ padding:0 }}>
                 <table>
-                  <thead>
-                    <tr><th>Nummer</th><th>Klant</th><th>Object</th><th>Status</th><th>Prijs</th><th>Datum</th><th></th></tr>
-                  </thead>
+                  <thead><tr><th>Nummer</th><th>Klant</th><th>Object</th><th>Status</th><th>Prijs</th><th>Datum</th><th></th></tr></thead>
                   <tbody>
                     {offertes.map(o => (
-                      <tr key={o.id} style={{ cursor:'pointer' }}
-                        onClick={() => openDetail(o.id)}>
+                      <tr key={o.id} style={{ cursor:'pointer' }} onClick={() => openDetail(o.id)}>
                         <td style={{ fontWeight:600, fontFamily:'monospace', fontSize:12 }}>{o.nummer}</td>
-                        <td>{o.klant_voornaam ? `${o.klant_voornaam} ${o.klant_naam}` : o.klant_naam}</td>
-                        <td style={{ fontSize:12 }}>{o.object_naam || '—'}</td>
+                        <td style={{ fontSize:13 }}>{o.klant_voornaam ? `${o.klant_voornaam} ${o.klant_naam}` : o.klant_naam}</td>
+                        <td style={{ fontSize:12, color:'var(--muted)' }}>{o.object_naam || '—'}</td>
                         <td>
-                          <span style={{ fontSize:11, fontWeight:600, color:statusKleur(o.status),
-                            background:statusKleur(o.status)+'22', padding:'2px 8px', borderRadius:20 }}>
+                          <span style={{ fontSize:11, fontWeight:600, color:statusKleur(o.status), background:statusKleur(o.status)+'22', padding:'2px 8px', borderRadius:20 }}>
                             {o.status}
                           </span>
                         </td>
@@ -437,10 +440,8 @@ export default function Offertes() {
                         <td style={{ fontSize:11, color:'var(--muted)' }}>{o.aangemaakt_op?.split('T')[0]}</td>
                         <td onClick={e => e.stopPropagation()}>
                           <div style={{ display:'flex', gap:4 }}>
-                            <a className="btn" style={{ fontSize:10, padding:'3px 7px' }}
-                              href={`${BASE}/offertes2/${o.id}/pdf`} download>↓</a>
-                            <button className="btn danger" style={{ fontSize:10, padding:'3px 7px' }}
-                              onClick={() => del(o.id)}>✕</button>
+                            <a className="btn" style={{ fontSize:10, padding:'3px 7px' }} href={`${BASE}/offertes2/${o.id}/pdf`} download title="PDF">↓</a>
+                            <button className="btn danger" style={{ fontSize:10, padding:'3px 7px' }} onClick={() => del(o.id)}>✕</button>
                           </div>
                         </td>
                       </tr>
@@ -451,98 +452,71 @@ export default function Offertes() {
           }
         </div>
 
-        {/* Detail panel */}
         {detail && view === 'detail' && (
           <div className="card" style={{ position:'sticky', top:0, maxHeight:'90vh', overflowY:'auto' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.75rem' }}>
               <h2 style={{ fontSize:15, fontWeight:700 }}>{detail.nummer}</h2>
               <div style={{ display:'flex', gap:6 }}>
-                <button className="btn" style={{ fontSize:11 }} onClick={startBewerk}>✏ Bewerken</button>
+                <button className="btn" style={{ fontSize:11 }} onClick={() => { setEditForm({...detail}); setView('bewerk'); }}>✏</button>
                 <button className="btn" onClick={() => { setDetail(null); setView('lijst'); }}>✕</button>
               </div>
             </div>
 
-            <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'1rem', fontSize:13 }}>
-              <div style={{ fontWeight:600 }}>
-                {detail.klant_voornaam ? `${detail.klant_voornaam} ${detail.klant_naam}` : detail.klant_naam}
-              </div>
+            <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.65rem', marginBottom:'0.75rem', fontSize:13 }}>
+              <div style={{ fontWeight:600 }}>{detail.klant_voornaam ? `${detail.klant_voornaam} ${detail.klant_naam}` : detail.klant_naam}</div>
               {detail.email && <div style={{ color:'var(--muted)', fontSize:12 }}>✉ {detail.email}</div>}
-              {detail.object_naam && <div style={{ color:'var(--accent)', fontSize:12, marginTop:4 }}>📦 {detail.object_naam}</div>}
-              {detail.object_link && (
-                <a href={detail.object_link} target="_blank" rel="noreferrer"
-                  style={{ fontSize:11, color:'var(--accent)' }}>🔗 Link openen</a>
-              )}
+              {detail.object_naam && <div style={{ color:'var(--accent)', fontSize:12 }}>📦 {detail.object_naam}</div>}
+              {detail.object_link && <a href={detail.object_link} target="_blank" rel="noreferrer" style={{ fontSize:11, color:'var(--accent)' }}>🔗 Link</a>}
             </div>
 
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, fontSize:12, marginBottom:'1rem' }}>
-              {[
-                ['Printer', detail.printer_naam || '—'],
-                ['Filament', detail.filament_merk ? `${detail.filament_merk} ${detail.filament_materiaal}` : '—'],
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5, fontSize:12, marginBottom:'0.75rem' }}>
+              {[['Printer', detail.printer_naam||'—'], ['Filament', detail.filament_merk ? `${detail.filament_merk} ${detail.filament_materiaal}` : '—'],
                 ['Gewicht', detail.geschat_gewicht_g ? `${detail.geschat_gewicht_g}g` : '—'],
                 ['Tijd', `${detail.geschatte_tijd_u||0}u ${detail.geschatte_tijd_min||0}min`],
-                ['Aantal', detail.aantal || 1],
-                ['Multicolor', detail.is_multicolor ? 'Ja' : 'Nee'],
-              ].map(([label, val]) => (
-                <div key={label} style={{ padding:'4px 0', borderBottom:'1px solid var(--border)' }}>
-                  <div style={{ color:'var(--muted)', fontSize:11 }}>{label}</div>
-                  <div style={{ fontWeight:500 }}>{val}</div>
+                ['Aantal', detail.aantal||1], ['Multicolor', detail.is_multicolor ? 'Ja':'Nee']
+              ].map(([l,v]) => (
+                <div key={l} style={{ padding:'3px 0', borderBottom:'1px solid var(--border)' }}>
+                  <div style={{ color:'var(--muted)', fontSize:10 }}>{l}</div>
+                  <div style={{ fontWeight:500 }}>{v}</div>
                 </div>
               ))}
             </div>
 
-            {[
-              ['Materiaal', detail.materiaal_kost],
-              ['Energie (schat)', detail.energie_kost_schat],
-              ['Arbeid', detail.arbeid_kost],
-              ...(detail.extra_totaal > 0 ? [['Extra', detail.extra_totaal]] : []),
-            ].map(([label, val]) => (
-              <div key={label} style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
-                <span style={{ color:'var(--muted)' }}>{label}</span>
-                <span>€{(val||0).toFixed(2)}</span>
+            {[['Materiaal', detail.materiaal_kost], ['Energie (schat)', detail.energie_kost_schat],
+              ['Arbeid', detail.arbeid_kost], ...(detail.extra_totaal > 0 ? [['Extra', detail.extra_totaal]] : [])
+            ].map(([l,v]) => (
+              <div key={l} style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
+                <span style={{ color:'var(--muted)' }}>{l}</span><span>€{(v||0).toFixed(2)}</span>
               </div>
             ))}
-            <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:12, color:'var(--muted)' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:11, color:'var(--muted)' }}>
               <span>Subtotaal</span><span>€{detail.subtotaal?.toFixed(2)}</span>
             </div>
-            <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', fontWeight:700, fontSize:16, marginBottom:'1rem' }}>
-              <span>Verkoopprijs</span>
-              <span style={{ color:'var(--accent2)' }}>€{detail.verkoopprijs?.toFixed(2)}</span>
+            <div style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', fontWeight:700, fontSize:15, marginBottom:'0.75rem' }}>
+              <span>Verkoopprijs</span><span style={{ color:'var(--accent2)' }}>€{detail.verkoopprijs?.toFixed(2)}</span>
             </div>
 
-            <div className="form-group" style={{ marginBottom:'1rem' }}>
-              <label>Status</label>
+            <div className="form-group" style={{ marginBottom:'0.75rem' }}>
+              <label style={{ fontSize:11 }}>Status</label>
               <select value={detail.status} onChange={e => updateStatus(detail.id, e.target.value)}>
                 {STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
 
             {detail.notities && (
-              <div style={{ background:'#fffbeb', borderLeft:'3px solid #f59e0b', padding:'8px 12px', borderRadius:4, fontSize:12, color:'#664400', marginBottom:'1rem' }}>
+              <div style={{ background:'#fffbeb', borderLeft:'3px solid #f59e0b', padding:'7px 10px', borderRadius:4, fontSize:12, color:'#664400', marginBottom:'0.75rem' }}>
                 📝 {detail.notities}
               </div>
             )}
 
-            {jobStatus && (
-              <div style={{ fontSize:12, color: jobStatus.includes('✓') ? 'var(--accent2)' : 'var(--danger)', marginBottom:8 }}>
-                {jobStatus}
-              </div>
-            )}
+            {jobStatus && <div style={{ fontSize:12, color: jobStatus.includes('✓') ? 'var(--accent2)':'var(--danger)', marginBottom:6 }}>{jobStatus}</div>}
 
-            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              <a className="btn" style={{ textAlign:'center' }}
-                href={`${BASE}/offertes2/${detail.id}/pdf`} download>
-                ↓ PDF downloaden
-              </a>
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              <a className="btn" style={{ textAlign:'center' }} href={`${BASE}/offertes2/${detail.id}/pdf`} download>↓ PDF downloaden</a>
               {!detail.job_id && detail.status !== 'geannuleerd' && (
-                <button className="btn primary" onClick={() => maakJob(detail.id)}>
-                  🔧 Maak werkbon job
-                </button>
+                <button className="btn primary" onClick={() => maakJob(detail.id)}>🔧 Maak werkbon job</button>
               )}
-              {detail.job_id && (
-                <div style={{ fontSize:12, color:'var(--accent2)', textAlign:'center', padding:'6px 0' }}>
-                  ✓ Werkbon job aangemaakt (ID: {detail.job_id})
-                </div>
-              )}
+              {detail.job_id && <div style={{ fontSize:12, color:'var(--accent2)', textAlign:'center' }}>✓ Werkbon job: #{detail.job_id}</div>}
             </div>
           </div>
         )}
