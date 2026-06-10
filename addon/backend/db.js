@@ -3,6 +3,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { migrateDb } from './db_migration.js';
 import { migrateDbV2 } from './db_migration_v2.js';
+import { migrateDbV3 } from './db_migration_v3.js';
+import { migrateDbV4 } from './db_migration_v4.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'erp.db');
@@ -159,6 +161,8 @@ export function initDb() {
   // Migraties
   migrateDb(db);
   migrateDbV2(db);
+  migrateDbV3(db);
+  migrateDbV4(db);
 
   const printerCount = db.prepare('SELECT COUNT(*) as c FROM printers').get().c;
   if (printerCount === 0) {
