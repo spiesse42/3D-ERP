@@ -5,9 +5,9 @@ export function migrateDbV7(db) {
     db.exec(`ALTER TABLE printers ADD COLUMN watt_entity TEXT`);
     console.log('[V7] printers.watt_entity toegevoegd');
 
-    // Vul standaard watt_entity in voor bestaande printers op basis van kwh_entity
-    // kwh_entity = sensor.lsc_power_plug_fr_incl_power_meter_5_totaal_energieverbruik
-    // watt_entity = sensor.lsc_power_plug_fr_incl_power_meter_5_vermogen
+    // Automatisch invullen op basis van kwh_entity:
+    // sensor.lsc_power_plug_fr_incl_power_meter_5_totaal_energieverbruik
+    //   → sensor.lsc_power_plug_fr_incl_power_meter_5_vermogen
     db.exec(`
       UPDATE printers
       SET watt_entity = REPLACE(kwh_entity, '_totaal_energieverbruik', '_vermogen')
@@ -29,25 +29,40 @@ export function migrateDbV7(db) {
   `);
   console.log('[V7] energy_samples tabel aangemaakt');
 
-  // 3. ha_token in tarieven (leeg — gebruiker vult in via Instellingen)
+  // 3. instellingen tabel voor tekst-waarden (token, url, enz.)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS instellingen (
+      sleutel  TEXT PRIMARY KEY,
+      waarde   TEXT NOT NULL DEFAULT '',
+      label    TEXT
+    );
+  `);
+  console.log('[V7] instellingen tabel aangemaakt');
+
+  // 4. ha_token in instellingen
   const bestaatToken = db.prepare(
-    `SELECT 1 FROM tarieven WHERE sleutel = 'ha_token'`
+    `SELECT 1 FROM instellingen WHERE sleutel = 'ha_token'`
   ).get();
   if (!bestaatToken) {
     db.prepare(
-      `INSERT INTO tarieven (sleutel, waarde, eenheid, label) VALUES ('ha_token', 0, 'token', 'Home Assistant Token')`
+      `INSERT INTO instellingen (sleutel, waarde, label) VALUES ('ha_token', '', 'Home Assistant Token')`
     ).run();
-    console.log('[V7] ha_token toegevoegd aan tarieven');
+    console.log('[V7] ha_token toegevoegd aan instellingen');
   }
 
-  // 4. ha_url in tarieven (lokaal IP van HA installatie)
+  // 5. ha_url in instellingen (bv. http://192.168.0.105:8123)
   const bestaatUrl = db.prepare(
-    `SELECT 1 FROM tarieven WHERE sleutel = 'ha_url'`
+    `SELECT 1 FROM instellingen WHERE sleutel = 'ha_url'`
   ).get();
   if (!bestaatUrl) {
     db.prepare(
-      `INSERT INTO tarieven (sleutel, waarde, eenheid, label) VALUES ('ha_url', 0, 'url', 'Home Assistant URL')`
+      `INSERT INTO instellingen (sleutel, waarde, label) VALUES ('ha_url', 'http://192.168.0.105:8123', 'Home Assistant URL')`
     ).run();
-    console.log('[V7] ha_url toegevoegd aan tarieven');
+    console.log('[V7] ha_url toegevoegd aan instellingen');
   }
+
+  // 6. Opruimen: ha_token en ha_url verwijderen uit tarieven als die er nog instaan
+  //    (van de eerste versie van deze migratie)
+  db.exec(`DELETE FROM tarieven WHERE sleutel IN ('ha_token', 'ha_url')`);
+  console.log('[V7] ha_token/ha_url opgeruimd uit tarieven indien aanwezig');
 }
