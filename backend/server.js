@@ -3,7 +3,6 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { initDb } from './db.js';
-
 import klanten from './routes/klanten.js';
 import printers from './routes/printers.js';
 import filament from './routes/filament.js';
@@ -14,41 +13,34 @@ import offertes2 from './routes/offertes_v2.js';
 import tarieven from './routes/tarieven.js';
 import ha from './routes/ha.js';
 import rapportage from './routes/rapportage.js';
-import { betalingen } from './routes/_combined.js';
-
+import { betalingen, instellingen } from './routes/_combined.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
-
 app.use(cors());
 app.use(express.json());
-
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.url}`);
   next();
 });
-
 initDb();
-
-app.use('/api/klanten',    klanten);
-app.use('/api/printers',   printers);
-app.use('/api/filament',   filament);
-app.use('/api/jobs',       jobs);
-app.use('/api/kosten',     kosten);
-app.use('/api/offertes',   offertes);
-app.use('/api/offertes2',  offertes2);
-app.use('/api/betalingen', betalingen);
-app.use('/api/tarieven',   tarieven);
-app.use('/api/ha',         ha);
-app.use('/api/rapportage', rapportage);
-
+app.use('/api/klanten',      klanten);
+app.use('/api/printers',     printers);
+app.use('/api/filament',     filament);
+app.use('/api/jobs',         jobs);
+app.use('/api/kosten',       kosten);
+app.use('/api/offertes',     offertes);
+app.use('/api/offertes2',    offertes2);
+app.use('/api/betalingen',   betalingen);
+app.use('/api/tarieven',     tarieven);
+app.use('/api/instellingen', instellingen);
+app.use('/api/ha',           ha);
+app.use('/api/rapportage',   rapportage);
 const frontendPath = path.join(__dirname, '..', 'frontend', 'dist');
 app.use(express.static(frontendPath));
-
 app.get('*', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
-
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`3D Print ERP draait op poort ${PORT}`);
 });
