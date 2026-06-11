@@ -3,119 +3,178 @@ import { api } from '../lib/api.js';
 
 const BASE = window.__API_BASE__ || '/api';
 const STATUSSEN = ['concept','verstuurd','goedgekeurd','geannuleerd'];
+const BTW_OPTIES = [0, 6, 21];
 
 function statusKleur(s) {
   return { concept:'#f59e0b', verstuurd:'#60a5fa', goedgekeurd:'#22c55e', geannuleerd:'#6b7280' }[s] || '#6b7280';
 }
 
-// Stabiele numerieke invoer — cursor springt niet weg
-function useNumField(init) {
-  const [display, setDisplay] = useState(String(init ?? ''));
-  const [value, setValue] = useState(parseFloat(String(init).replace(',','.')) || 0);
-  const focused = useRef(false);
-
-  function onChange(e) {
-    const raw = e.target.value;
-    setDisplay(raw);
-    const num = parseFloat(raw.replace(',','.'));
-    if (!isNaN(num)) setValue(num);
-    else if (raw === '' || raw === '-') setValue(0);
-  }
-
-  function onBlur() {
-    focused.current = false;
-    setDisplay(String(value));
-  }
-
-  function onFocus() { focused.current = true; }
-
-  function set(v) {
-    if (!focused.current) {
-      setValue(parseFloat(v) || 0);
-      setDisplay(String(v ?? ''));
-    }
-  }
-
-  return { display, value, onChange, onBlur, onFocus, set };
+// Stabiele string-state voor elk invoerveld — cursor springt nooit weg
+function useField(init) {
+  const [val, setVal] = useState(String(init ?? ''));
+  const ref = useRef(false);
+  return {
+    val,
+    props: {
+      value: val,
+      onChange: e => setVal(e.target.value),
+      onFocus: () => { ref.current = true; },
+      onBlur:  () => { ref.current = false; },
+    },
+    setExternal: v => { if (!ref.current) setVal(String(v ?? '')); },
+    num: () => parseFloat(val.replace(',', '.')) || 0,
+    int: () => parseInt(val) || 0,
+  };
 }
 
-function berekenLive(form, tarieven, filamentTypes, printers) {
-  const ft = filamentTypes.find(f => f.id === parseInt(form.filament_type_id));
-  if (!ft || !form.geschat_gewicht_g) return null;
+function berekenLive(form, tarieven, rollen) {
+  if (!form.filament_rol_id || !form.geschat_gewicht_g) return null;
+
+  const rol = rollen.find(r => r.id === parseInt(form.filament_rol_id));
+  if (!rol) return null;
 
   const t = tarieven;
-  const faal = 1 + (t.faalfactor_pct || 10) / 100;
-  const gram = parseFloat(form.geschat_gewicht_g) || 0;
-  const u = parseInt(form.geschatte_tijd_u) || 0;
-  const min = parseInt(form.geschatte_tijd_min) || 0;
-  const totU = u + min / 60;
+  const prijsPerKg = parseFloat(rol.prijs_per_kg_effectief || rol.inkoop_prijs_per_kg) || 0;
+  const faal  = 1 + (t.faalfactor_pct || 10) / 100;
+  const gram  = parseFloat(form.geschat_gewicht_g) || 0;
+  const totU  = (parseInt(form.geschatte_tijd_u) || 0) + (parseInt(form.geschatte_tijd_min) || 0) / 60;
   const aantal = parseInt(form.aantal) || 1;
-  const printer = printers.find(p => p.id === parseInt(form.printer_id));
-  const watt = printer?.naam?.toLowerCase().includes('ender') ? (t.ender_watt||150) : (t.bambu_watt||120);
+  const watt  = form.printer_watt || 120;
 
-  const mat = (gram / 1000) * ft.inkoop_prijs_per_kg * faal * aantal;
-  const ener = (watt / 1000) * totU * (t.kwh_prijs||0.35) * aantal;
-  const mach = totU * (t.machine_per_uur||0.13) * aantal;
-  const arb = ((parseInt(form.voorbereiding_min)||15) + (parseInt(form.nabewerking_min)||10)) / 60 * (t.arbeid_per_uur||15)
-    + (parseInt(form.ontwerp_min)||0) / 60 * (parseFloat(form.ontwerp_tarief)||15)
-    + (parseInt(form.nabewerking_extra_min)||0) / 60 * (parseFloat(form.nabewerking_extra_tarief)||15);
-  const bmcu = form.is_multicolor ? (t.bmcu_per_job||0.10) : 0;
+  // Machinekost: gebruik printer-specifieke kost indien beschikbaar
+  const machKost = parseFloat(form.machine_kost_per_uur) || (t.machine_per_uur || 0.13);
 
-  // Multicolor materiaal: som van alle filamenttypes
-  let matMulti = 0;
-  if (form.is_multicolor && form.filament_rollen?.length > 1) {
-    matMulti = form.filament_rollen.reduce((s, fr) => {
-      const ft2 = filamentTypes.find(f => f.id === parseInt(fr.filament_type_id));
-      const g = parseFloat(fr.gram) || 0;
-      return s + (g / 1000) * (ft2?.inkoop_prijs_per_kg || ft.inkoop_prijs_per_kg) * faal;
+  // Materiaal via rolprijs
+  let mat = (gram / 1000) * prijsPerKg * faal * aantal;
+
+  // Multicolor: som per kleur via gekozen rol
+  if (form.is_multicolor && form.filament_rollen?.length > 0) {
+    const multiMat = form.filament_rollen.reduce((s, fr) => {
+      const r2 = rollen.find(r => r.id === parseInt(fr.filament_rol_id));
+      const p2 = parseFloat(r2?.prijs_per_kg_effectief || r2?.inkoop_prijs_per_kg) || prijsPerKg;
+      const g2 = parseFloat(fr.gram) || 0;
+      return s + (g2 / 1000) * p2 * faal;
     }, 0) * aantal;
+    if (form.filament_rollen.some(fr => fr.gram > 0)) mat = multiMat;
   }
 
-  const matFinal = form.is_multicolor && form.filament_rollen?.length > 1 ? matMulti : mat;
-  const extra = (parseFloat(form.extra_per_stuk)||0) * aantal + (parseFloat(form.extra_eenmalig)||0);
-  const sub = matFinal + ener + mach + arb + extra + bmcu;
-  const margeGrns = t.marge_grens_uur || 4;
-  const marge = totU >= margeGrns ? (t.marge_groot_pct||10) : (t.marge_klein_pct||18);
-  const vkp = sub * (1 + marge / 100);
+  const ener  = (watt / 1000) * totU * (t.kwh_prijs || 0.35) * aantal;
+  const mach  = totU * machKost * aantal;
+  const voorb = parseFloat(form.voorbereiding_min) || 0;
+  const nab   = parseFloat(form.nabewerking_min) || 0;
+  const arb   = (voorb + nab) / 60 * (t.arbeid_per_uur || 15)
+    + (parseInt(form.ontwerp_min) || 0) / 60 * (parseFloat(form.ontwerp_tarief) || 15)
+    + (parseInt(form.nabewerking_extra_min) || 0) / 60 * (parseFloat(form.nabewerking_extra_tarief) || 15);
+  const bmcu  = form.is_multicolor ? (t.bmcu_per_job || 0.10) : 0;
+  const extra = (parseFloat(form.extra_per_stuk) || 0) * aantal + (parseFloat(form.extra_eenmalig) || 0);
 
-  return { mat: matFinal, ener, arb, extra, bmcu, sub, marge, vkp, aantal };
+  const sub   = mat + ener + mach + arb + extra + bmcu;
+  const margeGrns = t.marge_grens_uur || 4;
+  const marge = totU >= margeGrns ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
+  const vkp   = sub * (1 + marge / 100);
+
+  return { mat, ener, mach, arb, extra, bmcu, sub, marge, vkp, aantal, prijsPerKg };
 }
 
-function OfferteFormulier({ initForm, klanten, printers, filamentTypes, tarieven, onSaved, onCancel }) {
+// ── OfferteFormulier ──────────────────────────────────────────────────────────
+function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRollen, tarieven, onSaved, onCancel }) {
   const [form, setForm] = useState({
-    klant_id:'', printer_id: printers[0]?.id||'', filament_type_id:'',
+    klant_id:'', printer_id: printers[0]?.id || '',
+    filament_type_id:'', filament_rol_id:'',
     object_naam:'', object_link:'',
-    geschat_gewicht_g:'', geschatte_tijd_u:0, geschatte_tijd_min:0,
-    voorbereiding_min: tarieven.voorbereiding_min||15,
-    nabewerking_min: tarieven.nabewerking_min||10,
-    ontwerp_min:0, ontwerp_tarief: tarieven.ontwerp_tarief||15,
-    nabewerking_extra_min:0, nabewerking_extra_tarief: tarieven.nabewerking_tarief||15,
+    geschat_gewicht_g:'',
+    geschatte_tijd_u:0, geschatte_tijd_min:0,
+    voorbereiding_min: tarieven.voorbereiding_min || 15,
+    nabewerking_min: tarieven.nabewerking_min || 10,
+    ontwerp_min:0, ontwerp_tarief: tarieven.ontwerp_tarief || 15,
+    nabewerking_extra_min:0, nabewerking_extra_tarief: tarieven.nabewerking_tarief || 15,
     is_multicolor:false, filament_rollen:[],
     extra_per_stuk:0, extra_eenmalig:0, extra_omschrijving:'',
     aantal:1, btw_pct:21, geldig_tot:'', notities:'',
+    machine_kost_per_uur: '',
+    printer_watt: 120,
     ...initForm
   });
   const [saving, setSaving] = useState(false);
+  const [rollenVoorType, setRollenVoorType] = useState([]);
   const set = useCallback((k, v) => setForm(f => ({ ...f, [k]: v })), []);
 
-  const preview = berekenLive(form, tarieven, filamentTypes, printers);
+  // Lokale string-states voor alle numerieke velden
+  const gewichtF    = useField(form.geschat_gewicht_g);
+  const tijdUF      = useField(form.geschatte_tijd_u);
+  const tijdMinF    = useField(form.geschatte_tijd_min);
+  const voorbF      = useField(form.voorbereiding_min);
+  const nabF        = useField(form.nabewerking_min);
+  const ontwMinF    = useField(form.ontwerp_min);
+  const ontwTarF    = useField(form.ontwerp_tarief);
+  const nabExMinF   = useField(form.nabewerking_extra_min);
+  const nabExTarF   = useField(form.nabewerking_extra_tarief);
+  const aantalF     = useField(form.aantal);
+  const extraStukF  = useField(form.extra_per_stuk);
+  const extraEenF   = useField(form.extra_eenmalig);
+
+  // Sync velden naar form
+  useEffect(() => { set('geschat_gewicht_g',       gewichtF.num()); }, [gewichtF.val]);
+  useEffect(() => { set('geschatte_tijd_u',         tijdUF.int());   }, [tijdUF.val]);
+  useEffect(() => { set('geschatte_tijd_min',       tijdMinF.int()); }, [tijdMinF.val]);
+  useEffect(() => { set('voorbereiding_min',        voorbF.num());   }, [voorbF.val]);
+  useEffect(() => { set('nabewerking_min',          nabF.num());     }, [nabF.val]);
+  useEffect(() => { set('ontwerp_min',              ontwMinF.int()); }, [ontwMinF.val]);
+  useEffect(() => { set('ontwerp_tarief',           ontwTarF.num()); }, [ontwTarF.val]);
+  useEffect(() => { set('nabewerking_extra_min',    nabExMinF.int());}, [nabExMinF.val]);
+  useEffect(() => { set('nabewerking_extra_tarief', nabExTarF.num());}, [nabExTarF.val]);
+  useEffect(() => { set('aantal',                   aantalF.int());  }, [aantalF.val]);
+  useEffect(() => { set('extra_per_stuk',           extraStukF.num());}, [extraStukF.val]);
+  useEffect(() => { set('extra_eenmalig',           extraEenF.num());}, [extraEenF.val]);
+
+  // Laad rollen wanneer filamenttype wijzigt
+  useEffect(() => {
+    if (!form.filament_type_id) { setRollenVoorType([]); set('filament_rol_id', ''); return; }
+    api.get(`/filament/rollen/by-type/${form.filament_type_id}`)
+      .then(r => {
+        setRollenVoorType(r);
+        // Auto-select als er maar 1 rol is
+        if (r.length === 1) set('filament_rol_id', r[0].id);
+        else set('filament_rol_id', '');
+      })
+      .catch(() => setRollenVoorType([]));
+  }, [form.filament_type_id]);
+
+  // Printer wattage + machinekost bijwerken bij printerwijziging
+  useEffect(() => {
+    const p = printers.find(p => p.id === parseInt(form.printer_id));
+    if (p) {
+      set('machine_kost_per_uur', p.machine_kost_per_uur || 0.13);
+      set('printer_watt', p.naam?.toLowerCase().includes('ender') ? (tarieven.ender_watt || 150) : (tarieven.bambu_watt || 120));
+    }
+  }, [form.printer_id]);
+
+  const gekozenRol = rollenVoorType.find(r => r.id === parseInt(form.filament_rol_id));
+  const stockWaarschuwing = gekozenRol && form.geschat_gewicht_g
+    ? parseFloat(form.geschat_gewicht_g) > gekozenRol.gewicht_gram_huidig
+    : false;
+
+  const preview = berekenLive(form, tarieven, allRollen);
 
   function addFilamentRol() {
-    set('filament_rollen', [...(form.filament_rollen||[]), { filament_type_id: form.filament_type_id||'', gram:'' }]);
+    set('filament_rollen', [...(form.filament_rollen || []), { filament_type_id: form.filament_type_id || '', filament_rol_id: '', gram: '' }]);
   }
 
   function setRolField(i, k, v) {
-    const rollen = [...(form.filament_rollen||[])];
+    const rollen = [...(form.filament_rollen || [])];
     rollen[i] = { ...rollen[i], [k]: v };
     set('filament_rollen', rollen);
   }
 
   function removeRol(i) {
-    set('filament_rollen', (form.filament_rollen||[]).filter((_,idx) => idx !== i));
+    set('filament_rollen', (form.filament_rollen || []).filter((_, idx) => idx !== i));
   }
 
   async function save() {
     if (!form.klant_id) return alert('Selecteer een klant');
+    if (!form.filament_rol_id) return alert('Selecteer een filamentrol');
+    if (form.is_multicolor && form.filament_rollen.some(fr => !fr.filament_rol_id))
+      return alert('Selecteer voor elke kleur een filamentrol');
     setSaving(true);
     try {
       let r;
@@ -141,8 +200,9 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, tarieven
   );
 
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'1fr 260px', gap:'1.25rem', alignItems:'start' }}>
+    <div style={{ display:'grid', gridTemplateColumns:'1fr 270px', gap:'1.25rem', alignItems:'start' }}>
       <div>
+        {/* KLANT & OBJECT */}
         <Sec title="Klant & object">
           <div className="form-row" style={{ marginBottom:8 }}>
             <F label="Klant *">
@@ -158,31 +218,61 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, tarieven
             </F>
           </div>
           <F label="Object naam" style={{ marginBottom:8 }}>
-            <input value={form.object_naam||''} onChange={e => set('object_naam', e.target.value)} placeholder="bv. Corgi hond..." />
+            <input value={form.object_naam || ''} onChange={e => set('object_naam', e.target.value)} placeholder="bv. Corgi hond..." />
           </F>
           <F label="Link (Makerworld, Printables...)">
-            <input value={form.object_link||''} onChange={e => set('object_link', e.target.value)} placeholder="https://..." />
+            <input value={form.object_link || ''} onChange={e => set('object_link', e.target.value)} placeholder="https://..." />
           </F>
         </Sec>
 
+        {/* SLICER DATA */}
         <Sec title="Slicer data">
           <div className="form-row" style={{ marginBottom:8 }}>
             <F label="Filamenttype (hoofd)">
-              <select value={form.filament_type_id||''} onChange={e => set('filament_type_id', e.target.value)}>
-                <option value="">— selecteer —</option>
-                {filamentTypes.map(f => <option key={f.id} value={f.id}>{f.merk} {f.materiaal} — €{f.inkoop_prijs_per_kg?.toFixed(2)}/kg</option>)}
+              <select value={form.filament_type_id || ''} onChange={e => set('filament_type_id', e.target.value)}>
+                <option value="">— selecteer type —</option>
+                {filamentTypes.map(f => <option key={f.id} value={f.id}>{f.merk} {f.materiaal}</option>)}
               </select>
             </F>
             <F label="Geschat gewicht (g)">
-              <input type="number" step="0.1" value={form.geschat_gewicht_g||''} onChange={e => set('geschat_gewicht_g', e.target.value)} placeholder="uit slicer" />
+              <input type="number" step="0.1" {...gewichtF.props} placeholder="uit slicer" />
             </F>
           </div>
+
+          {/* Roldropdown */}
+          {form.filament_type_id && (
+            <F label="Filamentrol *" style={{ marginBottom:8 }}>
+              {rollenVoorType.length === 0
+                ? <div style={{ fontSize:11, color:'var(--danger)', padding:'6px 0' }}>⚠ Geen actieve rollen van dit type in stock</div>
+                : <select value={form.filament_rol_id || ''} onChange={e => set('filament_rol_id', e.target.value)}>
+                    <option value="">— selecteer rol —</option>
+                    {rollenVoorType.map(r => (
+                      <option key={r.id} value={r.id}>
+                        {r.lotnummer || `Rol #${r.id}`} — {r.kleur || 'geen kleur'} — {r.gewicht_gram_huidig}g resterend — €{parseFloat(r.prijs_per_kg_effectief).toFixed(2)}/kg
+                      </option>
+                    ))}
+                  </select>
+              }
+              {stockWaarschuwing && (
+                <div style={{ fontSize:11, color:'var(--danger)', marginTop:4 }}>
+                  ⚠ Onvoldoende stock: {gekozenRol.gewicht_gram_huidig}g resterend, {form.geschat_gewicht_g}g nodig
+                </div>
+              )}
+              {gekozenRol && !stockWaarschuwing && (
+                <div style={{ fontSize:11, color:'var(--accent2)', marginTop:4 }}>
+                  ✓ {gekozenRol.gewicht_gram_huidig}g resterend — €{parseFloat(gekozenRol.prijs_per_kg_effectief).toFixed(2)}/kg
+                  {gekozenRol.aankoopprijs_eur ? ` (aankoopprijs: €${parseFloat(gekozenRol.aankoopprijs_eur).toFixed(2)})` : ' (typeprijs)'}
+                </div>
+              )}
+            </F>
+          )}
+
           <div className="form-row" style={{ marginBottom:8 }}>
             <F label="Tijd — uren">
-              <input type="number" min="0" value={form.geschatte_tijd_u||0} onChange={e => set('geschatte_tijd_u', parseInt(e.target.value)||0)} />
+              <input type="number" min="0" {...tijdUF.props} />
             </F>
             <F label="Tijd — minuten">
-              <input type="number" min="0" max="59" value={form.geschatte_tijd_min||0} onChange={e => set('geschatte_tijd_min', parseInt(e.target.value)||0)} />
+              <input type="number" min="0" max="59" {...tijdMinF.props} />
             </F>
           </div>
 
@@ -201,86 +291,111 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, tarieven
                 <span style={{ fontSize:11, color:'var(--muted)' }}>Filament per kleur</span>
                 <button className="btn" style={{ fontSize:10, padding:'2px 8px' }} onClick={addFilamentRol}>+ Kleur</button>
               </div>
-              {(form.filament_rollen||[]).map((fr, i) => (
-                <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 80px auto', gap:6, marginBottom:5 }}>
-                  <select value={fr.filament_type_id||''} onChange={e => setRolField(i, 'filament_type_id', e.target.value)} style={{ fontSize:11 }}>
-                    <option value="">— type —</option>
-                    {filamentTypes.map(f => <option key={f.id} value={f.id}>{f.merk} {f.materiaal}</option>)}
-                  </select>
-                  <input type="number" placeholder="gram" value={fr.gram||''} onChange={e => setRolField(i, 'gram', e.target.value)} style={{ fontSize:11 }} />
-                  <button onClick={() => removeRol(i)} style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer' }}>✕</button>
-                </div>
-              ))}
-              <div style={{ fontSize:10, color:'var(--muted)', marginTop:4 }}>
-                Totaal slicer gewicht wordt gebruikt als fallback indien geen rollen ingevuld.
-              </div>
+              {(form.filament_rollen || []).map((fr, i) => {
+                const rollenVoorKleur = fr.filament_type_id
+                  ? allRollen.filter(r => r.filament_type_id === parseInt(fr.filament_type_id) && r.actief)
+                  : [];
+                return (
+                  <div key={i} style={{ marginBottom:8, background:'var(--bg3)', borderRadius:6, padding:'6px 8px' }}>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:6, marginBottom:4 }}>
+                      <select value={fr.filament_type_id || ''} onChange={e => { setRolField(i, 'filament_type_id', e.target.value); setRolField(i, 'filament_rol_id', ''); }} style={{ fontSize:11 }}>
+                        <option value="">— type —</option>
+                        {filamentTypes.map(f => <option key={f.id} value={f.id}>{f.merk} {f.materiaal}</option>)}
+                      </select>
+                      <button onClick={() => removeRol(i)} style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer' }}>✕</button>
+                    </div>
+                    {fr.filament_type_id && (
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 80px', gap:6 }}>
+                        <select value={fr.filament_rol_id || ''} onChange={e => setRolField(i, 'filament_rol_id', e.target.value)} style={{ fontSize:11 }}>
+                          <option value="">— rol —</option>
+                          {rollenVoorKleur.map(r => (
+                            <option key={r.id} value={r.id}>
+                              {r.lotnummer || `Rol #${r.id}`} — {r.kleur || '?'} — {r.gewicht_gram_huidig}g
+                            </option>
+                          ))}
+                        </select>
+                        <input type="number" placeholder="gram" value={fr.gram || ''} onChange={e => setRolField(i, 'gram', e.target.value)} style={{ fontSize:11 }} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </Sec>
 
+        {/* ARBEID */}
         <Sec title="Arbeid">
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:8, fontSize:12 }}>
-            <div style={{ background:'var(--bg2)', borderRadius:6, padding:'7px 10px' }}>
-              <div style={{ color:'var(--muted)', fontSize:11 }}>Voorbereiding</div>
-              <div style={{ fontWeight:600 }}>{form.voorbereiding_min||15} min → €{((form.voorbereiding_min||15)/60*(tarieven.arbeid_per_uur||15)).toFixed(2)}</div>
-            </div>
-            <div style={{ background:'var(--bg2)', borderRadius:6, padding:'7px 10px' }}>
-              <div style={{ color:'var(--muted)', fontSize:11 }}>Nabewerking</div>
-              <div style={{ fontWeight:600 }}>{form.nabewerking_min||10} min → €{((form.nabewerking_min||10)/60*(tarieven.arbeid_per_uur||15)).toFixed(2)}</div>
-            </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:8 }}>
+            <F label="Voorbereiding (min)">
+              <input type="number" min="0" {...voorbF.props} />
+              <div style={{ fontSize:10, color:'var(--muted)', marginTop:2 }}>
+                → €{(voorbF.num() / 60 * (tarieven.arbeid_per_uur || 15)).toFixed(2)}
+              </div>
+            </F>
+            <F label="Nabewerking (min)">
+              <input type="number" min="0" {...nabF.props} />
+              <div style={{ fontSize:10, color:'var(--muted)', marginTop:2 }}>
+                → €{(nabF.num() / 60 * (tarieven.arbeid_per_uur || 15)).toFixed(2)}
+              </div>
+            </F>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 60px', gap:6, marginBottom:6 }}>
             <F label="Ontwerp regie (min)">
-              <input type="number" min="0" value={form.ontwerp_min||0} onChange={e => set('ontwerp_min', parseInt(e.target.value)||0)} />
+              <input type="number" min="0" {...ontwMinF.props} />
             </F>
             <F label="Tarief (€/u)">
-              <input type="number" value={form.ontwerp_tarief||15} onChange={e => set('ontwerp_tarief', e.target.value)} />
+              <input type="number" {...ontwTarF.props} />
             </F>
             <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2, fontSize:11, color:'var(--accent2)' }}>
-              {(form.ontwerp_min||0) > 0 ? `€${((form.ontwerp_min||0)/60*(form.ontwerp_tarief||15)).toFixed(2)}` : ''}
+              {ontwMinF.int() > 0 ? `€${(ontwMinF.int() / 60 * ontwTarF.num()).toFixed(2)}` : ''}
             </div>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 60px', gap:6 }}>
             <F label="Nabewerking extra (min)">
-              <input type="number" min="0" value={form.nabewerking_extra_min||0} onChange={e => set('nabewerking_extra_min', parseInt(e.target.value)||0)} />
+              <input type="number" min="0" {...nabExMinF.props} />
             </F>
             <F label="Tarief (€/u)">
-              <input type="number" value={form.nabewerking_extra_tarief||15} onChange={e => set('nabewerking_extra_tarief', e.target.value)} />
+              <input type="number" {...nabExTarF.props} />
             </F>
             <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2, fontSize:11, color:'var(--accent2)' }}>
-              {(form.nabewerking_extra_min||0) > 0 ? `€${((form.nabewerking_extra_min||0)/60*(form.nabewerking_extra_tarief||15)).toFixed(2)}` : ''}
+              {nabExMinF.int() > 0 ? `€${(nabExMinF.int() / 60 * nabExTarF.num()).toFixed(2)}` : ''}
             </div>
           </div>
         </Sec>
 
+        {/* EXTRA */}
         <Sec title="Extra kosten">
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginBottom:6 }}>
             <F label="Aantal stuks">
-              <input type="number" min="1" value={form.aantal||1} onChange={e => set('aantal', parseInt(e.target.value)||1)} />
+              <input type="number" min="1" {...aantalF.props} />
             </F>
             <F label="Extra/stuk (€)">
-              <input type="number" min="0" step="0.01" value={form.extra_per_stuk||0} onChange={e => set('extra_per_stuk', e.target.value)} />
+              <input type="number" min="0" step="0.01" {...extraStukF.props} />
             </F>
             <F label="Extra eenmalig (€)">
-              <input type="number" min="0" step="0.01" value={form.extra_eenmalig||0} onChange={e => set('extra_eenmalig', e.target.value)} />
+              <input type="number" min="0" step="0.01" {...extraEenF.props} />
             </F>
           </div>
           <F label="Omschrijving extra">
-            <input value={form.extra_omschrijving||''} onChange={e => set('extra_omschrijving', e.target.value)} placeholder="bv. 20 ringetjes" />
+            <input value={form.extra_omschrijving || ''} onChange={e => set('extra_omschrijving', e.target.value)} placeholder="bv. 20 ringetjes" />
           </F>
         </Sec>
 
+        {/* OFFERTE DETAILS */}
         <Sec title="Offerte details">
           <div className="form-row" style={{ marginBottom:6 }}>
             <F label="Geldig tot">
-              <input type="date" value={form.geldig_tot||''} onChange={e => set('geldig_tot', e.target.value)} />
+              <input type="date" value={form.geldig_tot || ''} onChange={e => set('geldig_tot', e.target.value)} />
             </F>
             <F label="BTW %">
-              <input type="number" value={form.btw_pct||21} onChange={e => set('btw_pct', parseFloat(e.target.value)||21)} />
+              <select value={form.btw_pct} onChange={e => set('btw_pct', parseFloat(e.target.value))}>
+                {BTW_OPTIES.map(b => <option key={b} value={b}>{b}%</option>)}
+              </select>
             </F>
           </div>
           <F label="Notities">
-            <textarea rows={2} value={form.notities||''} onChange={e => set('notities', e.target.value)} />
+            <textarea rows={2} value={form.notities || ''} onChange={e => set('notities', e.target.value)} />
           </F>
         </Sec>
 
@@ -292,36 +407,48 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, tarieven
         </div>
       </div>
 
-      {/* Live preview */}
+      {/* LIVE PREVIEW */}
       <div style={{ position:'sticky', top:0 }}>
         <div className="card" style={{ padding:'1rem' }}>
           <h2 style={{ fontSize:13, fontWeight:600, marginBottom:'0.75rem' }}>📊 Live prijsoverzicht</h2>
           {!preview
-            ? <p style={{ color:'var(--muted)', fontSize:12 }}>Vul filamenttype en gewicht in</p>
+            ? <p style={{ color:'var(--muted)', fontSize:12 }}>Selecteer filamenttype, rol en gewicht</p>
             : <>
               {[
                 ['Materiaal', preview.mat],
-                ['Energie (schatting)', preview.ener],
+                ['Energie', preview.ener],
+                ['Machine', preview.mach],
                 ['Arbeid', preview.arb],
                 ...(preview.bmcu > 0 ? [['BMCU', preview.bmcu]] : []),
                 ...(preview.extra > 0 ? [['Extra', preview.extra]] : []),
               ].map(([label, val]) => (
                 <div key={label} style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
                   <span style={{ color:'var(--muted)' }}>{label}</span>
-                  <span>€{(val||0).toFixed(2)}</span>
+                  <span>€{(val || 0).toFixed(2)}</span>
                 </div>
               ))}
               <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:11, color:'var(--muted)' }}>
                 <span>Subtotaal</span><span>€{preview.sub.toFixed(2)}</span>
               </div>
               <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:11, color:'var(--muted)' }}>
-                <span>Marge ({preview.marge}%)</span><span>€{(preview.vkp-preview.sub).toFixed(2)}</span>
+                <span>Marge ({preview.marge}%)</span><span>€{(preview.vkp - preview.sub).toFixed(2)}</span>
               </div>
               <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0 2px', fontWeight:700 }}>
                 <span style={{ fontSize:13 }}>Verkoopprijs{preview.aantal > 1 ? ` (${preview.aantal}×)` : ''}</span>
                 <span style={{ fontSize:20, color:'var(--accent2)' }}>€{preview.vkp.toFixed(2)}</span>
               </div>
-              {preview.aantal > 1 && <div style={{ textAlign:'right', fontSize:11, color:'var(--muted)' }}>€{(preview.vkp/preview.aantal).toFixed(2)}/stuk</div>}
+              {form.btw_pct > 0 && (
+                <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'var(--muted)', paddingTop:4 }}>
+                  <span>+ BTW {form.btw_pct}%</span>
+                  <span>€{(preview.vkp * form.btw_pct / 100).toFixed(2)}</span>
+                </div>
+              )}
+              {preview.aantal > 1 && (
+                <div style={{ textAlign:'right', fontSize:11, color:'var(--muted)' }}>€{(preview.vkp / preview.aantal).toFixed(2)}/stuk</div>
+              )}
+              <div style={{ fontSize:10, color:'var(--muted)', marginTop:6, borderTop:'1px solid var(--border)', paddingTop:6 }}>
+                Rolprijs: €{preview.prijsPerKg.toFixed(2)}/kg
+              </div>
             </>
           }
         </div>
@@ -330,16 +457,18 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, tarieven
   );
 }
 
+// ── Hoofdcomponent ────────────────────────────────────────────────────────────
 export default function Offertes() {
-  const [offertes, setOffertes] = useState([]);
-  const [klanten, setKlanten] = useState([]);
-  const [printers, setPrinters] = useState([]);
-  const [filamentTypes, setFilamentTypes] = useState([]);
-  const [tarieven, setTarieven] = useState({});
-  const [view, setView] = useState('lijst');
-  const [detail, setDetail] = useState(null);
-  const [editForm, setEditForm] = useState(null);
-  const [jobStatus, setJobStatus] = useState('');
+  const [offertes,     setOffertes]     = useState([]);
+  const [klanten,      setKlanten]      = useState([]);
+  const [printers,     setPrinters]     = useState([]);
+  const [filamentTypes,setFilamentTypes]= useState([]);
+  const [allRollen,    setAllRollen]    = useState([]);
+  const [tarieven,     setTarieven]     = useState({});
+  const [view,         setView]         = useState('lijst');
+  const [detail,       setDetail]       = useState(null);
+  const [editForm,     setEditForm]     = useState(null);
+  const [jobStatus,    setJobStatus]    = useState('');
 
   const load = () => api.get('/offertes2').then(setOffertes);
 
@@ -348,14 +477,13 @@ export default function Offertes() {
     api.get('/klanten').then(setKlanten);
     api.get('/printers').then(setPrinters);
     api.get('/filament/types').then(setFilamentTypes);
+    api.get('/filament/rollen').then(setAllRollen);
     api.get('/tarieven').then(rows => setTarieven(Object.fromEntries(rows.map(r => [r.sleutel, r.waarde]))));
   }, []);
 
   async function openDetail(id) {
     const d = await api.get(`/offertes2/${id}`);
-    setDetail(d);
-    setView('detail');
-    setJobStatus('');
+    setDetail(d); setView('detail'); setJobStatus('');
   }
 
   async function updateStatus(id, status) {
@@ -370,18 +498,17 @@ export default function Offertes() {
       const r = await api.post(`/offertes2/${id}/maak-job`, {});
       setJobStatus(`✓ Job aangemaakt (ID: ${r.job_id}) — ga naar Jobs`);
       load();
-      if (detail?.id === id) {
-        const updated = await api.get(`/offertes2/${id}`);
-        setDetail(updated);
-      }
+      if (detail?.id === id) { const u = await api.get(`/offertes2/${id}`); setDetail(u); }
     } catch(e) { setJobStatus('✗ ' + e.message); }
   }
 
   async function del(id) {
-    if (!confirm('Offerte verwijderen?')) return;
-    await api.delete(`/offertes2/${id}`);
-    load();
-    if (view === 'detail') { setDetail(null); setView('lijst'); }
+    if (!confirm('Offerte verwijderen? De gekoppelde werkbon wordt ook verwijderd.')) return;
+    try {
+      await api.delete(`/offertes2/${id}`);
+      load();
+      if (view === 'detail') { setDetail(null); setView('lijst'); }
+    } catch(e) { alert(e.message); }
   }
 
   if (view === 'nieuw' || (view === 'bewerk' && editForm)) {
@@ -394,16 +521,12 @@ export default function Offertes() {
         </div>
         <OfferteFormulier
           initForm={isEdit ? editForm : {}}
-          klanten={klanten} printers={printers} filamentTypes={filamentTypes} tarieven={tarieven}
+          klanten={klanten} printers={printers} filamentTypes={filamentTypes}
+          allRollen={allRollen} tarieven={tarieven}
           onSaved={async () => {
             await load();
-            if (isEdit) {
-              const updated = await api.get(`/offertes2/${editForm.id}`);
-              setDetail(updated);
-              setView('detail');
-            } else {
-              setView('lijst');
-            }
+            if (isEdit) { const u = await api.get(`/offertes2/${editForm.id}`); setDetail(u); setView('detail'); }
+            else setView('lijst');
           }}
           onCancel={() => isEdit ? setView('detail') : setView('lijst')}
         />
@@ -470,11 +593,14 @@ export default function Offertes() {
             </div>
 
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5, fontSize:12, marginBottom:'0.75rem' }}>
-              {[['Printer', detail.printer_naam||'—'], ['Filament', detail.filament_merk ? `${detail.filament_merk} ${detail.filament_materiaal}` : '—'],
+              {[
+                ['Printer', detail.printer_naam || '—'],
+                ['Filament', detail.filament_merk ? `${detail.filament_merk} ${detail.filament_materiaal}` : '—'],
                 ['Gewicht', detail.geschat_gewicht_g ? `${detail.geschat_gewicht_g}g` : '—'],
-                ['Tijd', `${detail.geschatte_tijd_u||0}u ${detail.geschatte_tijd_min||0}min`],
-                ['Aantal', detail.aantal||1], ['Multicolor', detail.is_multicolor ? 'Ja':'Nee']
-              ].map(([l,v]) => (
+                ['Tijd', `${detail.geschatte_tijd_u || 0}u ${detail.geschatte_tijd_min || 0}min`],
+                ['Aantal', detail.aantal || 1],
+                ['Multicolor', detail.is_multicolor ? 'Ja' : 'Nee'],
+              ].map(([l, v]) => (
                 <div key={l} style={{ padding:'3px 0', borderBottom:'1px solid var(--border)' }}>
                   <div style={{ color:'var(--muted)', fontSize:10 }}>{l}</div>
                   <div style={{ fontWeight:500 }}>{v}</div>
@@ -482,19 +608,29 @@ export default function Offertes() {
               ))}
             </div>
 
-            {[['Materiaal', detail.materiaal_kost], ['Energie (schat)', detail.energie_kost_schat],
-              ['Arbeid', detail.arbeid_kost], ...(detail.extra_totaal > 0 ? [['Extra', detail.extra_totaal]] : [])
-            ].map(([l,v]) => (
+            {[
+              ['Materiaal', detail.materiaal_kost],
+              ['Energie', detail.energie_kost_schat],
+              ['Machine', detail.machine_kost],
+              ['Arbeid', detail.arbeid_kost],
+              ...(detail.extra_totaal > 0 ? [['Extra', detail.extra_totaal]] : []),
+            ].map(([l, v]) => (
               <div key={l} style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
-                <span style={{ color:'var(--muted)' }}>{l}</span><span>€{(v||0).toFixed(2)}</span>
+                <span style={{ color:'var(--muted)' }}>{l}</span><span>€{(v || 0).toFixed(2)}</span>
               </div>
             ))}
             <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:11, color:'var(--muted)' }}>
               <span>Subtotaal</span><span>€{detail.subtotaal?.toFixed(2)}</span>
             </div>
-            <div style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', fontWeight:700, fontSize:15, marginBottom:'0.75rem' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', fontWeight:700, fontSize:15, marginBottom: detail.btw_pct > 0 ? 0 : '0.75rem' }}>
               <span>Verkoopprijs</span><span style={{ color:'var(--accent2)' }}>€{detail.verkoopprijs?.toFixed(2)}</span>
             </div>
+            {detail.btw_pct > 0 && (
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, color:'var(--muted)', marginBottom:'0.75rem' }}>
+                <span>+ BTW {detail.btw_pct}%</span>
+                <span>€{detail.btw_bedrag?.toFixed(2)}</span>
+              </div>
+            )}
 
             <div className="form-group" style={{ marginBottom:'0.75rem' }}>
               <label style={{ fontSize:11 }}>Status</label>
@@ -509,7 +645,7 @@ export default function Offertes() {
               </div>
             )}
 
-            {jobStatus && <div style={{ fontSize:12, color: jobStatus.includes('✓') ? 'var(--accent2)':'var(--danger)', marginBottom:6 }}>{jobStatus}</div>}
+            {jobStatus && <div style={{ fontSize:12, color: jobStatus.includes('✓') ? 'var(--accent2)' : 'var(--danger)', marginBottom:6 }}>{jobStatus}</div>}
 
             <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
               <a className="btn" style={{ textAlign:'center' }} href={`${BASE}/offertes2/${detail.id}/pdf`} download>↓ PDF downloaden</a>

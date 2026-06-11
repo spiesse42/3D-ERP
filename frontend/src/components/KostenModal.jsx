@@ -4,47 +4,60 @@ import { api } from '../lib/api.js';
 const BASE = window.__API_BASE__ || '/api';
 
 export default function KostenModal({ job, printerLiveData, klanten, onClose, onJobUpdated }) {
-  const [rollen, setRollen] = useState([]);
-  const [tarieven, setTarieven] = useState({});
-  const [selectedRol, setSelectedRol] = useState('');
-  const [gram, setGram] = useState('');
-  const [materialen, setMaterialen] = useState([]);
-  const [result, setResult] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [emailTo, setEmailTo] = useState('');
-  const [emailStatus, setEmailStatus] = useState('');
+  const [rollen,          setRollen]          = useState([]);
+  const [tarieven,        setTarieven]        = useState({});
+  const [selectedRol,     setSelectedRol]     = useState('');
+  const [gram,            setGram]            = useState('');
+  const [materialen,      setMaterialen]      = useState([]);
+  const [result,          setResult]          = useState(null);
+  const [saving,          setSaving]          = useState(false);
+  const [emailTo,         setEmailTo]         = useState('');
+  const [emailStatus,     setEmailStatus]     = useState('');
   const [selectedKlantId, setSelectedKlantId] = useState(String(job.klant_id || ''));
-  const [autoCalc, setAutoCalc] = useState(false);
+  const [autoCalc,        setAutoCalc]        = useState(false);
 
-  // Formulier
+  // Printtijd
   const [printUren, setPrintUren] = useState(Math.floor(job.print_uren_werkelijk || job.print_uren_geschat || 0));
-  const [printMin, setPrintMin] = useState(Math.round(((job.print_uren_werkelijk || job.print_uren_geschat || 0) % 1) * 60));
-  const [isMulticolor, setIsMulticolor] = useState(!!job.is_multicolor);
-  const [inclVoorbereiding, setInclVoorbereiding] = useState(true);
-  const [inclNabewerking, setInclNabewerking] = useState(true);
-  const [extraVoorbMin, setExtraVoorbMin] = useState(0);
-  const [ontwerpMin, setOntwerpMin] = useState(0);
-  const [ontwerpTarief, setOntwerpTarief] = useState(15);
-  const [nabewerkingExtraMin, setNabewerkingExtraMin] = useState(0);
-  const [nabewerkingExtraTarief, setNabewerkingExtraTarief] = useState(15);
-  const [extraPerStuk, setExtraPerStuk] = useState(0);
-  const [extraEenmalig, setExtraEenmalig] = useState(0);
-  const [extraOmschrijving, setExtraOmschrijving] = useState('');
-  const [aantal, setAantal] = useState(1);
-  const [opmerking, setOpmerking] = useState(job.notities || '');
-  const [kwh, setKwh] = useState('');
+  const [printMin,  setPrintMin]  = useState(Math.round(((job.print_uren_werkelijk || job.print_uren_geschat || 0) % 1) * 60));
 
-  const live = printerLiveData;
+  // Arbeid — aanpasbare minuten
+  const [voorbMin,          setVoorbMin]          = useState(0);   // wordt ingesteld na laden tarieven
+  const [nabMin,            setNabMin]            = useState(0);
+  const [extraVoorbMin,     setExtraVoorbMin]     = useState(0);
+  const [ontwerpMin,        setOntwerpMin]        = useState(0);
+  const [ontwerpTarief,     setOntwerpTarief]     = useState(15);
+  const [nabewerkingExtraMin,   setNabewerkingExtraMin]   = useState(0);
+  const [nabewerkingExtraTarief,setNabewerkingExtraTarief]= useState(15);
+
+  // Overige
+  const [isMulticolor,    setIsMulticolor]    = useState(!!job.is_multicolor);
+  const [extraPerStuk,    setExtraPerStuk]    = useState(0);
+  const [extraEenmalig,   setExtraEenmalig]   = useState(0);
+  const [extraOmschrijving,setExtraOmschrijving]= useState('');
+  const [aantal,          setAantal]          = useState(1);
+  const [opmerking,       setOpmerking]       = useState(job.notities || '');
+  const [kwh,             setKwh]             = useState('');
+  const [tarievenGeladen, setTarievenGeladen] = useState(false);
+
+  const live     = printerLiveData;
   const kwhDelta = live?.kwh_delta;
   const liveGram = live?.filament_g || 0;
+
+  // Verstreken tijd — Ender geeft seconden via elapsed_sec
+  const liveElapsedSec = live?.elapsed_sec || 0;
+  const liveElapsedU   = Math.floor(liveElapsedSec / 3600);
+  const liveElapsedMin = Math.floor((liveElapsedSec % 3600) / 60);
 
   useEffect(() => {
     api.get('/filament/rollen').then(r => setRollen(r.filter(x => x.actief)));
     api.get('/tarieven').then(rows => {
       const t = Object.fromEntries(rows.map(r => [r.sleutel, r.waarde]));
       setTarieven(t);
+      setVoorbMin(t.voorbereiding_min || 15);
+      setNabMin(t.nabewerking_min || 10);
       setOntwerpTarief(t.ontwerp_tarief || 15);
       setNabewerkingExtraTarief(t.nabewerking_tarief || 15);
+      setTarievenGeladen(true);
     });
     api.get(`/jobs/${job.id}`).then(d => {
       if (d.materialen?.length) setMaterialen(d.materialen);
@@ -57,16 +70,15 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     if (kwhDelta != null && kwhDelta > 0 && !kwh) setKwh(kwhDelta.toFixed(3));
   }, [kwhDelta]);
 
-  // Auto-bereken wanneer waarden wijzigen
-  const formValues = JSON.stringify({ printUren, printMin, kwh, isMulticolor, inclVoorbereiding,
-    inclNabewerking, extraVoorbMin, ontwerpMin, ontwerpTarief, nabewerkingExtraMin,
-    nabewerkingExtraTarief, extraPerStuk, extraEenmalig, aantal, materialen });
+  const formValues = JSON.stringify({ printUren, printMin, kwh, isMulticolor, voorbMin, nabMin,
+    extraVoorbMin, ontwerpMin, ontwerpTarief, nabewerkingExtraMin, nabewerkingExtraTarief,
+    extraPerStuk, extraEenmalig, aantal, materialen });
 
   useEffect(() => {
-    if (!autoCalc) return;
+    if (!autoCalc || !tarievenGeladen) return;
     const timer = setTimeout(() => { bereken(false); }, 800);
     return () => clearTimeout(timer);
-  }, [formValues, autoCalc]);
+  }, [formValues, autoCalc, tarievenGeladen]);
 
   async function voegMateriaaltoe() {
     if (!selectedRol || !gram) return alert('Selecteer een rol en geef gram op');
@@ -76,10 +88,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
         filament_rol_id: parseInt(selectedRol),
         gram_gebruikt: parseFloat(gram),
       });
-      setMaterialen(prev => [...prev, {
-        ...rol, id: res.id, filament_rol_id: parseInt(selectedRol),
-        gram_gebruikt: parseFloat(gram)
-      }]);
+      setMaterialen(prev => [...prev, { ...rol, id: res.id, filament_rol_id: parseInt(selectedRol), gram_gebruikt: parseFloat(gram) }]);
       setSelectedRol(''); setGram('');
     } catch(e) { alert(e.message); }
   }
@@ -102,9 +111,8 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const getPayload = () => ({
     kwh_verbruikt: parseFloat(kwh) || 0,
     is_multicolor: isMulticolor,
-    incl_voorbereiding: inclVoorbereiding,
-    incl_nabewerking: inclNabewerking,
-    extra_voorbereiding_min: extraVoorbMin,
+    voorbereiding_min: (voorbMin || 0) + (extraVoorbMin || 0),
+    nabewerking_min: nabMin || 0,
     ontwerp_min: ontwerpMin, ontwerp_tarief: ontwerpTarief,
     nabewerking_extra_min: nabewerkingExtraMin,
     nabewerking_extra_tarief: nabewerkingExtraTarief,
@@ -140,16 +148,15 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     } catch(e) { setEmailStatus('✗ ' + e.message); }
   }
 
-  const t = tarieven;
-  const voorbMin = inclVoorbereiding ? ((t.voorbereiding_min || 15) + extraVoorbMin) : extraVoorbMin;
-  const nabMin = inclNabewerking ? (t.nabewerking_min || 10) : 0;
-  const arbTarief = t.arbeid_per_uur || 15;
+  const t          = tarieven;
+  const arbTarief  = t.arbeid_per_uur || 15;
   const totaleUren = parseInt(printUren) + parseInt(printMin) / 60;
   const margeGrens = t.marge_grens_uur || 4;
-  const margePct = totaleUren >= margeGrens ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
+  const margePct   = totaleUren >= margeGrens ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
+  const totVoorb   = (parseInt(voorbMin) || 0) + (parseInt(extraVoorbMin) || 0);
 
   const matGroepen = materialen.reduce((acc, m) => {
-    const key = `${m.merk||''} ${m.materiaal||''} ${m.kleur||''}`.trim();
+    const key = `${m.merk || ''} ${m.materiaal || ''} ${m.kleur || ''}`.trim();
     if (!acc[key]) acc[key] = { items:[], gram_totaal:0, prijs: m.inkoop_prijs_per_kg || 0, naam: key };
     acc[key].items.push(m);
     acc[key].gram_totaal += parseFloat(m.gram_gebruikt);
@@ -179,8 +186,8 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
 
         <div style={{ fontSize:11, color:'var(--muted)', marginBottom:'0.75rem', display:'flex', gap:12, flexWrap:'wrap' }}>
           <span>🖨 {job.printer_naam}</span>
-          <span style={{ color: margePct === (t.marge_klein_pct||18) ? 'var(--warn)' : 'var(--accent2)' }}>
-            📊 {margePct}% marge ({totaleUren >= margeGrens ? `≥` : `<`}{margeGrens}u)
+          <span style={{ color: margePct === (t.marge_klein_pct || 18) ? 'var(--warn)' : 'var(--accent2)' }}>
+            📊 {margePct}% marge ({totaleUren >= margeGrens ? '≥' : '<'}{margeGrens}u)
           </span>
         </div>
 
@@ -204,15 +211,16 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
         <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:8, alignItems:'flex-end' }}>
             <Field label="⏱ Uren">
-              <input type="number" min="0" value={printUren} onChange={e => setPrintUren(parseInt(e.target.value)||0)} />
+              <input type="number" min="0" value={printUren} onChange={e => setPrintUren(parseInt(e.target.value) || 0)} />
             </Field>
             <Field label="Minuten">
-              <input type="number" min="0" max="59" value={printMin} onChange={e => setPrintMin(parseInt(e.target.value)||0)} />
+              <input type="number" min="0" max="59" value={printMin} onChange={e => setPrintMin(parseInt(e.target.value) || 0)} />
             </Field>
-            {live?.elapsed_sec > 0 && (
+            {liveElapsedSec > 0 && (
               <button className="btn" style={{ fontSize:11, whiteSpace:'nowrap' }}
-                onClick={() => { setPrintUren(Math.floor(live.elapsed_sec/3600)); setPrintMin(Math.floor((live.elapsed_sec%3600)/60)); }}>
-                ↺ {Math.floor(live.elapsed_sec/3600)}u {Math.floor((live.elapsed_sec%3600)/60)}m
+                onClick={() => { setPrintUren(liveElapsedU); setPrintMin(liveElapsedMin); }}
+                title="Verstreken tijd overnemen van printer">
+                ↺ {liveElapsedU}u {liveElapsedMin}m
               </button>
             )}
           </div>
@@ -232,14 +240,15 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             <select value={selectedRol} onChange={e => setSelectedRol(e.target.value)} style={{ fontSize:12 }}>
               <option value="">— selecteer rol —</option>
               {rollen.map(r => (
-                <option key={r.id} value={r.id}>{r.merk} {r.materiaal} {r.kleur} — {r.gewicht_gram_huidig}g</option>
+                <option key={r.id} value={r.id}>
+                  {r.lotnummer || `Rol #${r.id}`} — {r.merk} {r.materiaal} {r.kleur} — {r.gewicht_gram_huidig}g
+                </option>
               ))}
             </select>
             <input type="number" placeholder="gram" value={gram} onChange={e => setGram(e.target.value)} style={{ fontSize:12 }} />
             {liveGram > 0 && (
               <button className="btn" style={{ fontSize:10, padding:'4px 6px', whiteSpace:'nowrap' }}
-                title="Live gewicht overnemen"
-                onClick={() => setGram(liveGram.toFixed(1))}>
+                title="Live gewicht overnemen" onClick={() => setGram(liveGram.toFixed(1))}>
                 ↺ {liveGram.toFixed(1)}g
               </button>
             )}
@@ -252,7 +261,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
                 <div>
                   <span style={{ fontWeight:500 }}>{mg.naam}</span>
                   <span style={{ color:'var(--muted)', marginLeft:8 }}>
-                    {mg.gram_totaal.toFixed(1)}g → €{((mg.gram_totaal/1000)*mg.prijs).toFixed(3)}
+                    {mg.gram_totaal.toFixed(1)}g → €{((mg.gram_totaal / 1000) * mg.prijs).toFixed(3)}
                   </span>
                 </div>
                 <div style={{ display:'flex', gap:4 }}>
@@ -278,7 +287,11 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
           <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>⚡ Energie</p>
           {live && (
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginBottom:8, fontSize:11 }}>
-              {[['Start kWh', live.kwh_start?.toFixed(3)], ['Huidig kWh', live.kwh_current?.toFixed(3)], ['Δ Verbruikt', kwhDelta != null ? `${kwhDelta.toFixed(3)} kWh` : null]].map(([label, val]) => (
+              {[
+                ['Start kWh',   live.kwh_start?.toFixed(3)],
+                ['Huidig kWh',  live.kwh_current?.toFixed(3)],
+                ['Δ Verbruikt', kwhDelta != null ? `${kwhDelta.toFixed(3)} kWh` : null],
+              ].map(([label, val]) => (
                 <div key={label} style={{ background:'var(--bg2)', borderRadius:6, padding:'5px 8px' }}>
                   <div style={{ color:'var(--muted)' }}>{label}</div>
                   <div style={{ fontWeight:600, color:'#fbbf24' }}>{val ?? '—'}</div>
@@ -296,51 +309,52 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
           </div>
         </div>
 
-        {/* ARBEID */}
+        {/* ARBEID — volledig aanpasbaar */}
         <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
           <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>👷 Arbeid</p>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:8, fontSize:12 }}>
-            <label style={{ background: inclVoorbereiding ? 'rgba(91,141,238,0.1)' : 'var(--bg2)', borderRadius:6, padding:'8px 10px', cursor:'pointer', border: inclVoorbereiding ? '1px solid var(--accent)' : '1px solid transparent' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
-                <input type="checkbox" checked={inclVoorbereiding} onChange={e => setInclVoorbereiding(e.target.checked)} />
-                <span style={{ color:'var(--muted)' }}>Voorbereiding</span>
-              </div>
-              <div style={{ fontWeight:600, fontSize:13 }}>{t.voorbereiding_min||15} min → €{((t.voorbereiding_min||15)/60*arbTarief).toFixed(2)}</div>
-            </label>
-            <label style={{ background: inclNabewerking ? 'rgba(91,141,238,0.1)' : 'var(--bg2)', borderRadius:6, padding:'8px 10px', cursor:'pointer', border: inclNabewerking ? '1px solid var(--accent)' : '1px solid transparent' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
-                <input type="checkbox" checked={inclNabewerking} onChange={e => setInclNabewerking(e.target.checked)} />
-                <span style={{ color:'var(--muted)' }}>Nabewerking</span>
-              </div>
-              <div style={{ fontWeight:600, fontSize:13 }}>{t.nabewerking_min||10} min → €{((t.nabewerking_min||10)/60*arbTarief).toFixed(2)}</div>
-            </label>
+
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:8 }}>
+            <div style={{ background:'var(--bg2)', borderRadius:6, padding:'8px 10px' }}>
+              <label style={{ fontSize:11, color:'var(--muted)', display:'block', marginBottom:4 }}>Voorbereiding (min)</label>
+              <input type="number" min="0" value={voorbMin}
+                onChange={e => setVoorbMin(parseInt(e.target.value) || 0)}
+                style={{ marginBottom:4 }} />
+              <div style={{ fontSize:10, color:'var(--accent2)' }}>→ €{(voorbMin / 60 * arbTarief).toFixed(2)}</div>
+            </div>
+            <div style={{ background:'var(--bg2)', borderRadius:6, padding:'8px 10px' }}>
+              <label style={{ fontSize:11, color:'var(--muted)', display:'block', marginBottom:4 }}>Nabewerking (min)</label>
+              <input type="number" min="0" value={nabMin}
+                onChange={e => setNabMin(parseInt(e.target.value) || 0)}
+                style={{ marginBottom:4 }} />
+              <div style={{ fontSize:10, color:'var(--accent2)' }}>→ €{(nabMin / 60 * arbTarief).toFixed(2)}</div>
+            </div>
           </div>
 
           <Field label="Extra voorbereiding (min)">
-            <input type="number" min="0" value={extraVoorbMin} onChange={e => setExtraVoorbMin(parseInt(e.target.value)||0)} />
+            <input type="number" min="0" value={extraVoorbMin} onChange={e => setExtraVoorbMin(parseInt(e.target.value) || 0)} />
           </Field>
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 60px', gap:6, marginTop:8, marginBottom:6 }}>
             <Field label="Ontwerp regie (min)">
-              <input type="number" min="0" value={ontwerpMin} onChange={e => setOntwerpMin(parseInt(e.target.value)||0)} />
+              <input type="number" min="0" value={ontwerpMin} onChange={e => setOntwerpMin(parseInt(e.target.value) || 0)} />
             </Field>
             <Field label="Tarief (€/u)">
-              <input type="number" value={ontwerpTarief} onChange={e => setOntwerpTarief(parseFloat(e.target.value)||15)} />
+              <input type="number" value={ontwerpTarief} onChange={e => setOntwerpTarief(parseFloat(e.target.value) || 15)} />
             </Field>
             <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2, fontSize:11, color:'var(--accent2)' }}>
-              {ontwerpMin > 0 ? `€${(ontwerpMin/60*ontwerpTarief).toFixed(2)}` : ''}
+              {ontwerpMin > 0 ? `€${(ontwerpMin / 60 * ontwerpTarief).toFixed(2)}` : ''}
             </div>
           </div>
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 60px', gap:6 }}>
             <Field label="Nabewerking extra (min)">
-              <input type="number" min="0" value={nabewerkingExtraMin} onChange={e => setNabewerkingExtraMin(parseInt(e.target.value)||0)} />
+              <input type="number" min="0" value={nabewerkingExtraMin} onChange={e => setNabewerkingExtraMin(parseInt(e.target.value) || 0)} />
             </Field>
             <Field label="Tarief (€/u)">
-              <input type="number" value={nabewerkingExtraTarief} onChange={e => setNabewerkingExtraTarief(parseFloat(e.target.value)||15)} />
+              <input type="number" value={nabewerkingExtraTarief} onChange={e => setNabewerkingExtraTarief(parseFloat(e.target.value) || 15)} />
             </Field>
             <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2, fontSize:11, color:'var(--accent2)' }}>
-              {nabewerkingExtraMin > 0 ? `€${(nabewerkingExtraMin/60*nabewerkingExtraTarief).toFixed(2)}` : ''}
+              {nabewerkingExtraMin > 0 ? `€${(nabewerkingExtraMin / 60 * nabewerkingExtraTarief).toFixed(2)}` : ''}
             </div>
           </div>
         </div>
@@ -350,7 +364,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
           <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>➕ Extra kosten</p>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginBottom:6 }}>
             <Field label="Aantal stuks">
-              <input type="number" min="1" value={aantal} onChange={e => setAantal(parseInt(e.target.value)||1)} />
+              <input type="number" min="1" value={aantal} onChange={e => setAantal(parseInt(e.target.value) || 1)} />
             </Field>
             <Field label="Extra/stuk (€) × aantal">
               <input type="number" min="0" step="0.01" value={extraPerStuk} onChange={e => setExtraPerStuk(e.target.value)} />
@@ -380,20 +394,22 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
           <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'1rem', marginBottom:'0.75rem' }}>
             <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>📊 Werkbon kostprijsoverzicht</p>
             {[
-              { label:'Materiaal', val: result.materiaal_kost, sub: `${Object.values(matGroepen).reduce((s,m)=>s+m.gram_totaal,0).toFixed(1)}g` },
-              { label:'Energie', val: result.energie_kost, sub: `${result.kwh_verbruikt} kWh` },
-              ...(voorbMin > 0 ? [{ label:`Voorbereiding (${voorbMin} min)`, val: (voorbMin/60)*arbTarief }] : []),
-              ...(nabMin > 0 ? [{ label:`Nabewerking (${nabMin} min)`, val: (nabMin/60)*arbTarief }] : []),
-              ...(ontwerpMin > 0 ? [{ label:`Ontwerp (${ontwerpMin} min)`, val: (ontwerpMin/60)*ontwerpTarief }] : []),
-              ...(nabewerkingExtraMin > 0 ? [{ label:`Nabewerking extra (${nabewerkingExtraMin} min)`, val: (nabewerkingExtraMin/60)*nabewerkingExtraTarief }] : []),
-              ...((parseFloat(extraPerStuk)>0||parseFloat(extraEenmalig)>0) ? [{ label:`Extra${extraOmschrijving ? ` — ${extraOmschrijving}` : ''}`, val:(parseFloat(extraPerStuk)*parseInt(aantal))+parseFloat(extraEenmalig) }] : []),
+              { label:'Materiaal', val: result.materiaal_kost, sub: `${Object.values(matGroepen).reduce((s, m) => s + m.gram_totaal, 0).toFixed(1)}g` },
+              { label:'Energie',   val: result.energie_kost,   sub: `${result.kwh_verbruikt} kWh` },
+              ...(totVoorb > 0   ? [{ label:`Voorbereiding (${totVoorb} min)`,              val: (totVoorb / 60) * arbTarief }] : []),
+              ...(nabMin > 0     ? [{ label:`Nabewerking (${nabMin} min)`,                   val: (nabMin / 60) * arbTarief }] : []),
+              ...(ontwerpMin > 0 ? [{ label:`Ontwerp (${ontwerpMin} min)`,                   val: (ontwerpMin / 60) * ontwerpTarief }] : []),
+              ...(nabewerkingExtraMin > 0 ? [{ label:`Nabewerking extra (${nabewerkingExtraMin} min)`, val: (nabewerkingExtraMin / 60) * nabewerkingExtraTarief }] : []),
+              ...((parseFloat(extraPerStuk) > 0 || parseFloat(extraEenmalig) > 0)
+                ? [{ label:`Extra${extraOmschrijving ? ` — ${extraOmschrijving}` : ''}`, val: (parseFloat(extraPerStuk) * parseInt(aantal)) + parseFloat(extraEenmalig) }]
+                : []),
             ].map(({ label, val, sub }) => (
               <div key={label} style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
                 <div>
                   <span style={{ color:'var(--muted)' }}>{label}</span>
                   {sub && <span style={{ color:'var(--muted)', fontSize:10, marginLeft:5 }}>{sub}</span>}
                 </div>
-                <span>€{(val||0).toFixed(2)}</span>
+                <span>€{(val || 0).toFixed(2)}</span>
               </div>
             ))}
             <div style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid var(--border)', fontSize:11, color:'var(--muted)' }}>
@@ -403,7 +419,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
               <span>Verkoopprijs{aantal > 1 ? ` (${aantal}×)` : ''}</span>
               <span style={{ fontSize:22, color:'var(--accent2)' }}>€{result.verkoopprijs?.toFixed(2)}</span>
             </div>
-            {aantal > 1 && <div style={{ textAlign:'right', fontSize:11, color:'var(--muted)' }}>€{(result.verkoopprijs/aantal).toFixed(2)}/stuk</div>}
+            {aantal > 1 && <div style={{ textAlign:'right', fontSize:11, color:'var(--muted)' }}>€{(result.verkoopprijs / aantal).toFixed(2)}/stuk</div>}
 
             <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:6 }}>
               <a className="btn" style={{ textAlign:'center' }}

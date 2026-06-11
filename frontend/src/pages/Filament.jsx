@@ -438,16 +438,14 @@ export default function Filament() {
           ? <div className="empty">Geen filamenttypes</div>
           : <div className="card" style={{ padding: 0 }}>
               <table>
-                <thead>
-                  <tr><th>Merk</th><th>Materiaal</th><th>Prijs/kg</th><th>Dichtheid</th><th>Leverancier</th><th>Acties</th></tr>
-                </thead>
+                <thead><tr><th>Merk</th><th>Materiaal</th><th>Dichtheid</th><th>Leverancier</th><th>Acties</th></tr>
+		</thead>
                 <tbody>
                   {types.map(t => (
                     <tr key={t.id}>
                       <td style={{ fontWeight: 500 }}>{t.merk}</td>
                       <td>{t.materiaal}</td>
-                      <td>€{parseFloat(t.inkoop_prijs_per_kg).toFixed(2)}</td>
-                      <td style={{ color: 'var(--muted)' }}>{t.dichtheid_g_per_cm3} g/cm³</td>
+                       <td style={{ color: 'var(--muted)' }}>{t.dichtheid_g_per_cm3} g/cm³</td>
                       <td style={{ color: 'var(--muted)' }}>{t.leverancier || '—'}</td>
                       <td>
                         <div style={{ display: 'flex', gap: 6 }}>
