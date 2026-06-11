@@ -72,20 +72,10 @@ function TypeModal({ type, onClose, onSaved }) {
             <input value={form.materiaal} onChange={e => set('materiaal', e.target.value)} placeholder="bv. PLA+" />
           </div>
         </div>
-        <div className="form-row">
-          <div className="form-group">
-            <label>Prijs/kg (€) *</label>
-            <input
-              type="number" step="0.01" min="0"
-              value={prijsStr}
-              onChange={e => setPrijsStr(e.target.value)}
-            />
-          </div>
-          <div className="form-group">
-            <label>Dichtheid (g/cm³)</label>
-            <input type="number" step="0.01" value={form.dichtheid_g_per_cm3}
-              onChange={e => set('dichtheid_g_per_cm3', e.target.value)} />
-          </div>
+        <div className="form-group">
+          <label>Dichtheid (g/cm³)</label>
+          <input type="number" step="0.01" value={form.dichtheid_g_per_cm3}
+            onChange={e => set('dichtheid_g_per_cm3', e.target.value)} />
         </div>
         <div className="form-group">
           <label>Leverancier</label>
