@@ -14,6 +14,8 @@ import tarieven from './routes/tarieven.js';
 import ha from './routes/ha.js';
 import rapportage from './routes/rapportage.js';
 import { betalingen, instellingen } from './routes/_combined.js';
+import { startSampler, energie } from './sampler.js';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -24,6 +26,7 @@ app.use((req, res, next) => {
   next();
 });
 initDb();
+startSampler();
 app.use('/api/klanten',      klanten);
 app.use('/api/printers',     printers);
 app.use('/api/filament',     filament);
@@ -34,6 +37,7 @@ app.use('/api/offertes2',    offertes2);
 app.use('/api/betalingen',   betalingen);
 app.use('/api/tarieven',     tarieven);
 app.use('/api/instellingen', instellingen);
+app.use('/api/energie', energie);
 app.use('/api/ha',           ha);
 app.use('/api/rapportage',   rapportage);
 const frontendPath = path.join(__dirname, '..', 'frontend', 'dist');
