@@ -71,6 +71,10 @@ function TypeModal({ type, onClose, onSaved }) {
 
 function RolModal({ types, rol, onClose, onSaved }) {
   const isEdit = !!rol?.id;
+
+  // Detecteer of het een 200g rol is op basis van startgewicht
+  const standaardGewicht = rol?.gewicht_gram_start === 200 ? 200 : 1000;
+
   const [form, setForm] = useState(rol ? {
     filament_type_id: rol.filament_type_id,
     kleur: rol.kleur || '',
@@ -88,23 +92,44 @@ function RolModal({ types, rol, onClose, onSaved }) {
     gekocht_op: new Date().toISOString().split('T')[0],
     actief: 1,
   });
+
+  // Lokale string-states voor numerieke velden → cursor springt niet weg
+  const [startStr, setStartStr] = useState(String(form.gewicht_gram_start));
+  const [huidigStr, setHuidigStr] = useState(String(form.gewicht_gram_huidig));
+
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  // Sync huidig gewicht met start als nieuw
-  function setStart(v) {
-    set('gewicht_gram_start', v);
-    if (!isEdit) set('gewicht_gram_huidig', v);
+  function setStandaard(gram) {
+    const g = parseInt(gram);
+    setStartStr(String(g));
+    set('gewicht_gram_start', g);
+    if (!isEdit) {
+      setHuidigStr(String(g));
+      set('gewicht_gram_huidig', g);
+    }
   }
+
+  // Bereken prijs/kg weergave voor geselecteerd type
+  const gekozenType = types.find(t => t.id === parseInt(form.filament_type_id));
+  const prijsInfo = gekozenType ? (() => {
+    const start = parseInt(startStr) || 1000;
+    if (start !== 1000 && start > 0) {
+      const herrekend = (gekozenType.inkoop_prijs_per_kg / 1000) * start;
+      return `€${gekozenType.inkoop_prijs_per_kg.toFixed(2)}/kg → deze rol: €${herrekend.toFixed(2)}`;
+    }
+    return `€${gekozenType.inkoop_prijs_per_kg.toFixed(2)}/kg`;
+  })() : null;
+
+  const gekozenKleur = kleurHex(form.kleur);
 
   async function save() {
     try {
-      if (isEdit) await api.put(`/filament/rollen/${rol.id}`, form);
-      else await api.post('/filament/rollen', form);
+      const payload = { ...form, gewicht_gram_start: parseInt(startStr) || 1000, gewicht_gram_huidig: parseInt(huidigStr) || parseInt(startStr) || 1000 };
+      if (isEdit) await api.put(`/filament/rollen/${rol.id}`, payload);
+      else await api.post('/filament/rollen', payload);
       onSaved();
     } catch (e) { alert(e.message); }
   }
-
-  const gekozenKleur = kleurHex(form.kleur);
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -114,14 +139,13 @@ function RolModal({ types, rol, onClose, onSaved }) {
           <button className="btn" onClick={onClose}>✕</button>
         </div>
 
-        {!isEdit && (
-          <div className="form-group">
-            <label>Filamenttype *</label>
-            <select value={form.filament_type_id} onChange={e => set('filament_type_id', e.target.value)}>
-              {types.map(t => <option key={t.id} value={t.id}>{t.merk} {t.materiaal}</option>)}
-            </select>
-          </div>
-        )}
+        {/* Type — nu ook aanpasbaar bij bewerken */}
+        <div className="form-group">
+          <label>Filamenttype *</label>
+          <select value={form.filament_type_id} onChange={e => set('filament_type_id', e.target.value)}>
+            {types.map(t => <option key={t.id} value={t.id}>{t.merk} {t.materiaal}</option>)}
+          </select>
+        </div>
 
         <div className="form-group">
           <label>Kleur</label>
@@ -143,14 +167,49 @@ function RolModal({ types, rol, onClose, onSaved }) {
           </div>
         </div>
 
+        {/* Standaard gewicht knoppen */}
+        <div className="form-group">
+          <label>Standaard rolgewicht</label>
+          <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+            {[1000, 200].map(g => (
+              <button key={g} className={`btn${parseInt(startStr) === g ? ' primary' : ''}`}
+                style={{ flex:1 }} onClick={() => setStandaard(g)}>
+                {g}g {g === 200 ? '(mini rol)' : '(standaard)'}
+              </button>
+            ))}
+          </div>
+          {prijsInfo && (
+            <div style={{ fontSize:11, color:'var(--accent2)', marginBottom:6 }}>💰 {prijsInfo}</div>
+          )}
+        </div>
+
         <div className="form-row">
           <div className="form-group">
             <label>Startgewicht (g)</label>
-            <input type="number" value={form.gewicht_gram_start} onChange={e => setStart(parseFloat(e.target.value))} />
+            <input
+              type="number"
+              value={startStr}
+              onChange={e => {
+                setStartStr(e.target.value);
+                const n = parseInt(e.target.value);
+                if (!isNaN(n)) {
+                  set('gewicht_gram_start', n);
+                  if (!isEdit) { setHuidigStr(e.target.value); set('gewicht_gram_huidig', n); }
+                }
+              }}
+            />
           </div>
           <div className="form-group">
             <label>Huidig gewicht (g) {isEdit && <span style={{color:'var(--accent)', fontSize:11}}>← pas dit aan</span>}</label>
-            <input type="number" value={form.gewicht_gram_huidig} onChange={e => set('gewicht_gram_huidig', parseFloat(e.target.value))} />
+            <input
+              type="number"
+              value={huidigStr}
+              onChange={e => {
+                setHuidigStr(e.target.value);
+                const n = parseInt(e.target.value);
+                if (!isNaN(n)) set('gewicht_gram_huidig', n);
+              }}
+            />
           </div>
         </div>
 
