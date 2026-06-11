@@ -51,8 +51,8 @@ instellingen.put('/:sleutel', (req, res) => {
     const db = getDb();
     const { waarde } = req.body;
     if (waarde === undefined) return res.status(400).json({ error: 'waarde is verplicht' });
-    const bestaат = db.prepare('SELECT 1 FROM instellingen WHERE sleutel = ?').get(req.params.sleutel);
-    if (bestaат) {
+    const rij = db.prepare('SELECT 1 FROM instellingen WHERE sleutel = ?').get(req.params.sleutel);
+    if (rij) {
       db.prepare('UPDATE instellingen SET waarde = ? WHERE sleutel = ?').run(String(waarde), req.params.sleutel);
     } else {
       db.prepare('INSERT INTO instellingen (sleutel, waarde) VALUES (?,?)').run(req.params.sleutel, String(waarde));
@@ -66,8 +66,6 @@ instellingen.put('/:sleutel', (req, res) => {
 // --- HOME ASSISTANT ---
 export const ha = Router();
 
-// Haal HA url+token op uit de instellingen tabel
-// Fallback naar environment variabelen voor achterwaartse compatibiliteit
 function getHaConfig() {
   try {
     const db = getDb();
@@ -93,10 +91,9 @@ async function haGet(path) {
   return res.json();
 }
 
-// Test endpoint — controleert of HA bereikbaar is
 ha.get('/test', async (req, res) => {
   try {
-    const data = await haGet('');   // GET /api/ geeft HA versie terug
+    const data = await haGet('');
     res.json({ ok: true, message: data?.message || 'API Online' });
   } catch (e) {
     res.status(502).json({ ok: false, error: 'HA niet bereikbaar', detail: e.message });
