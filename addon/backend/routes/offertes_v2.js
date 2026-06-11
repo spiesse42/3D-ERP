@@ -43,29 +43,16 @@ function berekenOfferte(data, t) {
 
   const totale_tijd_u = parseInt(geschatte_tijd_u) + parseInt(geschatte_tijd_min) / 60;
 
-  // Materiaal
   const materiaal_kost = (parseFloat(geschat_gewicht_g) / 1000) * parseFloat(filament_prijs_per_kg) * faalfactor * parseInt(aantal);
-
-  // Energie (schatting op basis van wattage)
   const kwh_schat = (printer_watt / 1000) * totale_tijd_u * parseInt(aantal);
   const energie_kost_schat = kwh_schat * kwh_prijs;
-
-  // Machine (intern)
   const machine_kost = totale_tijd_u * (t.machine_per_uur || 0.13) * parseInt(aantal);
-
-  // Arbeid
-  const totale_voorb = parseInt(voorbereiding_min);
-  const totale_nab = parseInt(nabewerking_min);
-  const arbeid_kost = ((totale_voorb + totale_nab) / 60 * arbeid_per_uur)
+  const arbeid_kost = ((parseInt(voorbereiding_min) + parseInt(nabewerking_min)) / 60 * arbeid_per_uur)
     + (parseInt(ontwerp_min) / 60 * parseFloat(ontwerp_tarief))
     + (parseInt(nabewerking_extra_min) / 60 * parseFloat(nabewerking_extra_tarief));
-
-  // Extra
   const extra_totaal = parseFloat(extra_per_stuk) * parseInt(aantal) + parseFloat(extra_eenmalig);
-
   const subtotaal = materiaal_kost + energie_kost_schat + machine_kost + arbeid_kost + extra_totaal + bmcu;
 
-  // Marge
   const marge_grens = t.marge_grens_uur || 4;
   const marge_pct = totale_tijd_u >= marge_grens ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
   const verkoopprijs = subtotaal * (1 + marge_pct / 100);
@@ -232,14 +219,12 @@ r.post('/', (req, res) => {
 
   if (!klant_id) return res.status(400).json({ error: 'Klant is verplicht' });
 
-  // Filamentprijs ophalen
   let filament_prijs_per_kg = 0;
   if (filament_type_id) {
     const ft = db.prepare('SELECT inkoop_prijs_per_kg FROM filament_types WHERE id = ?').get(filament_type_id);
     filament_prijs_per_kg = ft?.inkoop_prijs_per_kg || 0;
   }
 
-  // Printer wattage
   let printer_watt = 120;
   if (printer_id) {
     const p = db.prepare('SELECT naam FROM printers WHERE id = ?').get(printer_id);
@@ -265,7 +250,7 @@ r.post('/', (req, res) => {
   };
 
   const ber = berekenOfferte(berData, t);
-  const btw_bedrag = Math.round(ber.verkoopprijs * btw_pct) / 100;
+  const btw_bedrag = Math.round(ber.verkoopprijs * (parseFloat(btw_pct) || 0)) / 100;
   const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
   const nummer = nextNummer(db);
 
@@ -287,81 +272,14 @@ r.post('/', (req, res) => {
     berData.nabewerking_extra_min, berData.nabewerking_extra_tarief, berData.is_multicolor,
     berData.extra_per_stuk, berData.extra_eenmalig, extra_omschrijving||null, berData.aantal,
     ber.materiaal_kost, ber.energie_kost_schat, ber.arbeid_kost, ber.machine_kost, ber.extra_totaal,
-    ber.subtotaal, ber.marge_pct, ber.verkoopprijs, btw_pct, btw_bedrag, totaal,
+    ber.subtotaal, ber.marge_pct, ber.verkoopprijs, parseFloat(btw_pct)||0, btw_bedrag, totaal,
     geldig_tot||null, notities||null
   );
 
   res.status(201).json({ id: result.lastInsertRowid, nummer, ...ber });
 });
 
-// PATCH status
-r.patch('/:id/status', (req, res) => {
-  getDb().prepare('UPDATE offertes_v2 SET status = ? WHERE id = ?').run(req.body.status, req.params.id);
-  res.json({ ok: true });
-});
-
-// POST maak werkbon job van offerte
-r.post('/:id/maak-job', (req, res) => {
-  const db = getDb();
-  const offerte = db.prepare('SELECT * FROM offertes_v2 WHERE id = ?').get(req.params.id);
-  if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
-  if (!offerte.printer_id) return res.status(400).json({ error: 'Offerte heeft geen printer — bewerk de offerte eerst' });
-
-  const totaleUren = (offerte.geschatte_tijd_u || 0) + (offerte.geschatte_tijd_min || 0) / 60;
-
-  const result = db.prepare(`
-    INSERT INTO jobs (klant_id, printer_id, naam, status, print_uren_geschat, is_multicolor, notities, offerte_id)
-    VALUES (?,?,?,?,?,?,?,?)
-  `).run(
-    offerte.klant_id, offerte.printer_id,
-    offerte.object_naam || `Job van offerte ${offerte.nummer}`,
-    'gepland', totaleUren, offerte.is_multicolor,
-    `Werkbon van offerte ${offerte.nummer}`, offerte.id
-  );
-
-  // Koppel job aan offerte
-  db.prepare('UPDATE offertes_v2 SET job_id = ?, status = ? WHERE id = ?')
-    .run(result.lastInsertRowid, 'goedgekeurd', offerte.id);
-
-  res.status(201).json({ job_id: result.lastInsertRowid });
-});
-
-// GET PDF
-r.get('/:id/pdf', (req, res) => {
-  const db = getDb();
-  const offerte = db.prepare(`
-    SELECT o.*, k.naam as klant_naam, k.voornaam, k.email, k.straat, k.huisnummer,
-      k.postcode, k.gemeente, k.btw_nummer
-    FROM offertes_v2 o JOIN klanten k ON k.id = o.klant_id WHERE o.id = ?
-  `).get(req.params.id);
-  if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
-
-  const klant = { naam: offerte.klant_naam, voornaam: offerte.voornaam, email: offerte.email,
-    straat: offerte.straat, huisnummer: offerte.huisnummer, postcode: offerte.postcode,
-    gemeente: offerte.gemeente, btw_nummer: offerte.btw_nummer };
-  const printer = offerte.printer_id ? db.prepare('SELECT naam FROM printers WHERE id = ?').get(offerte.printer_id) : null;
-  const ft = offerte.filament_type_id ? db.prepare('SELECT * FROM filament_types WHERE id = ?').get(offerte.filament_type_id) : null;
-  const t = getTarieven(db);
-  const ber = { materiaal_kost: offerte.materiaal_kost, energie_kost_schat: offerte.energie_kost_schat,
-    arbeid_kost: offerte.arbeid_kost, machine_kost: offerte.machine_kost, extra_totaal: offerte.extra_totaal,
-    subtotaal: offerte.subtotaal, marge_pct: offerte.marge_pct, verkoopprijs: offerte.verkoopprijs,
-    arbeid_per_uur: t.arbeid_per_uur || 15 };
-
-  const html = buildOfferteHtml(offerte, klant, ber, ft, printer);
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="offerte-${offerte.nummer}.html"`);
-  res.send(html);
-});
-
-// DELETE
-r.delete('/:id', (req, res) => {
-  getDb().prepare('DELETE FROM offertes_v2 WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
-});
-
-export default r;
-
-// PUT update offerte
+// PUT update offerte — MOET voor export default staan!
 r.put('/:id', (req, res) => {
   const db = getDb();
   const t = getTarieven(db);
@@ -396,11 +314,12 @@ r.put('/:id', (req, res) => {
     extra_per_stuk: parseFloat(data.extra_per_stuk) || 0,
     extra_eenmalig: parseFloat(data.extra_eenmalig) || 0,
     aantal: parseInt(data.aantal) || 1,
-    filament_prijs_per_kg, printer_watt,
+    filament_prijs_per_kg,
+    printer_watt,
   };
 
   const ber = berekenOfferte(berData, t);
-  const btw_pct = parseFloat(data.btw_pct) || 21;
+  const btw_pct = parseFloat(data.btw_pct) || 0;
   const btw_bedrag = Math.round(ber.verkoopprijs * btw_pct) / 100;
   const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
 
@@ -429,3 +348,90 @@ r.put('/:id', (req, res) => {
 
   res.json({ ok: true, ...ber });
 });
+
+// PATCH status
+r.patch('/:id/status', (req, res) => {
+  getDb().prepare('UPDATE offertes_v2 SET status = ? WHERE id = ?').run(req.body.status, req.params.id);
+  res.json({ ok: true });
+});
+
+// POST maak werkbon job van offerte
+r.post('/:id/maak-job', (req, res) => {
+  const db = getDb();
+  const offerte = db.prepare('SELECT * FROM offertes_v2 WHERE id = ?').get(req.params.id);
+  if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
+  if (!offerte.printer_id) return res.status(400).json({ error: 'Offerte heeft geen printer — bewerk de offerte eerst' });
+
+  const totaleUren = (offerte.geschatte_tijd_u || 0) + (offerte.geschatte_tijd_min || 0) / 60;
+
+  const result = db.prepare(`
+    INSERT INTO jobs (klant_id, printer_id, naam, status, print_uren_geschat, is_multicolor, notities, offerte_id)
+    VALUES (?,?,?,?,?,?,?,?)
+  `).run(
+    offerte.klant_id, offerte.printer_id,
+    offerte.object_naam || `Job van offerte ${offerte.nummer}`,
+    'gepland', totaleUren, offerte.is_multicolor,
+    `Werkbon van offerte ${offerte.nummer}`, offerte.id
+  );
+
+  db.prepare('UPDATE offertes_v2 SET job_id = ?, status = ? WHERE id = ?')
+    .run(result.lastInsertRowid, 'goedgekeurd', offerte.id);
+
+  res.status(201).json({ job_id: result.lastInsertRowid });
+});
+
+// GET PDF
+r.get('/:id/pdf', (req, res) => {
+  const db = getDb();
+  const offerte = db.prepare(`
+    SELECT o.*, k.naam as klant_naam, k.voornaam, k.email, k.straat, k.huisnummer,
+      k.postcode, k.gemeente, k.btw_nummer
+    FROM offertes_v2 o JOIN klanten k ON k.id = o.klant_id WHERE o.id = ?
+  `).get(req.params.id);
+  if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
+
+  const klant = { naam: offerte.klant_naam, voornaam: offerte.voornaam, email: offerte.email,
+    straat: offerte.straat, huisnummer: offerte.huisnummer, postcode: offerte.postcode,
+    gemeente: offerte.gemeente, btw_nummer: offerte.btw_nummer };
+  const printer = offerte.printer_id ? db.prepare('SELECT naam FROM printers WHERE id = ?').get(offerte.printer_id) : null;
+  const ft = offerte.filament_type_id ? db.prepare('SELECT * FROM filament_types WHERE id = ?').get(offerte.filament_type_id) : null;
+  const t = getTarieven(db);
+  const ber = {
+    materiaal_kost: offerte.materiaal_kost, energie_kost_schat: offerte.energie_kost_schat,
+    arbeid_kost: offerte.arbeid_kost, machine_kost: offerte.machine_kost,
+    extra_totaal: offerte.extra_totaal, subtotaal: offerte.subtotaal,
+    marge_pct: offerte.marge_pct, verkoopprijs: offerte.verkoopprijs,
+    arbeid_per_uur: t.arbeid_per_uur || 15
+  };
+
+  const html = buildOfferteHtml(offerte, klant, ber, ft, printer);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="offerte-${offerte.nummer}.html"`);
+  res.send(html);
+});
+
+// DELETE offerte — verbreek eerst alle koppelingen
+r.delete('/:id', (req, res) => {
+  const db = getDb();
+  try {
+    const offerte = db.prepare('SELECT * FROM offertes_v2 WHERE id = ?').get(req.params.id);
+    if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
+
+    // Als er een gekoppelde job is, verwijder die eerst (inclusief zijn koppelingen)
+    if (offerte.job_id) {
+      db.prepare('UPDATE offertes_v2 SET job_id = NULL WHERE id = ?').run(req.params.id);
+      db.prepare('UPDATE jobs SET offerte_id = NULL WHERE id = ?').run(offerte.job_id);
+      db.prepare('DELETE FROM job_kosten WHERE job_id = ?').run(offerte.job_id);
+      db.prepare('DELETE FROM job_materialen WHERE job_id = ?').run(offerte.job_id);
+      db.prepare('DELETE FROM jobs WHERE id = ?').run(offerte.job_id);
+    }
+
+    // Verwijder offerte zelf
+    db.prepare('DELETE FROM offertes_v2 WHERE id = ?').run(req.params.id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+export default r;

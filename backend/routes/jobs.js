@@ -82,8 +82,19 @@ r.patch('/:id/status', (req, res) => {
 });
 
 r.delete('/:id', (req, res) => {
-  getDb().prepare('DELETE FROM jobs WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
+  const db = getDb();
+  try {
+    // Stap 1: verbreek koppeling job → offerte (circulaire referentie)
+    db.prepare('UPDATE offertes_v2 SET job_id = NULL WHERE job_id = ?').run(req.params.id);
+    // Stap 2: verwijder gerelateerde data
+    db.prepare('DELETE FROM job_kosten WHERE job_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM job_materialen WHERE job_id = ?').run(req.params.id);
+    // Stap 3: verwijder job zelf
+    db.prepare('DELETE FROM jobs WHERE id = ?').run(req.params.id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 r.post('/:id/materialen', (req, res) => {
