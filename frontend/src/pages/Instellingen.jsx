@@ -10,10 +10,14 @@ const GROEPEN = [
 ];
 
 export default function Instellingen() {
-  const [tarieven, setTarieven] = useState({});
-  const [geladen, setGeladen] = useState(false);
-  const [printers, setPrinters] = useState([]);
-  const [saved, setSaved] = useState('');
+  const [tarieven, setTarieven]       = useState({});
+  const [geladen, setGeladen]         = useState(false);
+  const [printers, setPrinters]       = useState([]);
+  const [haUrl, setHaUrl]             = useState('');
+  const [haToken, setHaToken]         = useState('');
+  const [tokenZichtbaar, setTokenZichtbaar] = useState(false);
+  const [saved, setSaved]             = useState('');
+  const [haTestStatus, setHaTestStatus] = useState('');
 
   useEffect(() => {
     api.get('/tarieven').then(rows => {
@@ -23,6 +27,13 @@ export default function Instellingen() {
       setGeladen(true);
     });
     api.get('/printers').then(setPrinters);
+    // Laad HA instellingen uit de instellingen tabel
+    api.get('/instellingen').then(rows => {
+      const map = {};
+      rows.forEach(r => { map[r.sleutel] = r.waarde; });
+      setHaUrl(map.ha_url || 'http://192.168.0.105:8123');
+      setHaToken(map.ha_token || '');
+    }).catch(() => {});
   }, []);
 
   function setTarief(sleutel, waarde) {
@@ -35,6 +46,28 @@ export default function Instellingen() {
     }
     setSaved('Tarieven opgeslagen!');
     setTimeout(() => setSaved(''), 3000);
+  }
+
+  async function saveHaInstellingen() {
+    await api.put('/instellingen/ha_url',   { waarde: haUrl });
+    await api.put('/instellingen/ha_token', { waarde: haToken });
+    setSaved('HA instellingen opgeslagen!');
+    setTimeout(() => setSaved(''), 3000);
+  }
+
+  async function testHaVerbinding() {
+    setHaTestStatus('Bezig...');
+    try {
+      const result = await api.get('/ha/test');
+      if (result?.ok) {
+        setHaTestStatus('✓ Verbinding OK');
+      } else {
+        setHaTestStatus('✗ Verbinding mislukt');
+      }
+    } catch {
+      setHaTestStatus('✗ Verbinding mislukt');
+    }
+    setTimeout(() => setHaTestStatus(''), 4000);
   }
 
   function setPrinter(id, k, v) {
@@ -57,6 +90,8 @@ export default function Instellingen() {
       </div>
 
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1.5rem', alignItems:'start' }}>
+
+        {/* LINKER KOLOM — tarieven + HA verbinding */}
         <div>
           {GROEPEN.map(g => {
             const velden = g.sleutels.map(s => tarieven[s]).filter(Boolean);
@@ -80,22 +115,88 @@ export default function Instellingen() {
           <button className="btn primary" style={{ width:'100%' }} onClick={saveTarieven}>
             Tarieven opslaan
           </button>
+
+          {/* HA VERBINDING */}
+          <div className="card" style={{ marginTop:'1.5rem' }}>
+            <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.25rem' }}>Home Assistant verbinding</h2>
+            <p style={{ fontSize:11, color:'var(--muted)', marginBottom:'1rem' }}>
+              Gebruikt voor Watt-sampling per printjob. Token wordt versleuteld opgeslagen.
+            </p>
+
+            <div className="form-group">
+              <label>HA URL</label>
+              <input
+                type="text"
+                value={haUrl}
+                onChange={e => setHaUrl(e.target.value)}
+                placeholder="http://192.168.0.105:8123"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Long-Lived Access Token</label>
+              <div style={{ display:'flex', gap:6 }}>
+                <input
+                  type={tokenZichtbaar ? 'text' : 'password'}
+                  value={haToken}
+                  onChange={e => setHaToken(e.target.value)}
+                  placeholder="eyJhbGci..."
+                  style={{ flex:1, fontFamily:'monospace', fontSize:11 }}
+                />
+                <button
+                  className="btn"
+                  style={{ flexShrink:0, fontSize:11, padding:'4px 10px' }}
+                  onClick={() => setTokenZichtbaar(v => !v)}
+                >
+                  {tokenZichtbaar ? '🙈' : '👁'}
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display:'flex', gap:8, marginTop:'0.75rem' }}>
+              <button className="btn primary" style={{ flex:1 }} onClick={saveHaInstellingen}>
+                Opslaan
+              </button>
+              <button className="btn" style={{ flex:1 }} onClick={testHaVerbinding}>
+                Verbinding testen
+              </button>
+            </div>
+            {haTestStatus && (
+              <p style={{
+                fontSize:12,
+                marginTop:8,
+                color: haTestStatus.startsWith('✓') ? 'var(--accent2)' : '#ef4444'
+              }}>
+                {haTestStatus}
+              </p>
+            )}
+          </div>
         </div>
 
+        {/* RECHTER KOLOM — printers + export */}
         <div>
           {printers.map(p => (
             <div key={p.id} className="card" style={{ marginBottom:'1rem' }}>
               <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'1rem' }}>{p.naam}</h2>
+
               <div className="form-group">
                 <label>HA entity prefix</label>
                 <input value={p.ha_entity_prefix || ''} onChange={e => setPrinter(p.id, 'ha_entity_prefix', e.target.value)}
                   placeholder="sensor.a1mini_0300da611800680_" />
               </div>
+
               <div className="form-group">
-                <label>kWh entity (smart plug)</label>
+                <label>kWh entity (slim stopcontact — teller)</label>
                 <input value={p.kwh_entity || ''} onChange={e => setPrinter(p.id, 'kwh_entity', e.target.value)}
-                  placeholder="sensor.lsc_power_plug_..." />
+                  placeholder="sensor.lsc_power_plug_fr_..._totaal_energieverbruik" />
               </div>
+
+              <div className="form-group">
+                <label>Watt entity (slim stopcontact — vermogen)</label>
+                <input value={p.watt_entity || ''} onChange={e => setPrinter(p.id, 'watt_entity', e.target.value)}
+                  placeholder="sensor.lsc_power_plug_fr_..._vermogen" />
+              </div>
+
               <div className="form-row">
                 <div className="form-group">
                   <label>Machine kost/uur (€)</label>
@@ -110,6 +211,7 @@ export default function Instellingen() {
                   </select>
                 </div>
               </div>
+
               <button className="btn primary" style={{ width:'100%' }} onClick={() => savePrinter(p)}>
                 Opslaan
               </button>
@@ -121,6 +223,7 @@ export default function Instellingen() {
             <a className="btn" href="/api/rapportage/csv/jobs" download>↓ Jobs exporteren (CSV)</a>
           </div>
         </div>
+
       </div>
     </div>
   );

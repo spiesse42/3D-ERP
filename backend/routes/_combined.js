@@ -34,18 +34,74 @@ tarieven.put('/:sleutel', (req, res) => {
   res.json({ ok: true });
 });
 
+// --- INSTELLINGEN (tekst-waarden: token, url, ...) ---
+export const instellingen = Router();
+
+instellingen.get('/', (req, res) => {
+  try {
+    const rows = getDb().prepare('SELECT sleutel, waarde, label FROM instellingen ORDER BY sleutel').all();
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+instellingen.put('/:sleutel', (req, res) => {
+  try {
+    const db = getDb();
+    const { waarde } = req.body;
+    if (waarde === undefined) return res.status(400).json({ error: 'waarde is verplicht' });
+    const bestaат = db.prepare('SELECT 1 FROM instellingen WHERE sleutel = ?').get(req.params.sleutel);
+    if (bestaат) {
+      db.prepare('UPDATE instellingen SET waarde = ? WHERE sleutel = ?').run(String(waarde), req.params.sleutel);
+    } else {
+      db.prepare('INSERT INTO instellingen (sleutel, waarde) VALUES (?,?)').run(req.params.sleutel, String(waarde));
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // --- HOME ASSISTANT ---
 export const ha = Router();
 
-const HA_URL   = process.env.HA_URL   || 'http://supervisor/core';
-const HA_TOKEN = process.env.HA_TOKEN || '';
+// Haal HA url+token op uit de instellingen tabel
+// Fallback naar environment variabelen voor achterwaartse compatibiliteit
+function getHaConfig() {
+  try {
+    const db = getDb();
+    const urlRow   = db.prepare("SELECT waarde FROM instellingen WHERE sleutel = 'ha_url'").get();
+    const tokenRow = db.prepare("SELECT waarde FROM instellingen WHERE sleutel = 'ha_token'").get();
+    const url   = urlRow?.waarde   || process.env.HA_URL   || 'http://supervisor/core';
+    const token = tokenRow?.waarde || process.env.HA_TOKEN || '';
+    return { url, token };
+  } catch {
+    return {
+      url:   process.env.HA_URL   || 'http://supervisor/core',
+      token: process.env.HA_TOKEN || '',
+    };
+  }
+}
 
 async function haGet(path) {
-  const res = await fetch(`${HA_URL}/api/${path}`, {
-    headers: { Authorization: `Bearer ${HA_TOKEN}`, 'Content-Type': 'application/json' }
+  const { url, token } = getHaConfig();
+  const res = await fetch(`${url}/api/${path}`, {
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
   });
+  if (!res.ok) throw new Error(`HA HTTP ${res.status}`);
   return res.json();
 }
+
+// Test endpoint — controleert of HA bereikbaar is
+ha.get('/test', async (req, res) => {
+  try {
+    const data = await haGet('');   // GET /api/ geeft HA versie terug
+    res.json({ ok: true, message: data?.message || 'API Online' });
+  } catch (e) {
+    res.status(502).json({ ok: false, error: 'HA niet bereikbaar', detail: e.message });
+  }
+});
 
 ha.get('/state/:entity', async (req, res) => {
   try {
@@ -60,18 +116,22 @@ ha.get('/printer-status', async (req, res) => {
   const db = getDb();
   const printers = db.prepare('SELECT * FROM printers WHERE actief = 1').all();
   const results = await Promise.all(printers.map(async p => {
-    let kwh = null, status = null;
+    let kwh = null, watt = null, status = null;
     try {
       if (p.kwh_entity) {
         const s = await haGet(`states/${p.kwh_entity}`);
         kwh = parseFloat(s.state) || null;
+      }
+      if (p.watt_entity) {
+        const s = await haGet(`states/${p.watt_entity}`);
+        watt = parseFloat(s.state) || null;
       }
       if (p.ha_entity_prefix) {
         const s = await haGet(`states/${p.ha_entity_prefix}print_status`);
         status = s.state;
       }
     } catch {}
-    return { id: p.id, naam: p.naam, kwh, status };
+    return { id: p.id, naam: p.naam, kwh, watt, status };
   }));
   res.json(results);
 });
