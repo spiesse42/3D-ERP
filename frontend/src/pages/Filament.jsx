@@ -38,12 +38,17 @@ function TypeModal({ type, onClose, onSaved }) {
   const [form, setForm] = useState(type || { merk:'', materiaal:'PLA+', inkoop_prijs_per_kg:'', dichtheid_g_per_cm3:1.24, leverancier:'' });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   async function save() {
-    try {
-      if (type?.id) await api.put(`/filament/types/${type.id}`, form);
-      else await api.post('/filament/types', form);
-      onSaved();
-    } catch (e) { alert(e.message); }
+  if (!form.merk || !form.materiaal || !form.inkoop_prijs_per_kg) {
+    alert('Merk, materiaal en prijs zijn verplicht');
+    return;
   }
+  try {
+    if (type?.id) await api.put(`/filament/types/${type.id}`, form);
+    else await api.post('/filament/types', form);
+    onSaved();
+  } catch (e) { alert(e.message); }
+}
+  
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
@@ -306,10 +311,13 @@ export default function Filament() {
                     </div>
                   </td>
                   <td style={{ minWidth:160 }}>
-                    <div style={{ marginBottom:4 }}>{r.gewicht_gram_huidig}g <span style={{ color:'var(--muted)', fontSize:11 }}>/ {r.gewicht_gram_start}g</span></div>
+                    <div style={{ marginBottom:4 }}>{parseFloat(r.gewicht_gram_huidig).toFixed(2)}g <span style={{ color:'var(--muted)', fontSize:11 }}>/ {parseFloat(r.gewicht_gram_start).toFixed(2)}g</span></div>
                     <VoorraadBalk huidig={r.gewicht_gram_huidig} start={r.gewicht_gram_start} />
                   </td>
-                  <td style={{ color:'var(--accent2)' }}>€{r.restwaarde_eur}</td>
+                  <td>
+  <div style={{ color:'var(--accent2)' }}>€{r.restwaarde_eur}</div>
+  <div style={{ fontSize:11, color:'var(--muted)' }}>€{r.inkoop_prijs_per_kg?.toFixed(2)}/kg</div>
+</td>
                   <td style={{ color:'var(--muted)' }}>{r.locatie || '—'}</td>
                   <td><span className={`badge ${r.actief ? 'bezig' : 'geannuleerd'}`}>{r.actief ? 'actief' : 'leeg'}</span></td>
                   <td>
@@ -343,7 +351,13 @@ export default function Filament() {
                   <td>
                     <div style={{ display:'flex', gap:6 }}>
                       <button className="btn" style={{ fontSize:11, padding:'4px 8px' }} onClick={() => setTypeModal(t)}>✏</button>
-                      <button className="btn danger" style={{ fontSize:11, padding:'4px 8px' }} onClick={async () => { if(confirm('Verwijderen?')) { await api.delete(`/filament/types/${t.id}`); load(); }}}>✕</button>
+                      <button className="btn danger" style={{ fontSize:11, padding:'4px 8px' }} onClick={async () => {
+  if (!confirm('Verwijderen?')) return;
+  try {
+    await api.delete(`/filament/types/${t.id}`);
+    load();
+  } catch(e) { alert(e.message); }
+}}>✕</button>
                     </div>
                   </td>
                 </tr>
