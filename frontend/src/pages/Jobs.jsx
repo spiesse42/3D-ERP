@@ -27,6 +27,7 @@ function ProgressRing({ pct, color, size=80 }) {
 
 function PrinterCard({ printerId, naam, data, klanten, onJobCreated }) {
   const name    = naam || data?.naam || '—';
+  const status  = data?.status || 'unavailable';
   const isRunning = ['running','printing'].includes(status.toLowerCase());
   const isDone = ['finish','complete','success'].includes(status.toLowerCase());
   const color = isRunning ? '#ef4444' : isDone ? '#22c55e' : '#f59e0b';
@@ -384,7 +385,7 @@ export default function Jobs() {
                         const prefix = j.print_uren_werkelijk == null ? '~' : '';
                         const h = Math.floor(u);
                         const m = Math.round((u - h) * 60);
-                        return m > 0 ? `${prefix}${h}u ${m}m` : `${prefix}${h}u`;
+                        return `${prefix}${h}u ${m}m`;
                       })()}
                     </td>
                     <td>{j.verkoopprijs != null ? <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span> : <span style={{ color:'var(--muted)' }}>—</span>}</td>
