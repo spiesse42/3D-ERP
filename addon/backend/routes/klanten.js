@@ -28,19 +28,21 @@ r.post('/', (req, res) => {
   if (!naam) return res.status(400).json({ error: 'Naam is verplicht' });
 
   // Controleer welke kolommen bestaan
-  const cols = db.prepare("PRAGMA table_info(klanten)").all().map(c => c.name);
+const cols = db.prepare("PRAGMA table_info(klanten)").all().map(c => c.name);
   const hasVoornaam = cols.includes('voornaam');
   const hasStraat = cols.includes('straat');
   const hasPostcode = cols.includes('postcode');
   const hasGsm = cols.includes('gsm');
   const hasType = cols.includes('type');
+  const hasBedrijfsnaam = cols.includes('bedrijfsnaam');
 
   try {
     if (hasVoornaam && hasStraat) {
       const result = db.prepare(`
-        INSERT INTO klanten (naam,voornaam,email,telefoon,gsm,straat,huisnummer,postcode,gemeente,btw_nummer,type,notities)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-      `).run(naam, voornaam||null, email||null, telefoon||null, gsm||null,
+        INSERT INTO klanten (naam,voornaam,bedrijfsnaam,email,telefoon,gsm,straat,huisnummer,postcode,gemeente,btw_nummer,type,notities)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `).run(naam, voornaam||null, hasBedrijfsnaam ? (req.body.bedrijfsnaam||null) : null,
+             email||null, telefoon||null, gsm||null,
              straat||null, huisnummer||null, postcode||null, gemeente||null,
              btw_nummer||null, type||'particulier', notities||null);
       return res.status(201).json({ id: result.lastInsertRowid });
@@ -64,13 +66,15 @@ r.put('/:id', (req, res) => {
   const cols = db.prepare("PRAGMA table_info(klanten)").all().map(c => c.name);
   const hasVoornaam = cols.includes('voornaam');
   const hasStraat = cols.includes('straat');
+  const hasBedrijfsnaam = cols.includes('bedrijfsnaam');
 
   try {
     if (hasVoornaam && hasStraat) {
       db.prepare(`
-        UPDATE klanten SET naam=?,voornaam=?,email=?,telefoon=?,gsm=?,straat=?,huisnummer=?,
+        UPDATE klanten SET naam=?,voornaam=?,bedrijfsnaam=?,email=?,telefoon=?,gsm=?,straat=?,huisnummer=?,
         postcode=?,gemeente=?,btw_nummer=?,type=?,notities=? WHERE id=?
-      `).run(naam, voornaam||null, email||null, telefoon||null, gsm||null,
+      `).run(naam, voornaam||null, hasBedrijfsnaam ? (req.body.bedrijfsnaam||null) : null,
+             email||null, telefoon||null, gsm||null,
              straat||null, huisnummer||null, postcode||null, gemeente||null,
              btw_nummer||null, type||'particulier', notities||null, req.params.id);
     } else {

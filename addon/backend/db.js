@@ -7,7 +7,9 @@ import { migrateDbV3 } from './db_migration_v3.js';
 import { migrateDbV4 } from './db_migration_v4.js';
 import { migrateDbV5 } from './db_migration_v5.js';
 import { migrateDbV6 } from './db_migration_v6.js';
-import { migrateDbV7 } from './db_migration_v7.js';  // bovenaan
+import { migrateDbV7 } from './db_migration_v7.js';
+import { migrateDbV8 } from './db_migration_v8.js';
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'erp.db');
@@ -168,7 +170,8 @@ export function initDb() {
   migrateDbV4(db);
   migrateDbV5(db);
  migrateDbV6(db);
-migrateDbV7(db);  // onderaan in initDb(), na migrateDbV6(db)
+migrateDbV7(db);
+migrateDbV8(db);
 
   const printerCount = db.prepare('SELECT COUNT(*) as c FROM printers').get().c;
   if (printerCount === 0) {
