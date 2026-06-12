@@ -4,6 +4,7 @@ import { api } from './api.js';
 
 const _kwhAccum = {};
 const _lastPoll  = {};
+const _prevStatus = {};
 
 function formatSec(sec) {
   if (!sec || sec <= 0) return '—';
@@ -87,6 +88,16 @@ export function usePrinterData() {
           _kwhAccum[p.id] = null;
         }
         _lastPoll[p.id] = now;
+
+        // Auto-voltooid: als printer finish is, zet bezig job op voltooid
+        const wasBusy = _prevStatus[p.id];
+        if (isDone && wasBusy === 'running' || isDone && wasBusy === 'printing') {
+          api.get('/jobs?status=bezig').then(jobs => {
+            const actief = jobs.find(j => j.printer_id === p.id);
+            if (actief) api.patch(`/jobs/${actief.id}/status`, { status: 'voltooid' }).catch(() => {});
+          }).catch(() => {});
+        }
+        _prevStatus[p.id] = statusLower;
 
         const kwhDelta = _kwhAccum[p.id] ?? null;
         const kwhStart = kwh != null && kwhDelta != null ? kwh - kwhDelta : null;
