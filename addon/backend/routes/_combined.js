@@ -247,7 +247,7 @@ rapportage.get('/stats/kwh', (req, res) => {
 rapportage.get('/dashboard/operationeel', (req, res) => {
   const db = getDb();
   const gepland = db.prepare(`
-    SELECT j.*, k.naam as klant_naam, p.naam as printer_naam
+SELECT j.*, k.naam as klant_naam, k.voornaam as klant_voornaam, p.naam as printer_naam
     FROM jobs j
     LEFT JOIN klanten k ON k.id = j.klant_id
     LEFT JOIN printers p ON p.id = j.printer_id
@@ -255,7 +255,7 @@ rapportage.get('/dashboard/operationeel', (req, res) => {
     ORDER BY j.aangemaakt_op ASC
   `).all();
   const bezig = db.prepare(`
-    SELECT j.*, k.naam as klant_naam, p.naam as printer_naam
+SELECT j.*, k.naam as klant_naam, k.voornaam as klant_voornaam, p.naam as printer_naam
     FROM jobs j
     LEFT JOIN klanten k ON k.id = j.klant_id
     LEFT JOIN printers p ON p.id = j.printer_id
@@ -264,8 +264,8 @@ rapportage.get('/dashboard/operationeel', (req, res) => {
   `).all();
 
   const te_factureren = db.prepare(`
-    SELECT j.*, k.naam as klant_naam, p.naam as printer_naam,
-      jk.verkoopprijs
+    SELECT j.*, k.naam as klant_naam, k.voornaam as klant_voornaam, p.naam as printer_naam,
+jk.verkoopprijs
     FROM jobs j
     LEFT JOIN klanten k ON k.id = j.klant_id
     LEFT JOIN printers p ON p.id = j.printer_id
