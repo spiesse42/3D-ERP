@@ -2,6 +2,17 @@ import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api.js';
 import { useNavigate } from 'react-router-dom';
 
+const KLEUREN_MAP = {
+  'Wit':'#f5f5f5','Zwart':'#1a1a1a','Grijs':'#808080','Rood':'#ef4444',
+  'Blauw':'#3b82f6','Groen':'#22c55e','Geel':'#eab308','Oranje':'#f97316',
+  'Paars':'#a855f7','Roze':'#ec4899','Bruin':'#92400e','Beige':'#d4b896',
+  'Zilver':'#c0c0c0','Goud':'#d4af37','Transparant':'#e0f2fe',
+};
+function KleurDot({ kleur, size = 12 }) {
+  const hex = KLEUREN_MAP[kleur] || '#555';
+  return <span style={{ display:'inline-block', width:size, height:size, borderRadius:'50%', background:hex, border:'1px solid rgba(255,255,255,0.15)', marginRight:4, verticalAlign:'middle', flexShrink:0 }} />;
+}
+
 function StatusDot({ status }) {
   const colors = {
     running:'#ef4444', printing:'#ef4444',
@@ -306,11 +317,21 @@ export default function Dashboard() {
               onClick={() => navigate(`/jobs?highlight=${j.id}`)}
               onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
               onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-              <div>
+              <div style={{ flex:1 }}>
                 <div style={{ fontWeight:500 }}>{j.naam}</div>
                 <div style={{ color:'var(--muted)', fontSize:11 }}>{j.printer_naam}</div>
               </div>
-              <span style={{ color:'var(--muted)', fontSize:11 }}>{j.klant_naam || '—'}</span>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }} onClick={e => e.stopPropagation()}>
+                <span style={{ color:'var(--muted)', fontSize:11 }}>{j.klant_naam || '—'}</span>
+                <select value={j.status}
+                  style={{ fontSize:11, padding:'2px 6px', background:'var(--bg2)', color:'var(--text)', border:'1px solid var(--border)', borderRadius:4 }}
+                  onChange={async e => {
+                    await api.patch(`/jobs/${j.id}/status`, { status: e.target.value });
+                    loadOperationeel();
+                  }}>
+                  {['gepland','bezig','voltooid','gefaald','geannuleerd'].map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
             </div>
           )}
         />
@@ -325,11 +346,20 @@ export default function Dashboard() {
               onClick={() => navigate(`/jobs?highlight=${j.id}`)}
               onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
               onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-              <div>
+              <div style={{ flex:1 }}>
                 <div style={{ fontWeight:500 }}>{j.naam}</div>
                 <div style={{ color:'var(--muted)', fontSize:11 }}>{j.printer_naam}</div>
               </div>
-              <span className="badge bezig">bezig</span>
+              <div onClick={e => e.stopPropagation()}>
+                <select value={j.status}
+                  style={{ fontSize:11, padding:'2px 6px', background:'var(--bg2)', color:'var(--text)', border:'1px solid var(--border)', borderRadius:4 }}
+                  onChange={async e => {
+                    await api.patch(`/jobs/${j.id}/status`, { status: e.target.value });
+                    loadOperationeel();
+                  }}>
+                  {['gepland','bezig','voltooid','gefaald','geannuleerd'].map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
             </div>
           )}
         />
@@ -373,7 +403,7 @@ export default function Dashboard() {
                   return (
                     <div key={r.id} style={{ padding:'6px 8px', background:'var(--bg3)', borderRadius:6 }}>
                       <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:4 }}>
-                        <span style={{ fontWeight:500 }}>{r.merk} {r.materiaal} <span style={{ color:'var(--muted)' }}>{r.kleur}</span></span>
+                        <span style={{ fontWeight:500 }}>{r.merk} {r.materiaal} <KleurDot kleur={r.kleur} size={10} /> <span style={{ color:'var(--muted)' }}>{r.kleur}</span></span>
                         <span style={{ color:'var(--muted)' }}>{r.gewicht_gram_huidig}g</span>
                       </div>
                       <div style={{ height:3, background:'var(--bg2)', borderRadius:2 }}>
