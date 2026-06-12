@@ -2,13 +2,12 @@ import { useState, useEffect } from 'react';
 import { api } from '../lib/api.js';
 
 const GROEPEN = [
-  { titel: 'Kosten & energie', sleutels: ['kwh_prijs','arbeid_per_uur','faalfactor_pct'] },
-  { titel: 'Marge', sleutels: ['marge_grens_uur','marge_klein_pct','marge_groot_pct'], info: 'Klein = print korter dan grens · Groot = print langer dan grens' },
+  { titel: 'Kosten & energie', sleutels: ['kwh_prijs'] },
+  { titel: 'Marge', sleutels: ['marge_grens_uur','marge_klein_pct','marge_groot_pct','faalfactor_pct'], info: 'Klein = print korter dan grens · Groot = print langer dan grens' },
   { titel: 'Standaard arbeid', sleutels: ['voorbereiding_min','nabewerking_min'], info: 'Automatisch verrekend bij elke print' },
-  { titel: 'Regie tarieven', sleutels: ['ontwerp_tarief','nabewerking_tarief'], info: 'Gebruikt bij ontwerp op maat of uitgebreide nabewerking' },
+  { titel: 'Regie tarieven', sleutels: ['ontwerp_tarief','nabewerking_tarief','arbeid_per_uur'], info: 'Gebruikt bij ontwerp op maat of uitgebreide nabewerking' },
   { titel: 'BMCU', sleutels: ['bmcu_per_job'] },
 ];
-
 export default function Instellingen() {
   const [tarieven, setTarieven]       = useState({});
   const [geladen, setGeladen]         = useState(false);
