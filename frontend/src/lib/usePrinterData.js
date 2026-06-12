@@ -90,8 +90,9 @@ export function usePrinterData() {
         _lastPoll[p.id] = now;
 
         // Auto-voltooid: als printer finish is, zet bezig job op voltooid
+        const isDone  = ['finish','complete','success'].includes(statusLower);
         const wasBusy = _prevStatus[p.id];
-        if (isDone && wasBusy === 'running' || isDone && wasBusy === 'printing') {
+        if (isDone && (wasBusy === 'running' || wasBusy === 'printing')) {
           api.get('/jobs?status=bezig').then(jobs => {
             const actief = jobs.find(j => j.printer_id === p.id);
             if (actief) api.patch(`/jobs/${actief.id}/status`, { status: 'voltooid' }).catch(() => {});
