@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { usePrinterData } from '../lib/usePrinterData.js';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import KostenModal from '../components/KostenModal.jsx';
@@ -212,16 +213,13 @@ function formatSec(sec) {
 }
 
 export default function Jobs() {
-  const [jobs, setJobs] = useState([]);
-  const [printers, setPrinters] = useState([]);
-  const [klanten, setKlanten] = useState([]);
-  const [modal, setModal] = useState(null);
+  const [jobs,      setJobs]      = useState([]);
+  const [printers,  setPrinters]  = useState([]);
+  const [klanten,   setKlanten]   = useState([]);
+  const [modal,     setModal]     = useState(null);
   const [kostenJob, setKostenJob] = useState(null);
-  const [filter, setFilter] = useState('');
-  const [printerData, setPrinterData] = useState({});
-  const [kwhStart, setKwhStart] = useState({});
-  const [kwhCurrent, setKwhCurrent] = useState({});
-  const intervalRef = useRef(null);
+  const [filter,    setFilter]    = useState('');
+  const { printerConfig, printerData } = usePrinterData();
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get('highlight') ? parseInt(searchParams.get('highlight')) : null;
 
@@ -233,107 +231,6 @@ export default function Jobs() {
     api.get('/klanten').then(setKlanten);
   }, []);
 
-  useEffect(() => {
-    const BAMBU = 'sensor.a1mini_0300da611800680_';
-    const entities = {
-      bambu_status:    `${BAMBU}printstatus`,
-      bambu_progress:  `${BAMBU}printvoortgang`,
-      bambu_file:      `${BAMBU}gcode_bestandsnaam`,
-      bambu_remaining: `${BAMBU}resterende_tijd`,
-      bambu_layer_cur: `${BAMBU}huidige_laag`,
-      bambu_layer_tot: `${BAMBU}hoeveelheid_lagen`,
-      bambu_filament:  `${BAMBU}gewicht_van_print`,
-      bambu_start:     `${BAMBU}starttijd`,
-      bambu_kwh:       'sensor.lsc_power_plug_fr_incl_power_meter_6_totaal_energieverbruik',
-      ender_status:    'sensor.ender_3_s1_pro_current_print_state',
-      ender_progress:  'sensor.ender_3_s1_pro_progress',
-      ender_file:      'sensor.ender_3_s1_pro_filename',
-      ender_remaining: 'sensor.ender_3_s1_pro_print_eta',
-      ender_layer_cur: 'sensor.ender_3_s1_pro_current_layer',
-      ender_layer_tot: 'sensor.ender_3_s1_pro_total_layer',
-      ender_filament:  'sensor.ender_3_s1_pro_filament_used',
-      ender_elapsed:   'sensor.ender_3_s1_pro_print_duration',
-      ender_kwh:       'sensor.lsc_power_plug_fr_incl_power_meter_5_totaal_energieverbruik',
-    };
-
-    async function poll() {
-      try {
-        const results = await Promise.all(
-          Object.entries(entities).map(([key, entity]) =>
-            api.get(`/ha/state/${entity}`).then(d => [key, d.state]).catch(() => [key, null])
-          )
-        );
-        const s = Object.fromEntries(results);
-
-        let bambuElapsed = 0;
-        if (s.bambu_start && s.bambu_start !== 'unavailable') {
-          const ms = new Date(s.bambu_start).getTime();
-          if (!isNaN(ms)) bambuElapsed = Math.max(0, (Date.now() - ms) / 1000);
-        }
-        const enderElapsedSec = (parseFloat(s.ender_elapsed) || 0) * 3600;
-
-        let bambuRem = 0;
-        if (s.bambu_remaining && s.bambu_remaining !== 'unavailable') bambuRem = parseFloat(s.bambu_remaining) || 0;
-        let enderRem = 0;
-        if (s.ender_remaining?.includes('T')) {
-          const diff = (new Date(s.ender_remaining).getTime() - Date.now()) / 1000;
-          if (diff > 0) enderRem = diff;
-        }
-
-        const bambuKwh = parseFloat(s.bambu_kwh) || 0;
-        const enderKwh = parseFloat(s.ender_kwh) || 0;
-        const bambuRunning = ['running','printing'].includes((s.bambu_status||'').toLowerCase());
-        const enderRunning = ['running','printing'].includes((s.ender_status||'').toLowerCase());
-
-        setKwhCurrent({ bambu: bambuKwh, ender: enderKwh });
-
-        setKwhStart(prev => {
-          const next = { ...prev };
-          if (bambuRunning && !prev.bambu && bambuKwh > 0) next.bambu = bambuKwh;
-          if (!bambuRunning) next.bambu = null;
-          if (enderRunning && !prev.ender && enderKwh > 0) next.ender = enderKwh;
-          if (!enderRunning) next.ender = null;
-          return next;
-        });
-
-        setPrinterData({
-          bambu: {
-            status:      s.bambu_status || 'unavailable',
-            progress:    parseFloat(s.bambu_progress) || 0,
-            filename:    s.bambu_file,
-            elapsed:     formatSec(bambuElapsed),
-            elapsed_sec: bambuElapsed,
-            remaining:   formatSec(bambuRem),
-            filament:    `${parseFloat(s.bambu_filament)?.toFixed(1) || '—'} g`,
-            filament_g:  parseFloat(s.bambu_filament) || 0,
-            layer:       `${s.bambu_layer_cur || '0'} / ${s.bambu_layer_tot || '0'}`,
-            kwh_start:   kwhStart.bambu || null,
-            kwh_current: bambuKwh || null,
-            kwh_delta:   bambuKwh > 0 && kwhStart.bambu ? bambuKwh - kwhStart.bambu : null,
-          },
-          ender: {
-            status:      s.ender_status || 'unavailable',
-            progress:    parseFloat(s.ender_progress) || 0,
-            filename:    s.ender_file,
-            elapsed:     formatSec(enderElapsedSec),
-            elapsed_sec: enderElapsedSec,
-            remaining:   formatSec(enderRem),
-            filament:    `${((parseFloat(s.ender_filament)||0) * 2.98).toFixed(1)} g`,
-            filament_g:  (parseFloat(s.ender_filament)||0) * 2.98,
-            layer:       `${s.ender_layer_cur || '0'} / ${s.ender_layer_tot || '0'}`,
-            kwh_start:   kwhStart.ender || null,
-            kwh_current: enderKwh || null,
-            kwh_delta:   enderKwh > 0 && kwhStart.ender ? enderKwh - kwhStart.ender : null,
-          },
-        });
-      } catch {}
-    }
-
-    poll();
-    intervalRef.current = setInterval(poll, 5000);
-    return () => clearInterval(intervalRef.current);
-  }, [kwhStart]);
-
   const filtered = filter ? jobs.filter(j => j.status === filter) : jobs;
 
   async function deleteJob(id) {
@@ -342,8 +239,6 @@ export default function Jobs() {
     loadJobs();
   }
 
-  const bambuId = printers.find(p => p.naam.toLowerCase().includes('bambu'))?.id;
-  const enderId = printers.find(p => p.naam.toLowerCase().includes('ender'))?.id;
 
   return (
     <div>
@@ -359,8 +254,16 @@ export default function Jobs() {
       </div>
 
       <div style={{ display:'flex', gap:'1rem', marginBottom:'1.5rem' }}>
-        <PrinterCard name="Bambu A1 Mini" printerId={bambuId} data={printerData.bambu} klanten={klanten} onJobCreated={loadJobs} />
-        <PrinterCard name="Ender 3 S1 Pro" printerId={enderId} data={printerData.ender} klanten={klanten} onJobCreated={loadJobs} />
+        {printerConfig.map(p => (
+          <PrinterCard
+            key={p.id}
+            printerId={p.id}
+            naam={p.naam}
+            data={printerData[p.id]}
+            klanten={klanten}
+            onJobCreated={loadJobs}
+          />
+        ))}
       </div>
 
       {filtered.length === 0
@@ -426,11 +329,7 @@ export default function Jobs() {
         <KostenModal
           job={kostenJob}
           klanten={klanten}
-          printerLiveData={
-            kostenJob.printer_naam?.toLowerCase().includes('bambu')
-              ? printerData.bambu
-              : printerData.ender
-          }
+          printerLiveData={printerData[kostenJob.printer_id]}
           onClose={() => setKostenJob(null)}
           onJobUpdated={loadJobs}
         />
