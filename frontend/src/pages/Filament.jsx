@@ -43,12 +43,11 @@ function TypeModal({ type, onClose, onSaved }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  async function save() {
+ async function save() {
     if (!form.merk || !form.materiaal) { alert('Merk en materiaal zijn verplicht'); return; }
     const prijs = parseFloat(prijsStr.replace(',', '.'));
-    if (isNaN(prijs) || prijs <= 0) { alert('Vul een geldige prijs in'); return; }
     try {
-      const payload = { ...form, inkoop_prijs_per_kg: prijs };
+      const payload = { ...form, inkoop_prijs_per_kg: (!isNaN(prijs) && prijs > 0) ? prijs : 0 };
       if (type?.id) await api.put(`/filament/types/${type.id}`, payload);
       else await api.post('/filament/types', payload);
       onSaved();
@@ -149,7 +148,7 @@ function RolModal({ types, rol, onClose, onSaved }) {
 
   async function save() {
     const startG  = parseFloat(startStr)  || 1000;
-    const huidigG = parseFloat(huidigStr) ?? startG;
+    const huidigG = parseFloat(huidigStr) || startG;
     const aankoopVal = prijsStr !== '' ? parseFloat(prijsStr.replace(',', '.')) : null;
 
     const payload = {
@@ -373,7 +372,7 @@ export default function Filament() {
                 </thead>
                 <tbody>
                   {rollen.map(r => (
-                    <tr key={r.id} style={{ opacity: r.actief ? 1 : 0.5 }}>
+                    <tr key={r.id} style={{ opacity: r.actief ? 1 : 0.5, cursor:'pointer' }} onClick={() => setRolModal(r)}>
                       <td>
                         <div style={{ fontWeight: 500 }}>{r.merk} {r.materiaal}</div>
                       </td>
@@ -407,7 +406,7 @@ export default function Filament() {
                         </span>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', gap: 4 }}>
+                        <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
                           <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => setRolModal(r)}>✏</button>
                           <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => toggleRol(r)}>
                             {r.actief ? 'Leeg' : 'Heractiveer'}
@@ -432,13 +431,13 @@ export default function Filament() {
 		</thead>
                 <tbody>
                   {types.map(t => (
-                    <tr key={t.id}>
+                    <tr key={t.id} style={{ cursor:'pointer' }} onClick={() => setTypeModal(t)}>
                       <td style={{ fontWeight: 500 }}>{t.merk}</td>
                       <td>{t.materiaal}</td>
                        <td style={{ color: 'var(--muted)' }}>{t.dichtheid_g_per_cm3} g/cm³</td>
                       <td style={{ color: 'var(--muted)' }}>{t.leverancier || '—'}</td>
                       <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
                           <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => setTypeModal(t)}>✏</button>
                           <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => deleteType(t)}>✕</button>
                         </div>
