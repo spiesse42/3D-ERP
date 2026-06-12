@@ -297,11 +297,11 @@ const [form, setForm] = useState(job ? {
               <option value="0">Nee</option><option value="1">Ja (BMCU)</option>
             </select>
           </div>
-          {form.is_multicolor && (
+          {form.is_multicolor ? (
             <div className="form-group"><label>Aantal kleuren</label>
-              <input type="number" min="2" max="8" value={form.aantal_kleuren} onChange={e => set('aantal_kleuren', parseInt(e.target.value))} />
+              <input type="number" min="2" max="8" value={form.aantal_kleuren || 2} onChange={e => set('aantal_kleuren', parseInt(e.target.value))} />
             </div>
-          )}
+          ) : <div />}
         </div>
         <div className="form-group"><label>Notities</label><textarea rows={2} value={form.notities || ''} onChange={e => set('notities', e.target.value)} /></div>
         <div className="modal-footer">
