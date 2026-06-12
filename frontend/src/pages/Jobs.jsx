@@ -386,7 +386,8 @@ export default function Jobs() {
                         const m = Math.round((u - h) * 60);
                         return m > 0 ? `${prefix}${h}u ${m}m` : `${prefix}${h}u`;
                       })()}
-                    </td>td>{j.verkoopprijs != null ? <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span> : <span style={{ color:'var(--muted)' }}>—</span>}</td>
+                    </td>
+                    <td>{j.verkoopprijs != null ? <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span> : <span style={{ color:'var(--muted)' }}>—</span>}</td>
                     <td onClick={e => e.stopPropagation()}>
                       {j.status === 'voltooid' && j.klant_id
                         ? <input type="checkbox" checked={!!j.betaald}
