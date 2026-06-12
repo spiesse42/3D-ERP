@@ -63,9 +63,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
   );
 
   async function maakJob() {
-    if (heeftActieveJob) {
-      if (!confirm('Er is al een actieve job voor deze printer. Toch doorgaan?')) return;
-    }
+    if (saving) return;
     setSaving(true);
     try {
       const jobStatus  = isDone ? 'voltooid' : isRunning ? 'bezig' : 'gepland';
@@ -74,7 +72,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
       const totalSec   = (data?.elapsed_sec || 0) + (data?.remaining_sec || 0);
       const urenGeschat = totalSec > 0 ? Math.round(totalSec / 360) / 10 : null;
 
-      await api.post('/jobs', {
+      const jobId = await api.post('/jobs', {
         printer_id:         printerId,
         klant_id:           klantId || null,
         naam:               jobNaam || defaultNaam,
@@ -452,7 +450,7 @@ export default function Jobs() {
 
           {/* Klant + printer */}
           <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.65rem', marginBottom:'0.75rem', fontSize:13 }}>
-            <div style={{ fontWeight:600 }}>{selectedJob.klant_naam || <span style={{ color:'var(--muted)' }}>Eigen print</span>}</div>
+            <div style={{ fontWeight:600 }}>{selectedJob.klant_naam ? (selectedJob.klant_voornaam ? `${selectedJob.klant_voornaam} ${selectedJob.klant_naam}` : selectedJob.klant_naam) : <span style={{ color:'var(--muted)' }}>Eigen print</span>}</div>
             <div style={{ color:'var(--muted)', fontSize:12 }}>🖨 {selectedJob.printer_naam}</div>
             {selectedJob.stl_bestandsnaam && <div style={{ color:'var(--accent)', fontSize:12 }}>📄 {selectedJob.stl_bestandsnaam}</div>}
           </div>
@@ -460,8 +458,8 @@ export default function Jobs() {
           {/* Details grid */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5, fontSize:12, marginBottom:'0.75rem' }}>
             {[
-              ['Aangemaakt', selectedJob.aangemaakt_op?.split('T')[0] || '—'],
-              ['Gestart', selectedJob.gestart_op?.split('T')[0] || '—'],
+              ['Aangemaakt', selectedJob.aangemaakt_op ? selectedJob.aangemaakt_op.replace('T',' ').substring(0,16) : '—'],
+              ['Gestart', selectedJob.gestart_op ? selectedJob.gestart_op.replace('T',' ').substring(0,16) : '—'],
               ['Voltooid', selectedJob.voltooid_op?.split('T')[0] || '—'],
               ['Uren geschat', selectedJob.print_uren_geschat ? `${Math.floor(selectedJob.print_uren_geschat)}u ${Math.round((selectedJob.print_uren_geschat % 1) * 60)}min` : '—'],
               ['Uren werkelijk', selectedJob.print_uren_werkelijk ? `${Math.floor(selectedJob.print_uren_werkelijk)}u ${Math.round((selectedJob.print_uren_werkelijk % 1) * 60)}min` : '—'],

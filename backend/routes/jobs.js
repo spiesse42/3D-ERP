@@ -6,8 +6,8 @@ const r = Router();
 r.get('/', (req, res) => {
   const { status, klant_id, printer_id } = req.query;
   let sql = `
-    SELECT j.*, k.naam as klant_naam, p.naam as printer_naam,
-      jk.verkoopprijs, jk.totaal_kost
+    SELECT j.*, k.naam as klant_naam, k.voornaam as klant_voornaam, p.naam as printer_naam,
+      jk.verkoopprijs, jk.totaal_kost, jk.materiaal_kost, jk.energie_kost, jk.machine_kost, jk.arbeid_kost
     FROM jobs j
     LEFT JOIN klanten k ON k.id = j.klant_id
     LEFT JOIN printers p ON p.id = j.printer_id
