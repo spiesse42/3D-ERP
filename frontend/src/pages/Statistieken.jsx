@@ -1,305 +1,210 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api.js';
 
-const OFFERTE_STATUSSEN = ['concept','verstuurd','goedgekeurd','gefactureerd','betaald','geannuleerd'];
-const JOB_STATUSSEN     = ['gepland','bezig','voltooid','gefaald','geannuleerd'];
+const KLEUREN_MAP = {
+  'Wit':'#f5f5f5','Zwart':'#1a1a1a','Grijs':'#808080','Rood':'#ef4444',
+  'Blauw':'#3b82f6','Groen':'#22c55e','Geel':'#eab308','Oranje':'#f97316',
+  'Paars':'#a855f7','Roze':'#ec4899','Bruin':'#92400e','Beige':'#d4b896',
+  'Zilver':'#c0c0c0','Goud':'#d4af37','Transparant':'#e0f2fe',
+};
 
-// ─── StatusBadge ─────────────────────────────────────────────────────────────
-function StatusBadge({ status }) {
-  return <span className={`badge ${status}`}>{status}</span>;
+function KleurDot({ kleur }) {
+  const hex = KLEUREN_MAP[kleur] || '#555';
+  return <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:hex, border:'1px solid rgba(255,255,255,0.15)', marginRight:6, verticalAlign:'middle' }} />;
 }
 
-// ─── JobRij ──────────────────────────────────────────────────────────────────
-function JobRij({ job, onStatusChange }) {
-  const navigate = useNavigate();
-
-  function ga() {
-    navigate(`/jobs?highlight=${job.id}`);
-  }
-
+function BalkGrafiek({ data, labelKey, waardeKey, kleur = 'var(--accent)', eenheid = '' }) {
+  if (!data?.length) return <p style={{ color:'var(--muted)', fontSize:13 }}>Geen data beschikbaar.</p>;
+  const max = Math.max(...data.map(r => r[waardeKey] || 0)) || 1;
   return (
-    <tr style={{ cursor: 'pointer' }} onClick={ga}>
-      <td style={{ fontWeight: 500 }}>{job.naam}</td>
-      <td>{job.klant_naam || <span style={{ color: 'var(--muted)' }}>—</span>}</td>
-      <td>{job.printer_naam}</td>
-      <td onClick={e => e.stopPropagation()}>
-        <select
-          value={job.status}
-          style={{ fontSize: 11, padding: '2px 6px', background: 'var(--bg2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 4 }}
-          onChange={async e => {
-            await api.patch(`/jobs/${job.id}/status`, { status: e.target.value });
-            onStatusChange();
-          }}
-        >
-          {JOB_STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-      </td>
-      <td style={{ color: 'var(--muted)', fontSize: 12 }}>
-        {job.aangemaakt_op ? new Date(job.aangemaakt_op).toLocaleDateString('nl-BE') : '—'}
-      </td>
-      <td style={{ color: 'var(--accent2)' }}>
-        {job.verkoopprijs != null ? `€${job.verkoopprijs.toFixed(2)}` : '—'}
-      </td>
-      <td onClick={e => e.stopPropagation()}>
-        <button className="btn" style={{ fontSize: 11, padding: '3px 8px' }} onClick={ga}>→ Bekijk</button>
-      </td>
-    </tr>
+    <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+      {data.map((r, i) => (
+        <div key={i} style={{ display:'flex', alignItems:'center', gap:10, fontSize:12 }}>
+          <div style={{ width:140, textAlign:'right', color:'var(--muted)', flexShrink:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {r[labelKey]}
+          </div>
+          <div style={{ flex:1, height:16, background:'var(--bg3)', borderRadius:4, overflow:'hidden' }}>
+            <div style={{ width:`${(r[waardeKey] / max) * 100}%`, height:'100%', background:kleur, borderRadius:4, transition:'width 0.3s' }} />
+          </div>
+          <div style={{ width:80, color:'var(--text)', fontWeight:500 }}>
+            {r[waardeKey]}{eenheid}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
-// ─── OfferteRij ──────────────────────────────────────────────────────────────
-function OfferteRij({ offerte, onStatusChange }) {
-  const navigate = useNavigate();
-
-  function ga() {
-    navigate('/offertes');
-  }
-
+function Sectie({ titel, children }) {
   return (
-    <tr style={{ cursor: 'pointer' }} onClick={ga}>
-      <td style={{ fontWeight: 500 }}>{offerte.nummer}</td>
-      <td>{offerte.klant_naam || '—'}</td>
-      <td onClick={e => e.stopPropagation()}>
-        <select
-          value={offerte.status}
-          style={{ fontSize: 11, padding: '2px 6px', background: 'var(--bg2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 4 }}
-          onChange={async e => {
-            await api.patch(`/offertes2/${offerte.id}/status`, { status: e.target.value });
-            onStatusChange();
-          }}
-        >
-          {OFFERTE_STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-      </td>
-      <td style={{ color: 'var(--accent2)' }}>€{offerte.totaal?.toFixed(2) ?? '0.00'}</td>
-      <td style={{ color: 'var(--muted)', fontSize: 12 }}>
-        {offerte.aangemaakt_op ? new Date(offerte.aangemaakt_op).toLocaleDateString('nl-BE') : '—'}
-      </td>
-      <td onClick={e => e.stopPropagation()}>
-        <button className="btn" style={{ fontSize: 11, padding: '3px 8px' }} onClick={ga}>→ Bekijk</button>
-      </td>
-    </tr>
+    <div className="card" style={{ marginBottom:'1.5rem' }}>
+      <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'1rem' }}>{titel}</h2>
+      {children}
+    </div>
   );
 }
 
-// ─── DetailSectie ─────────────────────────────────────────────────────────────
-function DetailSectie({ actief, onRefresh }) {
-  const [items, setItems]   = useState([]);
-  const [laden, setLaden]   = useState(false);
+function TabKnop({ label, actief, onClick }) {
+  return (
+    <button className={`btn${actief ? ' primary' : ''}`} style={{ fontSize:11, padding:'3px 10px' }} onClick={onClick}>
+      {label}
+    </button>
+  );
+}
+
+export default function Statistieken() {
+  const [dash,        setDash]        = useState(null);
+  const [filament,    setFilament]    = useState([]);
+  const [perPrinter,  setPerPrinter]  = useState([]);
+  const [perMaand,    setPerMaand]    = useState([]);
+  const [kwh,         setKwh]         = useState(null);
+  const [kwhTab,      setKwhTab]      = useState('maand');
 
   useEffect(() => {
-    if (!actief) return;
-    setLaden(true);
-    setItems([]);
+    api.get('/rapportage/dashboard').then(setDash).catch(() => {});
+    api.get('/rapportage/stats/filament').then(setFilament).catch(() => {});
+    api.get('/rapportage/stats/jobs-per-printer').then(setPerPrinter).catch(() => {});
+    api.get('/rapportage/stats/jobs-per-maand').then(d => setPerMaand([...d].reverse())).catch(() => {});
+    api.get('/rapportage/stats/kwh').then(setKwh).catch(() => {});
+  }, []);
 
-    const nu = new Date();
-    const eersteVanMaand = `${nu.getFullYear()}-${String(nu.getMonth() + 1).padStart(2, '0')}-01`;
-
-    const laadData = async () => {
-      try {
-        if (actief === 'gepland') {
-          const data = await api.get('/jobs?status=gepland');
-          setItems(data);
-        } else if (actief === 'jobs_maand') {
-          const data = await api.get('/jobs?status=voltooid');
-          const filtered = data.filter(j => j.voltooid_op && j.voltooid_op >= eersteVanMaand);
-          setItems(filtered);
-        } else if (actief === 'totaal_voltooid') {
-          const data = await api.get('/jobs?status=voltooid');
-          setItems(data);
-        } else if (actief === 'kwh_maand') {
-          const data = await api.get('/jobs?status=voltooid');
-          const filtered = data.filter(j => j.voltooid_op && j.voltooid_op >= eersteVanMaand);
-          setItems(filtered);
-        } else if (actief === 'omzet') {
-          const data = await api.get('/jobs?status=voltooid');
-          setItems(data.filter(j => j.verkoopprijs != null));
-        } else if (actief === 'openstaand') {
-          const data = await api.get('/offertes2');
-          setItems(data.filter(o => ['concept','verstuurd','goedgekeurd'].includes(o.status)));
-        }
-      } catch {}
-      setLaden(false);
-    };
-
-    laadData();
-  }, [actief]);
-
-  if (!actief) return null;
-
-  const isOfferte = actief === 'openstaand';
-
-  const kolommen = isOfferte
-    ? ['Nummer', 'Klant', 'Status', 'Totaal', 'Datum', '']
-    : ['Naam', 'Klant', 'Printer', 'Status', 'Datum', 'Prijs', ''];
-
-  return (
-    <div className="card" style={{ marginTop: '1.5rem' }}>
-      <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: '1rem' }}>
-        {actief === 'gepland'        && 'Geplande jobs'}
-        {actief === 'jobs_maand'     && 'Jobs deze maand'}
-        {actief === 'totaal_voltooid'&& 'Alle voltooide jobs'}
-        {actief === 'kwh_maand'      && 'Jobs deze maand — energieverbruik'}
-        {actief === 'omzet'          && 'Voltooide jobs met prijs'}
-        {actief === 'openstaand'     && 'Openstaande offertes'}
-        <span style={{ color: 'var(--muted)', fontWeight: 400, marginLeft: 8, fontSize: 12 }}>
-          ({laden ? '…' : items.length})
-        </span>
-      </h2>
-
-      {laden && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Laden...</p>}
-
-      {!laden && items.length === 0 && (
-        <p style={{ color: 'var(--muted)', fontSize: 13 }}>Geen records gevonden.</p>
-      )}
-
-      {!laden && items.length > 0 && (
-        <div style={{ overflowX: 'auto' }}>
-          <table>
-            <thead>
-              <tr>{kolommen.map((k, i) => <th key={i} style={{ textAlign: 'left' }}>{k}</th>)}</tr>
-            </thead>
-            <tbody>
-              {isOfferte
-                ? items.map(o => <OfferteRij key={o.id} offerte={o} onStatusChange={() => { onRefresh(); }} />)
-                : items.map(j => <JobRij key={j.id} job={j} onStatusChange={() => { onRefresh(); }} />)
-              }
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── KpiKaart ─────────────────────────────────────────────────────────────────
-function KpiKaart({ id, label, waarde, sub, actief, onClick, kleur }) {
-  return (
-    <div
-      className="stat-card"
-      onClick={() => onClick(id)}
-      style={{
-        cursor: 'pointer',
-        outline: actief ? '2px solid var(--accent)' : '2px solid transparent',
-        background: actief ? 'var(--bg3)' : undefined,
-        transition: 'outline 0.15s, background 0.15s',
-      }}
-    >
-      <div className="label">{label}</div>
-      <div className="value" style={{ color: kleur || undefined }}>{waarde}</div>
-      <div className="sub">{sub}</div>
-    </div>
-  );
-}
-
-// ─── Hoofdcomponent ───────────────────────────────────────────────────────────
-export default function Statistieken() {
-  const [data,    setData]    = useState(null);
-  const [actief,  setActief]  = useState(null);
-
-  const load = () => api.get('/rapportage/dashboard').then(setData).catch(() => {});
-
-  useEffect(() => { load(); }, []);
-
-  const maandData  = data?.omzet_maand?.[0];
-  const jobsStatus = {};
-  (data?.jobs_status || []).forEach(r => { jobsStatus[r.status] = r.c; });
-
-  function toggleKaart(id) {
-    setActief(v => v === id ? null : id);
-  }
-
-  const kaarten = [
-    {
-      id:    'gepland',
-      label: 'Gepland',
-      waarde: jobsStatus.gepland ?? 0,
-      sub:   'in wachtrij',
-    },
-    {
-      id:    'jobs_maand',
-      label: 'Jobs deze maand',
-      waarde: maandData?.jobs ?? '—',
-      sub:   'voltooid',
-    },
-    {
-      id:    'totaal_voltooid',
-      label: 'Totaal voltooid',
-      waarde: jobsStatus.voltooid ?? 0,
-      sub:   'alle tijd',
-    },
-    {
-      id:    'kwh_maand',
-      label: 'kWh deze maand',
-      waarde: maandData?.kwh?.toFixed(1) ?? '—',
-      sub:   'verbruikt',
-    },
-    {
-      id:    'omzet',
-      label: 'Omzet deze maand',
-      waarde: `€${maandData?.omzet?.toFixed(2) ?? '0.00'}`,
-      sub:   'excl. BTW',
-    },
-    {
-      id:    'openstaand',
-      label: 'Openstaand',
-      waarde: `€${data?.openstaand?.bedrag?.toFixed(2) ?? '0.00'}`,
-      sub:   `${data?.openstaand?.c ?? 0} offertes`,
-      kleur: 'var(--warn)',
-    },
-  ];
+  const kwhData = kwhTab === 'dag'   ? kwh?.per_dag
+               : kwhTab === 'maand' ? kwh?.per_maand
+               : kwh?.per_jaar;
 
   return (
     <div>
       <div className="page-header"><h1>Statistieken</h1></div>
 
-      {/* KPI kaarten */}
-      <div className="stat-grid" style={{ marginBottom: '1.5rem' }}>
-        {kaarten.map(k => (
-          <KpiKaart
-            key={k.id}
-            {...k}
-            actief={actief === k.id}
-            onClick={toggleKaart}
-          />
-        ))}
-      </div>
-
-      {/* Detail sectie */}
-      <DetailSectie
-        actief={actief}
-        onRefresh={() => { load(); }}
-      />
-
-      {/* Omzet per maand tabel */}
-      <div className="card" style={{ marginTop: '1.5rem' }}>
-        <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: '1rem' }}>Omzet per maand</h2>
-        {(data?.omzet_maand || []).length === 0
-          ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nog geen voltooide jobs met kostprijs</p>
+      {/* Top 10 filament + kleur */}
+      <Sectie titel="🧵 Top 10 meest gebruikt filament & kleur">
+        {filament.length === 0
+          ? <p style={{ color:'var(--muted)', fontSize:13 }}>Nog geen jobmateriaal geregistreerd.</p>
           : <table>
               <thead>
-                <tr><th>Maand</th><th>Jobs</th><th>Omzet</th><th>Kost</th><th>Marge</th><th>kWh</th></tr>
+                <tr><th>Merk</th><th>Materiaal</th><th>Kleur</th><th>Jobs</th><th>Gram totaal</th></tr>
               </thead>
               <tbody>
-                {data.omzet_maand.map(m => (
-                  <tr key={m.maand}>
-                    <td>{m.maand}</td>
-                    <td>{m.jobs}</td>
-                    <td>€{m.omzet?.toFixed(2)}</td>
-                    <td>€{m.kost?.toFixed(2)}</td>
-                    <td style={{ color: 'var(--accent2)' }}>
-                      {m.omzet > 0 ? `${Math.round((m.omzet - m.kost) / m.omzet * 100)}%` : '—'}
+                {filament.map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ fontWeight:500 }}>{r.merk}</td>
+                    <td>{r.materiaal}</td>
+                    <td>
+                      <KleurDot kleur={r.kleur} />
+                      {r.kleur || <span style={{ color:'var(--muted)' }}>—</span>}
                     </td>
-                    <td>{m.kwh?.toFixed(1)}</td>
+                    <td>{r.aantal_jobs}</td>
+                    <td style={{ color:'var(--accent2)' }}>{r.gram_totaal}g</td>
                   </tr>
                 ))}
               </tbody>
             </table>
         }
-      </div>
+      </Sectie>
 
-      <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
+      {/* Jobs per printer */}
+      <Sectie titel="🖨 Jobs per printer">
+        {perPrinter.length === 0
+          ? <p style={{ color:'var(--muted)', fontSize:13 }}>Geen jobs gevonden.</p>
+          : <table>
+              <thead>
+                <tr><th>Printer</th><th>Totaal</th><th>Voltooid</th><th>Gefaald</th><th>Slaagkans</th></tr>
+              </thead>
+              <tbody>
+                {perPrinter.map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ fontWeight:500 }}>{r.printer}</td>
+                    <td>{r.totaal}</td>
+                    <td style={{ color:'var(--accent2)' }}>{r.voltooid}</td>
+                    <td style={{ color:'#ef4444' }}>{r.gefaald}</td>
+                    <td>{r.totaal > 0 ? `${Math.round((r.voltooid / r.totaal) * 100)}%` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+        }
+      </Sectie>
+
+      {/* Jobs per maand */}
+      <Sectie titel="📅 Jobs per maand">
+        <BalkGrafiek
+          data={perMaand}
+          labelKey="maand"
+          waardeKey="totaal"
+          kleur="var(--accent)"
+        />
+        {perMaand.length > 0 && (
+          <table style={{ marginTop:'1rem' }}>
+            <thead>
+              <tr><th>Maand</th><th>Totaal</th><th>Voltooid</th><th>Gefaald</th><th>Geannuleerd</th></tr>
+            </thead>
+            <tbody>
+              {[...perMaand].reverse().map((r, i) => (
+                <tr key={i}>
+                  <td>{r.maand}</td>
+                  <td style={{ fontWeight:500 }}>{r.totaal}</td>
+                  <td style={{ color:'var(--accent2)' }}>{r.voltooid}</td>
+                  <td style={{ color:'#ef4444' }}>{r.gefaald}</td>
+                  <td style={{ color:'var(--muted)' }}>{r.geannuleerd}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Sectie>
+
+      {/* kWh */}
+      <Sectie titel="⚡ Energieverbruik (kWh)">
+        <div style={{ display:'flex', gap:6, marginBottom:'1rem' }}>
+          {['dag','maand','jaar'].map(t => (
+            <TabKnop key={t} label={t.charAt(0).toUpperCase() + t.slice(1)} actief={kwhTab === t} onClick={() => setKwhTab(t)} />
+          ))}
+        </div>
+        <BalkGrafiek
+          data={kwhData || []}
+          labelKey={kwhTab === 'dag' ? 'dag' : kwhTab === 'maand' ? 'maand' : 'jaar'}
+          waardeKey="kwh"
+          kleur="#fbbf24"
+          eenheid=" kWh"
+        />
+      </Sectie>
+
+      {/* Omzet per maand */}
+      <Sectie titel="💶 Omzet per maand">
+        {(dash?.omzet_maand || []).length === 0
+          ? <p style={{ color:'var(--muted)', fontSize:13 }}>Nog geen voltooide jobs met kostprijs.</p>
+          : <>
+              <BalkGrafiek
+                data={[...(dash?.omzet_maand || [])].reverse()}
+                labelKey="maand"
+                waardeKey="omzet"
+                kleur="var(--accent2)"
+                eenheid=" €"
+              />
+              <table style={{ marginTop:'1rem' }}>
+                <thead>
+                  <tr><th>Maand</th><th>Jobs</th><th>Omzet</th><th>Kost</th><th>Marge</th><th>kWh</th></tr>
+                </thead>
+                <tbody>
+                  {dash.omzet_maand.map(m => (
+                    <tr key={m.maand}>
+                      <td>{m.maand}</td>
+                      <td>{m.jobs}</td>
+                      <td style={{ color:'var(--accent2)' }}>€{m.omzet?.toFixed(2)}</td>
+                      <td>€{m.kost?.toFixed(2)}</td>
+                      <td style={{ color:'var(--accent2)' }}>
+                        {m.omzet > 0 ? `${Math.round((m.omzet - m.kost) / m.omzet * 100)}%` : '—'}
+                      </td>
+                      <td>{m.kwh?.toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+        }
+      </Sectie>
+
+      <div style={{ display:'flex', justifyContent:'flex-end' }}>
         <a className="btn" href="/api/rapportage/csv/jobs" download>↓ Jobs exporteren (CSV)</a>
       </div>
     </div>

@@ -136,19 +136,38 @@ function PrinterCard({ name, printerId, data, klanten, onJobCreated }) {
   );
 }
 
+// ─── Operationele widget ──────────────────────────────────────────────────────
+function OperationeelWidget({ icon, titel, items, renderRij, leegTekst }) {
+  return (
+    <div className="card" style={{ flex:1, minWidth:0 }}>
+      <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.75rem' }}>
+        {icon} {titel}
+        <span style={{ fontSize:12, color:'var(--muted)', fontWeight:400, marginLeft:6 }}>({items.length})</span>
+      </h2>
+      {items.length === 0
+        ? <p style={{ color:'var(--muted)', fontSize:12 }}>{leegTekst}</p>
+        : items.map(renderRij)
+      }
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [jobs,        setJobs]        = useState([]);
   const [rollen,      setRollen]      = useState([]);
   const [printers,    setPrinters]    = useState([]);
   const [klanten,     setKlanten]     = useState([]);
   const [printerData, setPrinterData] = useState({});
+  const [operationeel, setOperationeel] = useState({ gepland:[], bezig:[], te_factureren:[] });
   const intervalRef = useRef(null);
   const navigate = useNavigate();
 
   const loadJobs = () => api.get('/jobs').then(setJobs);
+  const loadOperationeel = () => api.get('/rapportage/dashboard/operationeel').then(setOperationeel).catch(() => {});
 
   useEffect(() => {
     loadJobs();
+    loadOperationeel();
     api.get('/filament/rollen').then(setRollen);
     api.get('/printers').then(setPrinters);
     api.get('/klanten').then(setKlanten);
@@ -175,7 +194,6 @@ export default function Dashboard() {
       ender_filament:  'sensor.ender_3_s1_pro_filament_used',
       ender_elapsed:   'sensor.ender_3_s1_pro_print_duration',
       ender_kwh:       'sensor.lsc_power_plug_fr_incl_power_meter_5_totaal_energieverbruik',
-      // Ender startkWh via HA helper — opgeslagen door automatisatie bij printstart
       ender_kwh_start: 'input_number.print_start_kwh',
     };
 
@@ -188,17 +206,13 @@ export default function Dashboard() {
         );
         const s = Object.fromEntries(results);
 
-        // Bambu verstreken tijd via starttijd
         let bambuElapsed = 0;
         if (s.bambu_start && s.bambu_start !== 'unavailable') {
           const ms = new Date(s.bambu_start).getTime();
           if (!isNaN(ms)) bambuElapsed = Math.max(0, (Date.now() - ms) / 1000);
         }
-
-        // Ender verstreken tijd — Moonraker geeft uren
         const enderElapsedSec = (parseFloat(s.ender_elapsed) || 0) * 3600;
 
-        // Resterende tijd
         let bambuRem = 0;
         if (s.bambu_remaining && s.bambu_remaining !== 'unavailable') bambuRem = parseFloat(s.bambu_remaining) || 0;
         let enderRem = 0;
@@ -209,22 +223,14 @@ export default function Dashboard() {
 
         const bambuKwh      = parseFloat(s.bambu_kwh)       || 0;
         const enderKwh      = parseFloat(s.ender_kwh)       || 0;
-        // Ender startkWh: rechtstreeks uit HA helper (opgeslagen door automatisatie)
         const enderKwhStart = parseFloat(s.ender_kwh_start) || null;
 
-        const bambuRunning = ['running','printing'].includes((s.bambu_status || '').toLowerCase());
-        const enderRunning = ['running','printing'].includes((s.ender_status || '').toLowerCase());
-
-        // Bambu: startkWh bijhouden in state (geen HA helper beschikbaar)
         setPrinterData(prev => {
-          const bambuStart = bambuRunning
+          const bambuStart = ['running','printing'].includes((s.bambu_status||'').toLowerCase())
             ? (prev.bambu?.kwh_start || (bambuKwh > 0 ? bambuKwh : null))
             : null;
           const bambuDelta = bambuKwh > 0 && bambuStart ? bambuKwh - bambuStart : null;
-
-          // Ender: delta = huidig - start (uit HA helper)
           const enderDelta = enderKwh > 0 && enderKwhStart ? enderKwh - enderKwhStart : null;
-
           return {
             bambu: {
               status:      s.bambu_status || 'unavailable',
@@ -264,12 +270,17 @@ export default function Dashboard() {
     return () => clearInterval(intervalRef.current);
   }, []);
 
-  const wachtrij    = jobs.filter(j => ['gepland','bezig'].includes(j.status));
-  const voltooid    = jobs.filter(j => j.status === 'voltooid').slice(0, 5);
   const activeRollen = rollen.filter(r => r.actief);
-
   const bambuId = printers.find(p => p.naam.toLowerCase().includes('bambu'))?.id;
   const enderId = printers.find(p => p.naam.toLowerCase().includes('ender'))?.id;
+
+  function jobRijStijl() {
+    return {
+      display:'flex', justifyContent:'space-between', alignItems:'center',
+      padding:'7px 8px', borderBottom:'1px solid var(--border)', fontSize:12,
+      cursor:'pointer', borderRadius:6,
+    };
+  }
 
   return (
     <div>
@@ -280,78 +291,98 @@ export default function Dashboard() {
         </span>
       </div>
 
-      {/* Printerkaarten — identiek aan Jobs tab */}
-      <div style={{ display:'flex', gap:'1rem', marginBottom:'1.5rem' }}>
-        <PrinterCard name="Bambu A1 Mini"  printerId={bambuId} data={printerData.bambu} klanten={klanten} onJobCreated={loadJobs} />
-        <PrinterCard name="Ender 3 S1 Pro" printerId={enderId} data={printerData.ender} klanten={klanten} onJobCreated={loadJobs} />
+      {/* Rij 1: Printerkaarten + operationele widgets */}
+      <div style={{ display:'flex', gap:'1rem', marginBottom:'1.5rem', flexWrap:'wrap' }}>
+        <PrinterCard name="Bambu A1 Mini"  printerId={bambuId} data={printerData.bambu} klanten={klanten} onJobCreated={() => { loadJobs(); loadOperationeel(); }} />
+        <PrinterCard name="Ender 3 S1 Pro" printerId={enderId} data={printerData.ender} klanten={klanten} onJobCreated={() => { loadJobs(); loadOperationeel(); }} />
+
+        {/* Gepland */}
+        <OperationeelWidget
+          icon="📋" titel="Gepland" leegTekst="Geen jobs in wachtrij"
+          items={operationeel.gepland}
+          renderRij={j => (
+            <div key={j.id}
+              style={jobRijStijl()}
+              onClick={() => navigate(`/jobs?highlight=${j.id}`)}
+              onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
+              onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+              <div>
+                <div style={{ fontWeight:500 }}>{j.naam}</div>
+                <div style={{ color:'var(--muted)', fontSize:11 }}>{j.printer_naam}</div>
+              </div>
+              <span style={{ color:'var(--muted)', fontSize:11 }}>{j.klant_naam || '—'}</span>
+            </div>
+          )}
+        />
+
+        {/* Bezig */}
+        <OperationeelWidget
+          icon="🖨" titel="Bezig" leegTekst="Geen actieve prints"
+          items={operationeel.bezig}
+          renderRij={j => (
+            <div key={j.id}
+              style={jobRijStijl()}
+              onClick={() => navigate(`/jobs?highlight=${j.id}`)}
+              onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
+              onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+              <div>
+                <div style={{ fontWeight:500 }}>{j.naam}</div>
+                <div style={{ color:'var(--muted)', fontSize:11 }}>{j.printer_naam}</div>
+              </div>
+              <span className="badge bezig">bezig</span>
+            </div>
+          )}
+        />
+
+        {/* Te factureren */}
+        <OperationeelWidget
+          icon="💶" titel="Te factureren" leegTekst="Niets openstaand"
+          items={operationeel.te_factureren}
+          renderRij={j => (
+            <div key={j.id}
+              style={jobRijStijl()}
+              onClick={() => navigate(`/jobs?highlight=${j.id}`)}
+              onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
+              onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+              <div>
+                <div style={{ fontWeight:500 }}>{j.naam}</div>
+                <div style={{ color:'var(--muted)', fontSize:11 }}>{j.klant_naam}</div>
+              </div>
+              {j.verkoopprijs != null
+                ? <span style={{ color:'var(--accent2)', fontWeight:600 }}>€{j.verkoopprijs.toFixed(2)}</span>
+                : <span style={{ color:'var(--warn)', fontSize:11 }}>geen prijs</span>
+              }
+            </div>
+          )}
+        />
       </div>
 
-      {/* Wachtrij / Voltooid / Stock */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'1rem' }}>
+      {/* Rij 2: Filamentstock */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr', gap:'1rem' }}>
         <div className="card">
           <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.75rem' }}>
-            📋 Wachtrij <span style={{ fontSize:12, color:'var(--muted)', fontWeight:400 }}>({wachtrij.length})</span>
-          </h2>
-          {wachtrij.length === 0
-            ? <p style={{ color:'var(--muted)', fontSize:12 }}>Geen jobs in wachtrij</p>
-            : wachtrij.map(j => (
-              <div key={j.id} onClick={() => navigate('/jobs')}
-                style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
-                  padding:'7px 8px', borderBottom:'1px solid var(--border)', fontSize:12,
-                  cursor:'pointer', borderRadius:6 }}
-                onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
-                onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-                <div>
-                  <div style={{ fontWeight:500 }}>{j.naam}</div>
-                  <div style={{ color:'var(--muted)', fontSize:11 }}>{j.printer_naam}</div>
-                </div>
-                <span className={`badge ${j.status}`}>{j.status}</span>
-              </div>
-            ))
-          }
-        </div>
-
-        <div className="card">
-          <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.75rem' }}>✅ Recent voltooid</h2>
-          {voltooid.length === 0
-            ? <p style={{ color:'var(--muted)', fontSize:12 }}>Nog geen voltooide jobs</p>
-            : voltooid.map(j => (
-              <div key={j.id} onClick={() => navigate('/jobs')}
-                style={{ display:'flex', justifyContent:'space-between', padding:'7px 8px',
-                  borderBottom:'1px solid var(--border)', fontSize:12, cursor:'pointer', borderRadius:6 }}
-                onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
-                onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-                <div>
-                  <div style={{ fontWeight:500 }}>{j.naam}</div>
-                  <div style={{ color:'var(--muted)', fontSize:11 }}>{j.klant_naam || 'Eigen print'}</div>
-                </div>
-                {j.verkoopprijs != null && <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span>}
-              </div>
-            ))
-          }
-        </div>
-
-        <div className="card">
-          <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.75rem' }}>
-            🧵 Filamentstock <span style={{ fontSize:12, color:'var(--muted)', fontWeight:400 }}>({activeRollen.length})</span>
+            🧵 Filamentstock
+            <span style={{ fontSize:12, color:'var(--muted)', fontWeight:400, marginLeft:6 }}>({activeRollen.length})</span>
           </h2>
           {activeRollen.length === 0
             ? <p style={{ color:'var(--muted)', fontSize:12 }}>Geen actieve rollen</p>
-            : activeRollen.map(r => {
-              const pct = Math.min(100, Math.round((r.gewicht_gram_huidig / (r.gewicht_gram_start || 1000)) * 100));
-              const kleur = pct > 50 ? '#22c55e' : pct > 20 ? '#f59e0b' : '#ef4444';
-              return (
-                <div key={r.id} style={{ padding:'6px 0', borderBottom:'1px solid var(--border)' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:3 }}>
-                    <span style={{ fontWeight:500 }}>{r.merk} {r.materiaal} <span style={{ color:'var(--muted)' }}>{r.kleur}</span></span>
-                    <span style={{ color:'var(--muted)' }}>{r.gewicht_gram_huidig}g</span>
-                  </div>
-                  <div style={{ height:3, background:'var(--bg3)', borderRadius:2 }}>
-                    <div style={{ width:`${pct}%`, height:'100%', background:kleur, borderRadius:2 }} />
-                  </div>
-                </div>
-              );
-            })
+            : <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(200px, 1fr))', gap:'0.5rem' }}>
+                {activeRollen.map(r => {
+                  const pct = Math.min(100, Math.round((r.gewicht_gram_huidig / (r.gewicht_gram_start || 1000)) * 100));
+                  const kleur = pct > 50 ? '#22c55e' : pct > 20 ? '#f59e0b' : '#ef4444';
+                  return (
+                    <div key={r.id} style={{ padding:'6px 8px', background:'var(--bg3)', borderRadius:6 }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:4 }}>
+                        <span style={{ fontWeight:500 }}>{r.merk} {r.materiaal} <span style={{ color:'var(--muted)' }}>{r.kleur}</span></span>
+                        <span style={{ color:'var(--muted)' }}>{r.gewicht_gram_huidig}g</span>
+                      </div>
+                      <div style={{ height:3, background:'var(--bg2)', borderRadius:2 }}>
+                        <div style={{ width:`${pct}%`, height:'100%', background:kleur, borderRadius:2 }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
           }
         </div>
       </div>
