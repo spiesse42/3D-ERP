@@ -18,9 +18,13 @@ const NAV = [
   { to: '/instellingen',  icon: '⚙',  label: 'Instellingen' },
 ];
 
+const basename = window.location.pathname.replace(
+  /\/(jobs|klanten|filament|offertes|statistieken|instellingen).*$/, ''
+);
+
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <div className="app-shell">
         <nav className="sidebar">
           <div className="sidebar-brand">
