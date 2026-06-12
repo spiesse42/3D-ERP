@@ -46,13 +46,16 @@ r.get('/:id', (req, res) => {
 r.post('/', (req, res) => {
   const db = getDb();
   const { klant_id, printer_id, naam, stl_bestandsnaam, print_uren_geschat,
-          is_multicolor, aantal_kleuren, notities } = req.body;
+          is_multicolor, aantal_kleuren, notities, status, gestart_op } = req.body;
   if (!printer_id || !naam) return res.status(400).json({ error: 'printer_id en naam zijn verplicht' });
+  const jobStatus  = status || 'gepland';
+  const gestart    = gestart_op || (jobStatus === 'bezig' ? new Date().toISOString() : null);
   const result = db.prepare(`
-    INSERT INTO jobs (klant_id,printer_id,naam,stl_bestandsnaam,print_uren_geschat,is_multicolor,aantal_kleuren,notities)
-    VALUES (?,?,?,?,?,?,?,?)
+    INSERT INTO jobs (klant_id,printer_id,naam,stl_bestandsnaam,print_uren_geschat,is_multicolor,aantal_kleuren,notities,status,gestart_op)
+    VALUES (?,?,?,?,?,?,?,?,?,?)
   `).run(klant_id||null, printer_id, naam, stl_bestandsnaam||null,
-         print_uren_geschat||null, is_multicolor?1:0, aantal_kleuren||1, notities||null);
+         print_uren_geschat||null, is_multicolor?1:0, aantal_kleuren||1, notities||null,
+         jobStatus, gestart);
   res.status(201).json({ id: result.lastInsertRowid });
 });
 
