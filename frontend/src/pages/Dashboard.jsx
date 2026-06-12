@@ -53,7 +53,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
   const [jobNaam,      setJobNaam]      = useState('');
   const [isMulticolor, setIsMulticolor] = useState(false);
   const [aantalKleuren,setAantalKleuren]= useState(2);
-  const [rolId,        setRolId]        = useState('');
+  const [rolIds,       setRolIds]       = useState(['']);
   const [rollen,       setRollen]       = useState([]);
   const [saving,       setSaving]       = useState(false);
 
@@ -62,7 +62,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
     setKlantId('');
     setIsMulticolor(false);
     setAantalKleuren(2);
-    setRolId('');
+    setRolIds(['']);
     api.get('/filament/rollen').then(r => setRollen(r.filter(x => x.actief))).catch(() => {});
     setShowJobForm(true);
   }
@@ -93,11 +93,10 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
         notities:           `Aangemaakt vanuit printerkaart — ${pct.toFixed(0)}% voltooid`,
       });
 
-      if (rolId && jobId?.id) {
-        const gram = data?.filament_g > 0 ? parseFloat(data.filament_g.toFixed(1)) : 1;
+      for (const rid of rolIds.filter(r => r)) {
         await api.post(`/jobs/${jobId.id}/materialen`, {
-          filament_rol_id: parseInt(rolId),
-          gram_gebruikt: gram,
+          filament_rol_id: parseInt(rid),
+          gram_gebruikt: 1,
         }).catch(() => {});
       }
 
@@ -203,17 +202,37 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
               )}
             </div>
           )}
-          <div className="form-group" style={{ marginBottom:8 }}>
-            <label>Filamentrol (optioneel)</label>
-            <select value={rolId} onChange={e => setRolId(e.target.value)}>
-              <option value="">— geen rol koppelen —</option>
-              {rollen.map(r => (
-                <option key={r.id} value={r.id}>
-                  {r.merk} {r.materiaal} — {r.kleur || '?'} ({r.gewicht_gram_huidig}g)
-                </option>
-              ))}
-            </select>
-          </div>
+          {isMulticolor ? (
+            Array.from({ length: aantalKleuren }, (_, i) => (
+              <div className="form-group" style={{ marginBottom:8 }} key={i}>
+                <label>Kleur {i + 1} — filamentrol (optioneel)</label>
+                <select value={rolIds[i] || ''} onChange={e => {
+                  const nieuw = [...rolIds];
+                  nieuw[i] = e.target.value;
+                  setRolIds(nieuw);
+                }}>
+                  <option value="">— geen rol koppelen —</option>
+                  {rollen.map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.merk} {r.materiaal} — {r.kleur || '?'} ({r.gewicht_gram_huidig}g)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))
+          ) : (
+            <div className="form-group" style={{ marginBottom:8 }}>
+              <label>Filamentrol (optioneel)</label>
+              <select value={rolIds[0] || ''} onChange={e => setRolIds([e.target.value])}>
+                <option value="">— geen rol koppelen —</option>
+                {rollen.map(r => (
+                  <option key={r.id} value={r.id}>
+                    {r.merk} {r.materiaal} — {r.kleur || '?'} ({r.gewicht_gram_huidig}g)
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <button className="btn primary" style={{ width:'100%' }} onClick={maakJob} disabled={saving}>
             {saving ? 'Bezig...' : '✓ Job aanmaken'}
           </button>
