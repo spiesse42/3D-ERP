@@ -262,6 +262,7 @@ rapportage.get('/dashboard/operationeel', (req, res) => {
     WHERE j.status = 'bezig'
     ORDER BY j.gestart_op ASC
   `).all();
+
   const te_factureren = db.prepare(`
     SELECT j.*, k.naam as klant_naam, p.naam as printer_naam,
       jk.verkoopprijs
@@ -271,6 +272,7 @@ rapportage.get('/dashboard/operationeel', (req, res) => {
     LEFT JOIN job_kosten jk ON jk.job_id = j.id
     WHERE j.status = 'voltooid'
       AND j.klant_id IS NOT NULL
+      AND (j.betaald = 0 OR j.betaald IS NULL)
       AND NOT EXISTS (
         SELECT 1 FROM offertes_v2 ov
         WHERE ov.job_id = j.id AND ov.status IN ('betaald','gefactureerd')
