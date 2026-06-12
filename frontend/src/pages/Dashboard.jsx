@@ -116,8 +116,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated }) {
           ['⏳ Resterend',  data?.remaining  || '—'],
           ['🧵 Filament',   data?.filament   || '—'],
           ['📐 Laag',       data?.layer      || '—'],
-          ['⚡ Start kWh',  data?.kwh_start   != null ? data.kwh_start.toFixed(3)   : '—'],
-          ['⚡ Huidig kWh', data?.kwh_current != null ? data.kwh_current.toFixed(3) : '—'],
+          ['⚡ Vermogen',   data?.watt        != null ? `${data.watt.toFixed(1)} W`  : '—'],
           ['⚡ Δ Verbruikt', data?.kwh_delta  != null ? `${data.kwh_delta.toFixed(3)} kWh` : '—'],
           ['💶 Energiekost', data?.kwh_delta  != null && data?.kwh_prijs
             ? `€${(data.kwh_delta * data.kwh_prijs).toFixed(3)}` : '—'],

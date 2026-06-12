@@ -96,6 +96,7 @@ export function usePrinterData() {
         result[p.id] = {
           naam:        p.naam,
           type:        p.type,
+	  watt:        watt,
           heeft_bmcu:  p.heeft_bmcu,
           kwh_prijs:   p.kwh_prijs,
           status:      s.status  || 'unavailable',
