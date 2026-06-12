@@ -396,6 +396,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             {[
               { label:'Materiaal', val: result.materiaal_kost, sub: `${Object.values(matGroepen).reduce((s, m) => s + m.gram_totaal, 0).toFixed(1)}g` },
               { label:'Energie',   val: result.energie_kost,   sub: `${result.kwh_verbruikt} kWh` },
+              ...(result.machine_kost > 0 ? [{ label:`Machine (${(parseInt(printUren) + parseInt(printMin)/60).toFixed(1)}u)`, val: result.machine_kost }] : []),
               ...(totVoorb > 0   ? [{ label:`Voorbereiding (${totVoorb} min)`,              val: (totVoorb / 60) * arbTarief }] : []),
               ...(nabMin > 0     ? [{ label:`Nabewerking (${nabMin} min)`,                   val: (nabMin / 60) * arbTarief }] : []),
               ...(ontwerpMin > 0 ? [{ label:`Ontwerp (${ontwerpMin} min)`,                   val: (ontwerpMin / 60) * ontwerpTarief }] : []),
