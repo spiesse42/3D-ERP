@@ -107,6 +107,7 @@ export function usePrinterData() {
           elapsed:     formatSec(elapsed),
           elapsed_sec: elapsed,
           remaining:   formatSec(remaining),
+          remaining_sec: remaining,
           filament:    `${filamentG.toFixed(1)} g`,
           filament_g:  filamentG,
           layer:       `${s.layer_cur || '0'} / ${s.layer_tot || '0'}`,

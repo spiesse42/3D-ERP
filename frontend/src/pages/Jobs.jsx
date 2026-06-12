@@ -26,35 +26,63 @@ function ProgressRing({ pct, color, size=80 }) {
   );
 }
 
-function PrinterCard({ printerId, naam, data, klanten, onJobCreated }) {
-  const name    = naam || data?.naam || '—';
-  const status  = data?.status || 'unavailable';
+function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJobs }) {
+  const name      = naam || data?.naam || '—';
+  const status    = data?.status || 'unavailable';
   const isRunning = ['running','printing'].includes(status.toLowerCase());
-  const isDone = ['finish','complete','success'].includes(status.toLowerCase());
-  const color = isRunning ? '#ef4444' : isDone ? '#22c55e' : '#f59e0b';
-  const pct = parseFloat(data?.progress) || 0;
-  const [showJobForm, setShowJobForm] = useState(false);
-  const [klantId, setKlantId] = useState('');
-  const [saving, setSaving] = useState(false);
+  const isDone    = ['finish','complete','success'].includes(status.toLowerCase());
+  const color     = isRunning ? '#ef4444' : isDone ? '#22c55e' : '#f59e0b';
+  const pct       = parseFloat(data?.progress) || 0;
+
+  // Bestandsnaam zonder extensie als standaard jobnaam
+  const defaultNaam = data?.filename?.replace(/\.(gcode|3mf|stl)$/i,'') || name;
+
+  const [showJobForm,  setShowJobForm]  = useState(false);
+  const [klantId,      setKlantId]      = useState('');
+  const [jobNaam,      setJobNaam]      = useState('');
+  const [isMulticolor, setIsMulticolor] = useState(false);
+  const [aantalKleuren,setAantalKleuren]= useState(2);
+  const [saving,       setSaving]       = useState(false);
+
+  // Reset form bij openen
+  function openForm() {
+    setJobNaam(defaultNaam);
+    setKlantId('');
+    setIsMulticolor(data?.heeft_bmcu ? false : false);
+    setAantalKleuren(2);
+    setShowJobForm(true);
+  }
+
+  // Check of er al een actieve job is voor deze printer
+  const heeftActieveJob = bestaandeJobs?.some(
+    j => j.printer_id === printerId && ['bezig','gepland'].includes(j.status)
+  );
 
   async function maakJob() {
+    if (heeftActieveJob) {
+      if (!confirm('Er is al een actieve job voor deze printer. Toch doorgaan?')) return;
+    }
     setSaving(true);
     try {
-      const naam = data?.filename?.replace(/\.(gcode|3mf|stl)$/i,'') || name;
-      const uren = data?.elapsed_sec ? Math.round(data.elapsed_sec / 360) / 10 : null;
+      const jobStatus  = isRunning ? 'bezig' : isDone ? 'voltooid' : 'gepland';
+      const gestart_op = isRunning ? new Date().toISOString() : null;
+      // Geschatte totale tijd = verstreken + resterend
+      const totalSec   = (data?.elapsed_sec || 0) + (data?.remaining_sec || 0);
+      const urenGeschat = totalSec > 0 ? Math.round(totalSec / 360) / 10 : null;
+
       await api.post('/jobs', {
-        printer_id: printerId,
-        klant_id: klantId || null,
-        naam,
-        status: isRunning ? 'bezig' : isDone ? 'voltooid' : 'gepland',
-        stl_bestandsnaam: data?.filename || null,
-        print_uren_geschat: uren,
-        is_multicolor: false,
-        aantal_kleuren: 1,
-        notities: `Aangemaakt vanuit live dashboard — ${pct.toFixed(0)}% voltooid`,
+        printer_id:         printerId,
+        klant_id:           klantId || null,
+        naam:               jobNaam || defaultNaam,
+        status:             jobStatus,
+        gestart_op,
+        stl_bestandsnaam:   data?.filename || null,
+        print_uren_geschat: urenGeschat,
+        is_multicolor:      isMulticolor ? 1 : 0,
+        aantal_kleuren:     isMulticolor ? aantalKleuren : 1,
+        notities:           `Aangemaakt vanuit printerkaart — ${pct.toFixed(0)}% voltooid`,
       });
       setShowJobForm(false);
-      setKlantId('');
       onJobCreated();
     } catch(e) { alert(e.message); }
     finally { setSaving(false); }
@@ -68,6 +96,12 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated }) {
           <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
             <StatusDot status={status} />{status}
           </div>
+          {(data?.bed_temp || data?.nozzle_temp) && (
+            <div style={{ fontSize:11, color:'var(--muted)', marginTop:4, display:'flex', gap:10 }}>
+              {data.bed_temp    && <span>🛏 {data.bed_temp}°C</span>}
+              {data.nozzle_temp && <span>🌡 {data.nozzle_temp}°C</span>}
+            </div>
+          )}
         </div>
         <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
           <div style={{ position:'relative', width:80, height:80 }}>
@@ -78,14 +112,14 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated }) {
           </div>
           {(isRunning || isDone) && (
             <button className="btn primary" style={{ fontSize:11, padding:'4px 10px', whiteSpace:'nowrap' }}
-              onClick={() => setShowJobForm(v => !v)}>
+              onClick={() => showJobForm ? setShowJobForm(false) : openForm()}>
               {showJobForm ? '✕ Annuleer' : '+ Maak job'}
             </button>
           )}
         </div>
       </div>
 
-      {data?.filename && data.filename !== 'unavailable' && (
+      {data?.filename && data.filename !== 'unavailable' && data.filename !== 'unknown' && (
         <div style={{ fontSize:11, color:'var(--accent)', marginBottom:'0.75rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', background:'var(--bg3)', borderRadius:6, padding:'4px 8px' }}>
           📄 {data.filename}
         </div>
@@ -93,33 +127,63 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated }) {
 
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px 12px', fontSize:12 }}>
         {[
-          ['⏱ Verstreken', data?.elapsed || '—'],
-          ['⏳ Resterend', data?.remaining || '—'],
-          ['🧵 Filament', data?.filament || '—'],
-          ['📐 Laag', data?.layer || '—'],
-          ['⚡ Vermogen',   data?.watt        != null ? `${data.watt.toFixed(1)} W`  : '—'],
-          ['⚡ Δ Verbruikt', data?.kwh_delta  != null ? `${data.kwh_delta.toFixed(3)} kWh` : '—'],
-          ['💶 Energiekost', data?.kwh_delta != null ? `€${(data.kwh_delta * 0.35).toFixed(3)}` : '—'],
+          ['⏱ Verstreken',  data?.elapsed   || '—'],
+          ['⏳ Resterend',  data?.remaining || '—'],
+          ['🧵 Filament',   data?.filament  || '—'],
+          ['📐 Laag',       data?.layer     || '—'],
+          ['⚡ Vermogen',    data?.watt      != null ? `${data.watt.toFixed(1)} W` : '—'],
+          ['⚡ Δ Verbruikt', data?.kwh_delta != null ? `${data.kwh_delta.toFixed(3)} kWh` : '—'],
+          ['💶 Energiekost', data?.kwh_delta != null && data?.kwh_prijs
+            ? `€${(data.kwh_delta * data.kwh_prijs).toFixed(3)}` : '—'],
         ].map(([label, val]) => (
           <div key={label}>
             <div style={{ color:'var(--muted)', fontSize:11 }}>{label}</div>
-            <div style={{ fontWeight:500, color: label.includes('kWh') || label.includes('kost') || label.includes('Start') || label.includes('Huidig') ? '#fbbf24' : 'var(--text)' }}>{val}</div>
+            <div style={{ fontWeight:500, color: label.includes('Verbruikt') || label.includes('kost') ? '#fbbf24' : 'var(--text)' }}>{val}</div>
           </div>
         ))}
       </div>
 
       {showJobForm && (
         <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid var(--border)' }}>
-          <p style={{ fontSize:12, color:'var(--muted)', marginBottom:8 }}>
-            Job aanmaken voor <strong style={{ color:'var(--text)' }}>{data?.filename?.replace(/\.(gcode|3mf|stl)$/i,'') || name}</strong>
-          </p>
+          {heeftActieveJob && (
+            <div style={{ fontSize:11, color:'var(--warn)', marginBottom:8, padding:'4px 8px', background:'rgba(245,158,11,0.1)', borderRadius:4 }}>
+              ⚠ Er is al een actieve job voor deze printer
+            </div>
+          )}
+          <div className="form-group" style={{ marginBottom:8 }}>
+            <label>Jobnaam</label>
+            <input value={jobNaam} onChange={e => setJobNaam(e.target.value)} placeholder="Naam van de job" />
+          </div>
           <div className="form-group" style={{ marginBottom:8 }}>
             <label>Klant (optioneel)</label>
             <select value={klantId} onChange={e => setKlantId(e.target.value)}>
               <option value="">— voor mezelf —</option>
-              {klanten.map(k => <option key={k.id} value={k.id}>{k.naam}</option>)}
+              {klanten.map(k => (
+                <option key={k.id} value={k.id}>
+                  {k.voornaam ? `${k.voornaam} ${k.naam}` : k.naam}
+                  {k.bedrijfsnaam ? ` — ${k.bedrijfsnaam}` : ''}
+                </option>
+              ))}
             </select>
           </div>
+          {data?.heeft_bmcu && (
+            <div className="form-row" style={{ marginBottom:8 }}>
+              <div className="form-group">
+                <label>Multicolor (BMCU)</label>
+                <select value={isMulticolor ? '1' : '0'} onChange={e => setIsMulticolor(e.target.value === '1')}>
+                  <option value="0">Nee</option>
+                  <option value="1">Ja</option>
+                </select>
+              </div>
+              {isMulticolor && (
+                <div className="form-group">
+                  <label>Aantal kleuren</label>
+                  <input type="number" min="2" max="8" value={aantalKleuren}
+                    onChange={e => setAantalKleuren(parseInt(e.target.value))} />
+                </div>
+              )}
+            </div>
+          )}
           <button className="btn primary" style={{ width:'100%' }} onClick={maakJob} disabled={saving}>
             {saving ? 'Bezig...' : '✓ Job aanmaken'}
           </button>
@@ -261,6 +325,7 @@ export default function Jobs() {
             data={printerData[p.id]}
             klanten={klanten}
             onJobCreated={loadJobs}
+            bestaandeJobs={jobs}
           />
         ))}
       </div>
