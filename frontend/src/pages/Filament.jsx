@@ -109,6 +109,7 @@ function RolModal({ types, rol, onClose, onSaved }) {
   const [form, setForm] = useState(rol?.id ? {
     filament_type_id: rol.filament_type_id,
     kleur:              rol.kleur || '',
+    kleur_hex:          rol.kleur_hex || '',
     gewicht_gram_start: rol.gewicht_gram_start,
     gewicht_gram_huidig: rol.gewicht_gram_huidig,
     locatie:            rol.locatie || '',
@@ -116,9 +117,10 @@ function RolModal({ types, rol, onClose, onSaved }) {
     actief:             rol.actief,
     aankoopprijs_eur:   rol.aankoopprijs_eur ?? '',
     lotnummer:          rol.lotnummer || '',
-  } : {
+    } : {
     filament_type_id:   types[0]?.id || '',
     kleur:              '',
+    kleur_hex:          '',
     gewicht_gram_start: 1000,
     gewicht_gram_huidig: 1000,
     locatie:            '',
@@ -198,16 +200,16 @@ function RolModal({ types, rol, onClose, onSaved }) {
         <div className="form-group">
           <label>Kleur</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <span style={{ width: 24, height: 24, borderRadius: '50%', background: kleurHex(form.kleur), border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
-            <input value={form.kleur} onChange={e => set('kleur', e.target.value)} placeholder="bv. Wit, Zwart, Rood..." />
+            <span style={{ width: 24, height: 24, borderRadius: '50%', background: form.kleur_hex || kleurHex(form.kleur), border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
+            <input value={form.kleur} onChange={e => set('kleur', e.target.value)} placeholder="bv. Robijnrood, Lavendel..." />
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {KLEUREN.map(k => (
-              <button key={k.naam} onClick={() => set('kleur', k.naam)}
+              <button key={k.naam} onClick={() => set('kleur_hex', k.hex)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20,
-                  border: form.kleur === k.naam ? '2px solid var(--accent)' : '1px solid var(--border)',
-                  background: form.kleur === k.naam ? 'var(--bg3)' : 'transparent',
+                  border: form.kleur_hex === k.hex ? '2px solid var(--accent)' : '1px solid var(--border)',
+                  background: form.kleur_hex === k.hex ? 'var(--bg3)' : 'transparent',
                   cursor: 'pointer', fontSize: 11, color: 'var(--text)'
                 }}>
                 <span style={{ width: 10, height: 10, borderRadius: '50%', background: k.hex, border: '1px solid rgba(255,255,255,0.2)' }} />
