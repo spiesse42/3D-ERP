@@ -12,7 +12,7 @@ export function usePrinterData() {
   const [printerConfig, setPrinterConfig] = useState([]);
   const [printerData,   setPrinterData]   = useState({});
   const intervalRef = useRef(null);
-  const kwhStartRef = useRef({});  // Stabiele ref voor kWh start, reset-proof
+  const kwhStartRef = useRef({});
 
   useEffect(() => {
     api.get('/printers/config').then(setPrinterConfig).catch(() => {});
@@ -26,9 +26,15 @@ export function usePrinterData() {
 
       for (const p of printerConfig) {
         const e = p.entities;
-        if (!e || !Object.keys(e).length) continue;
+        if (!e || !Object.keys(e).length) {
+          // Geen entiteiten geconfigureerd — toon printer met lege data
+          result[p.id] = {
+            naam: p.naam, type: p.type, heeft_bmcu: p.heeft_bmcu,
+            kwh_prijs: p.kwh_prijs, status: 'unavailable',
+          };
+          continue;
+        }
 
-        // Haal alle entiteiten op in parallel
         const keys = Object.keys(e).filter(k => e[k]);
         const values = await Promise.all(
           keys.map(k => api.get(`/ha/state/${e[k]}`).then(d => [k, d.state]).catch(() => [k, null]))
@@ -38,40 +44,43 @@ export function usePrinterData() {
         let elapsed = 0, remaining = 0, filamentG = 0;
 
         if (p.type === 'bambu') {
-          // Verstreken tijd via starttijd
-          if (s.start && s.start !== 'unavailable') {
+          if (s.start && s.start !== 'unavailable' && s.start !== 'unknown') {
             const ms = new Date(s.start).getTime();
             if (!isNaN(ms)) elapsed = Math.max(0, (Date.now() - ms) / 1000);
           }
-          // Resterende tijd in uren → seconden
           remaining = (parseFloat(s.remaining) || 0) * 3600;
-          // Filament in gram (rechtstreeks)
           filamentG = parseFloat(s.filament) || 0;
 
         } else if (p.type === 'ender') {
-          // Verstreken tijd in minuten → seconden
           elapsed = (parseFloat(s.duration) || 0) * 60;
-          // Resterende tijd via ETA timestamp
           if (s.remaining && s.remaining !== 'unknown' && s.remaining.includes('T')) {
             const diff = (new Date(s.remaining).getTime() - Date.now()) / 1000;
             if (diff > 0) remaining = diff;
           }
-          // Filament in meter → gram (factor 2.98 voor PLA)
           filamentG = (parseFloat(s.filament) || 0) * 2.98;
         }
 
-        const kwh    = parseFloat(s.kwh)  || 0;
-        const isRunning = ['running', 'printing'].includes((s.status || '').toLowerCase());
+        const kwhVal = parseFloat(s.kwh);
+        const kwh    = !isNaN(kwhVal) ? kwhVal : null;
 
-        // kWh start bijhouden in ref (niet in state, om re-render loops te vermijden)
-        if (isRunning && !kwhStartRef.current[p.id] && kwh > 0) {
+        // kWh start bij prepare of running (Bambu gaat eerst door prepare)
+        const statusLower = (s.status || '').toLowerCase();
+        const isActief = ['running','printing','prepare'].includes(statusLower);
+        const isIdle   = ['idle','standby','finish','complete','offline','unavailable','failed'].includes(statusLower);
+
+        if (isActief && kwhStartRef.current[p.id] == null && kwh != null) {
           kwhStartRef.current[p.id] = kwh;
         }
-        if (!isRunning) {
+        if (isIdle) {
           kwhStartRef.current[p.id] = null;
         }
-        const kwhStart = kwhStartRef.current[p.id] || null;
-        const kwhDelta = kwh > 0 && kwhStart ? kwh - kwhStart : null;
+
+        const kwhStart = kwhStartRef.current[p.id] ?? null;
+        const kwhDelta = kwh != null && kwhStart != null ? Math.max(0, kwh - kwhStart) : null;
+
+        // Temperaturen — expliciet null check (0°C is geldig)
+        const bedTemp    = s.bed_temp    != null && s.bed_temp    !== 'unavailable' && s.bed_temp    !== 'unknown' ? s.bed_temp    : null;
+        const nozzleTemp = s.nozzle_temp != null && s.nozzle_temp !== 'unavailable' && s.nozzle_temp !== 'unknown' ? s.nozzle_temp : null;
 
         result[p.id] = {
           naam:        p.naam,
@@ -87,10 +96,10 @@ export function usePrinterData() {
           filament:    `${filamentG.toFixed(1)} g`,
           filament_g:  filamentG,
           layer:       `${s.layer_cur || '0'} / ${s.layer_tot || '0'}`,
-          bed_temp:    s.bed_temp   || null,
-          nozzle_temp: s.nozzle_temp || null,
+          bed_temp:    bedTemp,
+          nozzle_temp: nozzleTemp,
           kwh_start:   kwhStart,
-          kwh_current: kwh || null,
+          kwh_current: kwh,
           kwh_delta:   kwhDelta,
         };
       }

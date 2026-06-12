@@ -39,8 +39,8 @@ function ProgressRing({ pct, color, size=80 }) {
   );
 }
 
-function PrinterCard({ printerId, data, klanten, onJobCreated }) {
-  const name    = data?.naam || '—';
+function PrinterCard({ printerId, naam, data, klanten, onJobCreated }) {
+  const name    = naam || data?.naam || '—';
   const status  = data?.status || 'unavailable';
   const isRunning = ['running','printing'].includes(status.toLowerCase());
   const isDone    = ['finish','complete','success'].includes(status.toLowerCase());
@@ -205,6 +205,7 @@ export default function Dashboard() {
           <PrinterCard
             key={p.id}
             printerId={p.id}
+            naam={p.naam}
             data={printerData[p.id]}
             klanten={klanten}
             onJobCreated={loadOperationeel}

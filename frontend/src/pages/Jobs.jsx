@@ -1,12 +1,18 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
+import { usePrinterData } from '../lib/usePrinterData.js';
 import KostenModal from '../components/KostenModal.jsx';
 
 const STATUSSEN = ['gepland','bezig','voltooid','gefaald','geannuleerd'];
 
 function StatusDot({ status }) {
-  const colors = { running:'#ef4444', printing:'#ef4444', finish:'#22c55e', complete:'#22c55e', success:'#22c55e', idle:'#f59e0b', standby:'#f59e0b', unavailable:'#555' };
+  const colors = {
+    running:'#ef4444', printing:'#ef4444',
+    finish:'#22c55e', complete:'#22c55e', success:'#22c55e',
+    idle:'#f59e0b', standby:'#f59e0b', offline:'#555',
+    unavailable:'#555', pause:'#f59e0b',
+  };
   const c = colors[status?.toLowerCase()] || '#f59e0b';
   return <span style={{ display:'inline-block', width:8, height:8, borderRadius:'50%', background:c, marginRight:6, boxShadow:`0 0 6px ${c}` }} />;
 }
@@ -25,20 +31,21 @@ function ProgressRing({ pct, color, size=80 }) {
   );
 }
 
-function PrinterCard({ name, printerId, data, klanten, onJobCreated }) {
-  const status = data?.status || 'unavailable';
+function PrinterCard({ printerId, naam, data, klanten, onJobCreated }) {
+  const name    = naam || data?.naam || '—';
+  const status  = data?.status || 'unavailable';
   const isRunning = ['running','printing'].includes(status.toLowerCase());
-  const isDone = ['finish','complete','success'].includes(status.toLowerCase());
-  const color = isRunning ? '#ef4444' : isDone ? '#22c55e' : '#f59e0b';
-  const pct = parseFloat(data?.progress) || 0;
+  const isDone    = ['finish','complete','success'].includes(status.toLowerCase());
+  const color  = isRunning ? '#ef4444' : isDone ? '#22c55e' : '#f59e0b';
+  const pct    = parseFloat(data?.progress) || 0;
   const [showJobForm, setShowJobForm] = useState(false);
   const [klantId, setKlantId] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving]   = useState(false);
 
   async function maakJob() {
     setSaving(true);
     try {
-      const naam = data?.filename?.replace(/\.(gcode|3mf|stl)$/i,'') || name;
+      const naam = data?.filename?.replace(/\.(gcode|3mf|stl)$/i, '') || name;
       const uren = data?.elapsed_sec ? Math.round(data.elapsed_sec / 360) / 10 : null;
       await api.post('/jobs', {
         printer_id: printerId,
@@ -66,6 +73,12 @@ function PrinterCard({ name, printerId, data, klanten, onJobCreated }) {
           <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
             <StatusDot status={status} />{status}
           </div>
+          {(data?.bed_temp || data?.nozzle_temp) && (
+            <div style={{ fontSize:11, color:'var(--muted)', marginTop:4, display:'flex', gap:10 }}>
+              {data.bed_temp    && <span>🛏 {data.bed_temp}°C</span>}
+              {data.nozzle_temp && <span>🌡 {data.nozzle_temp}°C</span>}
+            </div>
+          )}
         </div>
         <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
           <div style={{ position:'relative', width:80, height:80 }}>
@@ -83,7 +96,7 @@ function PrinterCard({ name, printerId, data, klanten, onJobCreated }) {
         </div>
       </div>
 
-      {data?.filename && data.filename !== 'unavailable' && (
+      {data?.filename && data.filename !== 'unavailable' && data.filename !== 'unknown' && (
         <div style={{ fontSize:11, color:'var(--accent)', marginBottom:'0.75rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', background:'var(--bg3)', borderRadius:6, padding:'4px 8px' }}>
           📄 {data.filename}
         </div>
@@ -91,14 +104,15 @@ function PrinterCard({ name, printerId, data, klanten, onJobCreated }) {
 
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px 12px', fontSize:12 }}>
         {[
-          ['⏱ Verstreken', data?.elapsed || '—'],
-          ['⏳ Resterend', data?.remaining || '—'],
-          ['🧵 Filament', data?.filament || '—'],
-          ['📐 Laag', data?.layer || '—'],
-          ['⚡ Start kWh', data?.kwh_start != null ? data.kwh_start.toFixed(3) : '—'],
+          ['⏱ Verstreken',  data?.elapsed    || '—'],
+          ['⏳ Resterend',  data?.remaining  || '—'],
+          ['🧵 Filament',   data?.filament   || '—'],
+          ['📐 Laag',       data?.layer      || '—'],
+          ['⚡ Start kWh',  data?.kwh_start   != null ? data.kwh_start.toFixed(3)   : '—'],
           ['⚡ Huidig kWh', data?.kwh_current != null ? data.kwh_current.toFixed(3) : '—'],
-          ['⚡ Δ Verbruikt', data?.kwh_delta != null ? `${data.kwh_delta.toFixed(3)} kWh` : '—'],
-          ['💶 Energiekost', data?.kwh_delta != null ? `€${(data.kwh_delta * 0.35).toFixed(3)}` : '—'],
+          ['⚡ Δ Verbruikt', data?.kwh_delta  != null ? `${data.kwh_delta.toFixed(3)} kWh` : '—'],
+          ['💶 Energiekost', data?.kwh_delta  != null && data?.kwh_prijs
+            ? `€${(data.kwh_delta * data.kwh_prijs).toFixed(3)}` : '—'],
         ].map(([label, val]) => (
           <div key={label}>
             <div style={{ color:'var(--muted)', fontSize:11 }}>{label}</div>
@@ -110,7 +124,7 @@ function PrinterCard({ name, printerId, data, klanten, onJobCreated }) {
       {showJobForm && (
         <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid var(--border)' }}>
           <p style={{ fontSize:12, color:'var(--muted)', marginBottom:8 }}>
-            Job aanmaken voor <strong style={{ color:'var(--text)' }}>{data?.filename?.replace(/\.(gcode|3mf|stl)$/i,'') || name}</strong>
+            Job aanmaken voor <strong style={{ color:'var(--text)' }}>{data?.filename?.replace(/\.(gcode|3mf|stl)$/i, '') || name}</strong>
           </p>
           <div className="form-group" style={{ marginBottom:8 }}>
             <label>Klant (optioneel)</label>
@@ -129,7 +143,13 @@ function PrinterCard({ name, printerId, data, klanten, onJobCreated }) {
 }
 
 function JobModal({ job, printers, klanten, onClose, onSaved }) {
-  const [form, setForm] = useState(job || { printer_id: printers[0]?.id || '', naam:'', status:'gepland', is_multicolor:false, aantal_kleuren:1, print_uren_geschat:'', notities:'' });
+  const [form, setForm] = useState(job ? {
+    printer_id: job.printer_id, naam: job.naam, status: job.status,
+    klant_id: job.klant_id || '', is_multicolor: job.is_multicolor,
+    aantal_kleuren: job.aantal_kleuren, print_uren_geschat: job.print_uren_geschat || '',
+    print_uren_werkelijk: job.print_uren_werkelijk || '', stl_bestandsnaam: job.stl_bestandsnaam || '',
+    notities: job.notities || '',
+  } : { printer_id: printers[0]?.id || '', naam:'', status:'gepland', is_multicolor:false, aantal_kleuren:1, print_uren_geschat:'', notities:'' });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   async function save() {
     try {
@@ -199,23 +219,14 @@ function JobModal({ job, printers, klanten, onClose, onSaved }) {
   );
 }
 
-function formatSec(sec) {
-  if (!sec || sec <= 0) return '—';
-  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
-  return h > 0 ? `${h}u ${m}m` : `${m}m`;
-}
-
 export default function Jobs() {
-  const [jobs, setJobs] = useState([]);
+  const [jobs,     setJobs]     = useState([]);
   const [printers, setPrinters] = useState([]);
-  const [klanten, setKlanten] = useState([]);
-  const [modal, setModal] = useState(null);
+  const [klanten,  setKlanten]  = useState([]);
+  const [modal,    setModal]    = useState(null);
   const [kostenJob, setKostenJob] = useState(null);
-  const [filter, setFilter] = useState('');
-  const [printerData, setPrinterData] = useState({});
-  const [kwhStart, setKwhStart] = useState({});
-  const [kwhCurrent, setKwhCurrent] = useState({});
-  const intervalRef = useRef(null);
+  const [filter,   setFilter]   = useState('');
+  const { printerConfig, printerData } = usePrinterData();
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get('highlight') ? parseInt(searchParams.get('highlight')) : null;
 
@@ -227,107 +238,6 @@ export default function Jobs() {
     api.get('/klanten').then(setKlanten);
   }, []);
 
-  useEffect(() => {
-    const BAMBU = 'sensor.a1mini_0300da611800680_';
-    const entities = {
-      bambu_status:    `${BAMBU}printstatus`,
-      bambu_progress:  `${BAMBU}printvoortgang`,
-      bambu_file:      `${BAMBU}gcode_bestandsnaam`,
-      bambu_remaining: `${BAMBU}resterende_tijd`,
-      bambu_layer_cur: `${BAMBU}huidige_laag`,
-      bambu_layer_tot: `${BAMBU}hoeveelheid_lagen`,
-      bambu_filament:  `${BAMBU}gewicht_van_print`,
-      bambu_start:     `${BAMBU}starttijd`,
-      bambu_kwh:       'sensor.lsc_power_plug_fr_incl_power_meter_6_totaal_energieverbruik',
-      ender_status:    'sensor.ender_3_s1_pro_current_print_state',
-      ender_progress:  'sensor.ender_3_s1_pro_progress',
-      ender_file:      'sensor.ender_3_s1_pro_filename',
-      ender_remaining: 'sensor.ender_3_s1_pro_print_eta',
-      ender_layer_cur: 'sensor.ender_3_s1_pro_current_layer',
-      ender_layer_tot: 'sensor.ender_3_s1_pro_total_layer',
-      ender_filament:  'sensor.ender_3_s1_pro_filament_used',
-      ender_elapsed:   'sensor.ender_3_s1_pro_print_duration',
-      ender_kwh:       'sensor.lsc_power_plug_fr_incl_power_meter_5_totaal_energieverbruik',
-    };
-
-    async function poll() {
-      try {
-        const results = await Promise.all(
-          Object.entries(entities).map(([key, entity]) =>
-            api.get(`/ha/state/${entity}`).then(d => [key, d.state]).catch(() => [key, null])
-          )
-        );
-        const s = Object.fromEntries(results);
-
-        let bambuElapsed = 0;
-        if (s.bambu_start && s.bambu_start !== 'unavailable') {
-          const ms = new Date(s.bambu_start).getTime();
-          if (!isNaN(ms)) bambuElapsed = Math.max(0, (Date.now() - ms) / 1000);
-        }
-        const enderElapsedSec = (parseFloat(s.ender_elapsed) || 0) * 3600;
-
-        let bambuRem = 0;
-        if (s.bambu_remaining && s.bambu_remaining !== 'unavailable') bambuRem = parseFloat(s.bambu_remaining) || 0;
-        let enderRem = 0;
-        if (s.ender_remaining?.includes('T')) {
-          const diff = (new Date(s.ender_remaining).getTime() - Date.now()) / 1000;
-          if (diff > 0) enderRem = diff;
-        }
-
-        const bambuKwh = parseFloat(s.bambu_kwh) || 0;
-        const enderKwh = parseFloat(s.ender_kwh) || 0;
-        const bambuRunning = ['running','printing'].includes((s.bambu_status||'').toLowerCase());
-        const enderRunning = ['running','printing'].includes((s.ender_status||'').toLowerCase());
-
-        setKwhCurrent({ bambu: bambuKwh, ender: enderKwh });
-
-        setKwhStart(prev => {
-          const next = { ...prev };
-          if (bambuRunning && !prev.bambu && bambuKwh > 0) next.bambu = bambuKwh;
-          if (!bambuRunning) next.bambu = null;
-          if (enderRunning && !prev.ender && enderKwh > 0) next.ender = enderKwh;
-          if (!enderRunning) next.ender = null;
-          return next;
-        });
-
-        setPrinterData({
-          bambu: {
-            status:      s.bambu_status || 'unavailable',
-            progress:    parseFloat(s.bambu_progress) || 0,
-            filename:    s.bambu_file,
-            elapsed:     formatSec(bambuElapsed),
-            elapsed_sec: bambuElapsed,
-            remaining:   formatSec(bambuRem),
-            filament:    `${parseFloat(s.bambu_filament)?.toFixed(1) || '—'} g`,
-            filament_g:  parseFloat(s.bambu_filament) || 0,
-            layer:       `${s.bambu_layer_cur || '0'} / ${s.bambu_layer_tot || '0'}`,
-            kwh_start:   kwhStart.bambu || null,
-            kwh_current: bambuKwh || null,
-            kwh_delta:   bambuKwh > 0 && kwhStart.bambu ? bambuKwh - kwhStart.bambu : null,
-          },
-          ender: {
-            status:      s.ender_status || 'unavailable',
-            progress:    parseFloat(s.ender_progress) || 0,
-            filename:    s.ender_file,
-            elapsed:     formatSec(enderElapsedSec),
-            elapsed_sec: enderElapsedSec,
-            remaining:   formatSec(enderRem),
-            filament:    `${((parseFloat(s.ender_filament)||0) * 2.98).toFixed(1)} g`,
-            filament_g:  (parseFloat(s.ender_filament)||0) * 2.98,
-            layer:       `${s.ender_layer_cur || '0'} / ${s.ender_layer_tot || '0'}`,
-            kwh_start:   kwhStart.ender || null,
-            kwh_current: enderKwh || null,
-            kwh_delta:   enderKwh > 0 && kwhStart.ender ? enderKwh - kwhStart.ender : null,
-          },
-        });
-      } catch {}
-    }
-
-    poll();
-    intervalRef.current = setInterval(poll, 5000);
-    return () => clearInterval(intervalRef.current);
-  }, [kwhStart]);
-
   const filtered = filter ? jobs.filter(j => j.status === filter) : jobs;
 
   async function deleteJob(id) {
@@ -335,9 +245,6 @@ export default function Jobs() {
     await api.delete(`/jobs/${id}`);
     loadJobs();
   }
-
-  const bambuId = printers.find(p => p.naam.toLowerCase().includes('bambu'))?.id;
-  const enderId = printers.find(p => p.naam.toLowerCase().includes('ender'))?.id;
 
   return (
     <div>
@@ -352,17 +259,27 @@ export default function Jobs() {
         </div>
       </div>
 
+      {/* Printerkaarten */}
       <div style={{ display:'flex', gap:'1rem', marginBottom:'1.5rem' }}>
-        <PrinterCard name="Bambu A1 Mini" printerId={bambuId} data={printerData.bambu} klanten={klanten} onJobCreated={loadJobs} />
-        <PrinterCard name="Ender 3 S1 Pro" printerId={enderId} data={printerData.ender} klanten={klanten} onJobCreated={loadJobs} />
+        {printerConfig.map(p => (
+          <PrinterCard
+            key={p.id}
+            printerId={p.id}
+            naam={p.naam}
+            data={printerData[p.id]}
+            klanten={klanten}
+            onJobCreated={loadJobs}
+          />
+        ))}
       </div>
 
+      {/* Jobstabel */}
       {filtered.length === 0
         ? <div className="empty">Geen jobs gevonden</div>
         : <div className="card" style={{ padding:0 }}>
             <table>
-<thead><tr><th>Naam</th><th>Klant</th><th>Printer</th><th>Status</th><th>Uren</th><th>Prijs</th><th>Betaald</th><th>Acties</th></tr></thead>
-	<tbody>
+              <thead><tr><th>Naam</th><th>Klant</th><th>Printer</th><th>Status</th><th>Uren</th><th>Prijs</th><th>Betaald</th><th>Acties</th></tr></thead>
+              <tbody>
                 {filtered.map(j => (
                   <tr key={j.id} style={{ background: j.id === highlightId ? 'var(--bg3)' : undefined, outline: j.id === highlightId ? '2px solid var(--accent)' : undefined }}>
                     <td>
@@ -375,24 +292,19 @@ export default function Jobs() {
                     <td style={{ color:'var(--muted)' }}>
                       {j.print_uren_werkelijk != null ? `${j.print_uren_werkelijk}u` : j.print_uren_geschat != null ? `~${j.print_uren_geschat}u` : '—'}
                     </td>
-<td>{j.verkoopprijs != null ? <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span> : <span style={{ color:'var(--muted)' }}>—</span>}</td>
+                    <td>{j.verkoopprijs != null ? <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span> : <span style={{ color:'var(--muted)' }}>—</span>}</td>
                     <td onClick={e => e.stopPropagation()}>
                       {j.status === 'voltooid' && j.klant_id
                         ? <input type="checkbox" checked={!!j.betaald}
                             style={{ width:16, height:16, cursor:'pointer', accentColor:'var(--accent2)' }}
-                            onChange={async e => {
-                              await api.patch(`/jobs/${j.id}/betaald`, { betaald: e.target.checked });
-                              loadJobs();
-                            }} />
+                            onChange={async e => { await api.patch(`/jobs/${j.id}/betaald`, { betaald: e.target.checked }); loadJobs(); }} />
                         : <span style={{ color:'var(--muted)' }}>—</span>
                       }
                     </td>
                     <td>
                       <div style={{ display:'flex', gap:6 }}>
-                <button className="btn" style={{ fontSize:11, padding:'4px 8px' }}
-                          onClick={() => setKostenJob({ ...j,
-                            printer_naam: j.printer_naam,
-                          })}>€ Kost</button>
+                        <button className="btn" style={{ fontSize:11, padding:'4px 8px' }}
+                          onClick={() => setKostenJob({ ...j, printer_naam: j.printer_naam })}>€ Kost</button>
                         <button className="btn" style={{ fontSize:11, padding:'4px 8px' }} onClick={() => setModal(j)}>✏</button>
                         <button className="btn danger" style={{ fontSize:11, padding:'4px 8px' }} onClick={() => deleteJob(j.id)}>✕</button>
                       </div>
@@ -413,11 +325,7 @@ export default function Jobs() {
         <KostenModal
           job={kostenJob}
           klanten={klanten}
-          printerLiveData={
-            kostenJob.printer_naam?.toLowerCase().includes('bambu')
-              ? printerData.bambu
-              : printerData.ender
-          }
+          printerLiveData={printerData[kostenJob.printer_id]}
           onClose={() => setKostenJob(null)}
           onJobUpdated={loadJobs}
         />

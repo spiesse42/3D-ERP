@@ -7,6 +7,65 @@ r.get('/', (req, res) => {
   res.json(getDb().prepare('SELECT * FROM printers ORDER BY id').all());
 });
 
+r.get('/config', (req, res) => {
+  const db = getDb();
+  const printers = db.prepare('SELECT * FROM printers WHERE actief = 1 ORDER BY id').all();
+  const tarieven = db.prepare("SELECT sleutel, waarde FROM tarieven WHERE sleutel IN ('kwh_prijs')").all();
+  const kwh_prijs = tarieven.find(t => t.sleutel === 'kwh_prijs')?.waarde || 0.35;
+
+  const config = printers.map(p => {
+    const prefix = p.ha_entity_prefix || '';
+    const isBambu = p.naam.toLowerCase().includes('bambu') || prefix.includes('a1mini');
+    const isEnder = p.naam.toLowerCase().includes('ender') || prefix.includes('ender');
+
+    let entities = {};
+    if (isBambu && prefix) {
+      entities = {
+        status:      `${prefix}printstatus`,
+        progress:    `${prefix}printvoortgang`,
+        filename:    `${prefix}taaknaam`,
+        remaining:   `${prefix}resterende_tijd`,
+        layer_cur:   `${prefix}huidige_laag`,
+        layer_tot:   `${prefix}hoeveelheid_lagen`,
+        filament:    `${prefix}gewicht_van_print`,
+        start:       `${prefix}starttijd`,
+        bed_temp:    `${prefix}bedtemperatuur`,
+        nozzle_temp: `${prefix}nozzle_temperatuur`,
+        kwh:         p.kwh_entity || '',
+        watt:        p.watt_entity || '',
+      };
+    } else if (isEnder && prefix) {
+      entities = {
+        status:      `${prefix}current_print_state`,
+        progress:    `${prefix}progress`,
+        filename:    `${prefix}filename`,
+        remaining:   `${prefix}print_eta`,
+        layer_cur:   `${prefix}current_layer`,
+        layer_tot:   `${prefix}total_layer`,
+        filament:    `${prefix}filament_used`,
+        duration:    `${prefix}print_duration`,
+        bed_temp:    `${prefix}bed_temperature`,
+        nozzle_temp: `${prefix}extruder_temperature`,
+        kwh:         p.kwh_entity || '',
+        watt:        p.watt_entity || '',
+      };
+    }
+
+    return {
+      id:                  p.id,
+      naam:                p.naam,
+      type:                isBambu ? 'bambu' : isEnder ? 'ender' : 'generic',
+      heeft_bmcu:          p.heeft_bmcu,
+      machine_kost_per_uur: p.machine_kost_per_uur,
+      ha_entity_prefix:    prefix,
+      entities,
+      kwh_prijs,
+    };
+  });
+
+  res.json(config);
+});
+
 r.put('/:id', (req, res) => {
   const db = getDb();
   const { naam, type, ha_entity_prefix, kwh_entity, machine_kost_per_uur, heeft_bmcu, actief } = req.body;
