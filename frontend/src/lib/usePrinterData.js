@@ -12,7 +12,9 @@ export function usePrinterData() {
   const [printerConfig, setPrinterConfig] = useState([]);
   const [printerData,   setPrinterData]   = useState({});
   const intervalRef = useRef(null);
-  const kwhStartRef = useRef({});
+  const kwhStartRef  = useRef({});
+  const kwhAccumRef  = useRef({});  // geaccumuleerde kWh via Watt
+  const lastPollRef  = useRef({});  // timestamp laatste poll per printer
 
   useEffect(() => {
     api.get('/printers/config').then(setPrinterConfig).catch(() => {});
@@ -60,23 +62,32 @@ export function usePrinterData() {
           filamentG = (parseFloat(s.filament) || 0) * 2.98;
         }
 
-        const kwhVal = parseFloat(s.kwh);
-        const kwh    = !isNaN(kwhVal) ? kwhVal : null;
+        const wattVal = parseFloat(s.watt);
+        const watt    = !isNaN(wattVal) ? wattVal : null;
+        const kwhVal  = parseFloat(s.kwh);
+        const kwh     = !isNaN(kwhVal) ? kwhVal : null;
 
-        // kWh start bij prepare of running (Bambu gaat eerst door prepare)
         const statusLower = (s.status || '').toLowerCase();
         const isActief = ['running','printing','prepare'].includes(statusLower);
         const isIdle   = ['idle','standby','finish','complete','offline','unavailable','failed'].includes(statusLower);
 
-        if (isActief && kwhStartRef.current[p.id] == null && kwh != null) {
-          kwhStartRef.current[p.id] = kwh;
+        // Watt-accumulatie: kWh += W * dt / 3.600.000
+        const now = Date.now();
+        if (isActief && watt != null && watt > 0) {
+          if (kwhAccumRef.current[p.id] == null) kwhAccumRef.current[p.id] = 0;
+          const last = lastPollRef.current[p.id];
+          if (last != null) {
+            const dtH = (now - last) / 3600000;
+            kwhAccumRef.current[p.id] += watt * dtH / 1000;
+          }
         }
         if (isIdle) {
-          kwhStartRef.current[p.id] = null;
+          kwhAccumRef.current[p.id] = null;
         }
+        lastPollRef.current[p.id] = now;
 
-        const kwhStart = kwhStartRef.current[p.id] ?? null;
-        const kwhDelta = kwh != null && kwhStart != null ? Math.max(0, kwh - kwhStart) : null;
+        const kwhDelta = kwhAccumRef.current[p.id] ?? null;
+        const kwhStart = kwh != null && kwhDelta != null ? kwh - kwhDelta : null;
 
         // Temperaturen — expliciet null check (0°C is geldig)
         const bedTemp    = s.bed_temp    != null && s.bed_temp    !== 'unavailable' && s.bed_temp    !== 'unknown' ? s.bed_temp    : null;
