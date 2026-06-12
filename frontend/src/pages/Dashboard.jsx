@@ -75,7 +75,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
     if (saving) return;
     setSaving(true);
     try {
-      const jobStatus   = isRunning ? 'bezig' : isDone ? 'voltooid' : 'gepland';
+      const jobStatus   = isDone ? 'voltooid' : isRunning ? 'bezig' : 'gepland';
       const gestart_op  = isRunning ? new Date().toISOString() : null;
       const totalSec    = (data?.elapsed_sec || 0) + (data?.remaining_sec || 0);
       const urenGeschat = totalSec > 0 ? Math.round(totalSec / 360) / 10 : null;
@@ -202,7 +202,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
               )}
             </div>
           )}
-          {isMulticolor ? (
+          {isMulticolor === true ? (
             Array.from({ length: aantalKleuren }, (_, i) => (
               <div className="form-group" style={{ marginBottom:8 }} key={i}>
                 <label>Kleur {i + 1} — filamentrol (optioneel)</label>
@@ -233,8 +233,9 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
               </select>
             </div>
           )}
-          <button className="btn primary" style={{ width:'100%' }} onClick={maakJob} disabled={saving}>
-            {saving ? 'Bezig...' : '✓ Job aanmaken'}
+          <button className="btn primary" style={{ width:'100%' }} onClick={maakJob}
+            disabled={saving || heeftActieveJob}>
+            {saving ? 'Bezig...' : heeftActieveJob ? '⚠ Al een actieve job' : '✓ Job aanmaken'}
           </button>
         </div>
       )}
