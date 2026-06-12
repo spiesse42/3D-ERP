@@ -11,8 +11,9 @@ function KlantModal({ klant, onClose, onSaved }) {
 
   async function save() {
     try {
-      if (klant?.id) await api.put(`/klanten/${klant.id}`, form);
-      else await api.post('/klanten', form);
+      const payload = { ...form, gemeente: form.gemeente ? form.gemeente.toUpperCase() : '' };
+      if (klant?.id) await api.put(`/klanten/${klant.id}`, payload);
+      else await api.post('/klanten', payload);
       onSaved();
     } catch (e) { alert(e.message); }
   }
@@ -160,11 +161,11 @@ export default function Klanten() {
         : <div className="card" style={{ padding:0 }}>
             <table>
               <thead>
-                <tr><th>Naam</th><th>Type</th><th>Adres</th><th>Contact</th><th>Jobs</th><th>Acties</th></tr>
+                <tr><th>Naam</th><th>Type</th><th>Adres</th><th>Tel / GSM</th><th>E-mail</th><th>BTW</th><th>Jobs</th><th>Acties</th></tr>
               </thead>
               <tbody>
                 {filtered.map(k => (
-                  <tr key={k.id}>
+                  <tr key={k.id} style={{ cursor:'pointer' }} onClick={() => setModal(k)}>
                     <td>
                       <div style={{ fontWeight:500 }}>{k.voornaam ? `${k.voornaam} ${k.naam}` : k.naam}</div>
                       {k.type === 'zakelijk' && k.btw_nummer && (
@@ -178,13 +179,19 @@ export default function Klanten() {
                     </td>
                     <td style={{ color:'var(--muted)', fontSize:12 }}>{volledigAdres(k)}</td>
                     <td style={{ fontSize:12 }}>
-                      {k.email && <div>{k.email}</div>}
+                      {k.telefoon && <div>{k.telefoon}</div>}
                       {k.gsm && <div style={{ color:'var(--muted)' }}>{k.gsm}</div>}
-                      {!k.email && !k.gsm && <span style={{ color:'var(--muted)' }}>—</span>}
+                      {!k.telefoon && !k.gsm && <span style={{ color:'var(--muted)' }}>—</span>}
+                    </td>
+                    <td style={{ fontSize:12 }}>
+                      {k.email || <span style={{ color:'var(--muted)' }}>—</span>}
+                    </td>
+                    <td style={{ fontSize:12, color:'var(--muted)' }}>
+                      {k.btw_nummer || '—'}
                     </td>
                     <td>{k.aantal_jobs}</td>
                     <td>
-                      <div style={{ display:'flex', gap:6 }}>
+                      <div style={{ display:'flex', gap:6 }} onClick={e => e.stopPropagation()}>
                         <button className="btn" style={{ fontSize:11, padding:'4px 8px' }} onClick={() => setModal(k)}>✏</button>
                         <button className="btn danger" style={{ fontSize:11, padding:'4px 8px' }} onClick={() => del(k.id)}>✕</button>
                       </div>
