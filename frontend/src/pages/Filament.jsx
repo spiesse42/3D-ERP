@@ -28,7 +28,8 @@ const KLEUR_GROEPEN = {
   'koper':'#d4af37','brons':'#92400e','naturel':'#d4b896','fluorescerend':'#eab308',
 };
 
-function kleurHex(naam) {
+function kleurHex(naam, hex) {
+  if (hex) return hex;
   if (!naam) return '#555';
   const lower = naam.toLowerCase();
   const exacte = KLEUREN.find(k => k.naam?.toLowerCase() === lower);
@@ -36,11 +37,11 @@ function kleurHex(naam) {
   return KLEUR_GROEPEN[lower] || '#555';
 }
 
-function KleurDot({ kleur, size = 12 }) {
+function KleurDot({ kleur, hex, size = 12 }) {
   return (
     <span style={{
       display: 'inline-block', width: size, height: size, borderRadius: '50%',
-      background: kleurHex(kleur), border: '1px solid rgba(255,255,255,0.15)',
+      background: kleurHex(kleur, hex), border: '1px solid rgba(255,255,255,0.15)',
       flexShrink: 0, verticalAlign: 'middle', marginRight: 6
     }} title={kleur} />
   );
@@ -200,7 +201,7 @@ function RolModal({ types, rol, onClose, onSaved }) {
         <div className="form-group">
           <label>Kleur</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <span style={{ width: 24, height: 24, borderRadius: '50%', background: form.kleur_hex || kleurHex(form.kleur), border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
+            <span style={{ width: 24, height: 24, borderRadius: '50%', background: kleurHex(form.kleur, form.kleur_hex), border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
             <input value={form.kleur} onChange={e => set('kleur', e.target.value)} placeholder="bv. Robijnrood, Lavendel..." />
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -393,7 +394,7 @@ export default function Filament() {
                       </td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center' }}>
-                          <KleurDot kleur={r.kleur} size={14} />
+                          <KleurDot kleur={r.kleur} hex={r.kleur_hex} size={14} />
                           <span>{r.kleur || <span style={{ color: 'var(--muted)' }}>—</span>}</span>
                         </div>
                       </td>

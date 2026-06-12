@@ -128,19 +128,18 @@ r.get('/rollen/next-lot/:type_id', (req, res) => {
 r.post('/rollen', (req, res) => {
   const db = getDb();
   try {
-    const { filament_type_id, kleur, gewicht_gram_start, locatie, gekocht_op, aankoopprijs_eur, lotnummer } = req.body;
+    const { filament_type_id, kleur, kleur_hex, gewicht_gram_start, locatie, gekocht_op, aankoopprijs_eur, lotnummer } = req.body;
     if (!filament_type_id) return res.status(400).json({ error: 'filament_type_id is verplicht' });
-    const gram       = parseFloat(gewicht_gram_start) || 1000;
+    const gram  = parseFloat(gewicht_gram_start) || 1000;
     const huidigGram = (req.body.gewicht_gram_huidig !== undefined && req.body.gewicht_gram_huidig !== '')
       ? parseFloat(req.body.gewicht_gram_huidig) || gram
       : gram;
     const prijs = (aankoopprijs_eur !== undefined && aankoopprijs_eur !== '') ? parseFloat(aankoopprijs_eur) : null;
-    // Automatisch lotnummer als niet opgegeven
     const lot   = lotnummer || nextLotnummer(db, filament_type_id);
     const result = db.prepare(
-      'INSERT INTO filament_rollen (filament_type_id,kleur,gewicht_gram_start,gewicht_gram_huidig,locatie,gekocht_op,aankoopprijs_eur,lotnummer) VALUES (?,?,?,?,?,?,?,?)'
+      'INSERT INTO filament_rollen (filament_type_id,kleur,kleur_hex,gewicht_gram_start,gewicht_gram_huidig,locatie,gekocht_op,aankoopprijs_eur,lotnummer) VALUES (?,?,?,?,?,?,?,?,?)'
     ).run(
-      filament_type_id, kleur || null, gram, huidigGram,
+      filament_type_id, kleur || null, kleur_hex || null, gram, huidigGram,
       locatie || null, gekocht_op || new Date().toISOString().split('T')[0],
       prijs, lot
     );
@@ -153,18 +152,18 @@ r.post('/rollen', (req, res) => {
 r.put('/rollen/:id', (req, res) => {
   const db = getDb();
   try {
-    const { filament_type_id, gewicht_gram_start, gewicht_gram_huidig, kleur, locatie, actief, aankoopprijs_eur, lotnummer, gekocht_op } = req.body;
+    const { filament_type_id, gewicht_gram_start, gewicht_gram_huidig, kleur, kleur_hex, locatie, actief, aankoopprijs_eur, lotnummer, gekocht_op } = req.body;
     const startG  = parseFloat(gewicht_gram_start) || 1000;
-    const huidigG = parseFloat(gewicht_gram_huidig) ?? startG;
+    const huidigG = parseFloat(gewicht_gram_huidig) || startG;
     const prijs   = (aankoopprijs_eur !== undefined && aankoopprijs_eur !== '') ? parseFloat(aankoopprijs_eur) : null;
     db.prepare(
       `UPDATE filament_rollen
        SET filament_type_id=?, gewicht_gram_start=?, gewicht_gram_huidig=?,
-           kleur=?, locatie=?, actief=?, aankoopprijs_eur=?, lotnummer=?, gekocht_op=?
+           kleur=?, kleur_hex=?, locatie=?, actief=?, aankoopprijs_eur=?, lotnummer=?, gekocht_op=?
        WHERE id=?`
     ).run(
       filament_type_id, startG, huidigG,
-      kleur || null, locatie || null, actief ? 1 : 0,
+      kleur || null, kleur_hex || null, locatie || null, actief ? 1 : 0,
       prijs, lotnummer || null,
       gekocht_op || new Date().toISOString().split('T')[0],
       req.params.id
