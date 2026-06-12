@@ -38,7 +38,7 @@ r.post('/types', (req, res) => {
   const { merk, materiaal, inkoop_prijs_per_kg, dichtheid_g_per_cm3, leverancier, notities } = req.body;
   if (!merk || !materiaal) return res.status(400).json({ error: 'Merk en materiaal zijn verplicht' });
   const prijs = parseFloat(inkoop_prijs_per_kg);
-  if (isNaN(prijs) || prijs <= 0) return res.status(400).json({ error: 'Prijs moet een positief getal zijn' });
+  // prijs is optioneel — 0 toegestaan
   const result = db.prepare(
     'INSERT INTO filament_types (merk,materiaal,inkoop_prijs_per_kg,dichtheid_g_per_cm3,leverancier,notities) VALUES (?,?,?,?,?,?)'
   ).run(merk, materiaal, prijs, parseFloat(dichtheid_g_per_cm3) || 1.24, leverancier || null, notities || null);
@@ -130,14 +130,17 @@ r.post('/rollen', (req, res) => {
   try {
     const { filament_type_id, kleur, gewicht_gram_start, locatie, gekocht_op, aankoopprijs_eur, lotnummer } = req.body;
     if (!filament_type_id) return res.status(400).json({ error: 'filament_type_id is verplicht' });
-    const gram  = parseFloat(gewicht_gram_start) || 1000;
+    const gram       = parseFloat(gewicht_gram_start) || 1000;
+    const huidigGram = (req.body.gewicht_gram_huidig !== undefined && req.body.gewicht_gram_huidig !== '')
+      ? parseFloat(req.body.gewicht_gram_huidig) || gram
+      : gram;
     const prijs = (aankoopprijs_eur !== undefined && aankoopprijs_eur !== '') ? parseFloat(aankoopprijs_eur) : null;
     // Automatisch lotnummer als niet opgegeven
     const lot   = lotnummer || nextLotnummer(db, filament_type_id);
     const result = db.prepare(
       'INSERT INTO filament_rollen (filament_type_id,kleur,gewicht_gram_start,gewicht_gram_huidig,locatie,gekocht_op,aankoopprijs_eur,lotnummer) VALUES (?,?,?,?,?,?,?,?)'
     ).run(
-      filament_type_id, kleur || null, gram, gram,
+      filament_type_id, kleur || null, gram, huidigGram,
       locatie || null, gekocht_op || new Date().toISOString().split('T')[0],
       prijs, lot
     );
