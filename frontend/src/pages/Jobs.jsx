@@ -322,17 +322,21 @@ function formatSec(sec) {
 }
 
 export default function Jobs() {
-  const [jobs,      setJobs]      = useState([]);
-  const [printers,  setPrinters]  = useState([]);
-  const [klanten,   setKlanten]   = useState([]);
-  const [modal,     setModal]     = useState(null);
-  const [kostenJob, setKostenJob] = useState(null);
-  const [filter,    setFilter]    = useState('');
+  const [jobs,        setJobs]        = useState([]);
+  const [printers,    setPrinters]    = useState([]);
+  const [klanten,     setKlanten]     = useState([]);
+  const [modal,       setModal]       = useState(null);
+  const [kostenJob,   setKostenJob]   = useState(null);
+  const [filter,      setFilter]      = useState('');
+  const [selectedJob, setSelectedJob] = useState(null);
   const { printerConfig, printerData } = usePrinterData();
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get('highlight') ? parseInt(searchParams.get('highlight')) : null;
 
-  const loadJobs = () => api.get('/jobs').then(setJobs);
+  const loadJobs = () => api.get('/jobs').then(data => {
+    setJobs(data);
+    setSelectedJob(prev => prev ? data.find(j => j.id === prev.id) || null : null);
+  });
 
   useEffect(() => {
     loadJobs();
@@ -376,6 +380,8 @@ export default function Jobs() {
         ))}
       </div>
 
+      <div style={{ display:'grid', gridTemplateColumns: selectedJob ? '1fr 380px' : '1fr', gap:'1rem', alignItems:'start' }}>
+      <div>
       {filtered.length === 0
         ? <div className="empty">Geen jobs gevonden</div>
         : <div className="card" style={{ padding:0 }}>
@@ -383,7 +389,9 @@ export default function Jobs() {
 <thead><tr><th>Naam</th><th>Klant</th><th>Printer</th><th>Status</th><th>Uren</th><th>Prijs</th><th>Betaald</th><th>Acties</th></tr></thead>
 	<tbody>
                 {filtered.map(j => (
-                  <tr key={j.id} style={{ background: j.id === highlightId ? 'var(--bg3)' : undefined, outline: j.id === highlightId ? '2px solid var(--accent)' : undefined }}>
+                  <tr key={j.id}
+                    style={{ background: j.id === highlightId ? 'var(--bg3)' : j.id === selectedJob?.id ? 'var(--bg3)' : undefined, outline: j.id === highlightId ? '2px solid var(--accent)' : j.id === selectedJob?.id ? '2px solid var(--accent2)' : undefined, cursor:'pointer' }}
+                    onClick={() => setSelectedJob(prev => prev?.id === j.id ? null : j)}>
                     <td>
                       <div style={{ fontWeight:500 }}>{j.naam}</div>
                       {j.is_multicolor ? <div style={{ fontSize:11, color:'var(--accent)' }}>BMCU · {j.aantal_kleuren} kleuren</div> : null}
@@ -429,6 +437,103 @@ export default function Jobs() {
             </table>
           </div>
       }
+      </div>
+
+      {/* Detail paneel */}
+      {selectedJob && (
+        <div className="card" style={{ position:'sticky', top:0, maxHeight:'90vh', overflowY:'auto' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.75rem' }}>
+            <h2 style={{ fontSize:15, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:260 }}>{selectedJob.naam}</h2>
+            <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+              <button className="btn" style={{ fontSize:11 }} onClick={() => { setModal(selectedJob); }}>✏</button>
+              <button className="btn" onClick={() => setSelectedJob(null)}>✕</button>
+            </div>
+          </div>
+
+          {/* Klant + printer */}
+          <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.65rem', marginBottom:'0.75rem', fontSize:13 }}>
+            <div style={{ fontWeight:600 }}>{selectedJob.klant_naam || <span style={{ color:'var(--muted)' }}>Eigen print</span>}</div>
+            <div style={{ color:'var(--muted)', fontSize:12 }}>🖨 {selectedJob.printer_naam}</div>
+            {selectedJob.stl_bestandsnaam && <div style={{ color:'var(--accent)', fontSize:12 }}>📄 {selectedJob.stl_bestandsnaam}</div>}
+          </div>
+
+          {/* Details grid */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5, fontSize:12, marginBottom:'0.75rem' }}>
+            {[
+              ['Aangemaakt', selectedJob.aangemaakt_op?.split('T')[0] || '—'],
+              ['Gestart', selectedJob.gestart_op?.split('T')[0] || '—'],
+              ['Voltooid', selectedJob.voltooid_op?.split('T')[0] || '—'],
+              ['Uren geschat', selectedJob.print_uren_geschat ? `${Math.floor(selectedJob.print_uren_geschat)}u ${Math.round((selectedJob.print_uren_geschat % 1) * 60)}min` : '—'],
+              ['Uren werkelijk', selectedJob.print_uren_werkelijk ? `${Math.floor(selectedJob.print_uren_werkelijk)}u ${Math.round((selectedJob.print_uren_werkelijk % 1) * 60)}min` : '—'],
+              ['Multicolor', selectedJob.is_multicolor ? `Ja · ${selectedJob.aantal_kleuren} kleuren` : 'Nee'],
+            ].map(([l, v]) => (
+              <div key={l} style={{ padding:'3px 0', borderBottom:'1px solid var(--border)' }}>
+                <div style={{ color:'var(--muted)', fontSize:10 }}>{l}</div>
+                <div style={{ fontWeight:500 }}>{v}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Kostprijs */}
+          {selectedJob.verkoopprijs != null && (
+            <div style={{ marginBottom:'0.75rem' }}>
+              {[
+                ['Materiaal', selectedJob.materiaal_kost],
+                ['Energie', selectedJob.energie_kost],
+                ['Machine', selectedJob.machine_kost],
+                ['Arbeid', selectedJob.arbeid_kost],
+              ].filter(([,v]) => v != null).map(([l, v]) => (
+                <div key={l} style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
+                  <span style={{ color:'var(--muted)' }}>{l}</span><span>€{(v || 0).toFixed(2)}</span>
+                </div>
+              ))}
+              <div style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', fontWeight:700, fontSize:15 }}>
+                <span>Verkoopprijs</span><span style={{ color:'var(--accent2)' }}>€{selectedJob.verkoopprijs.toFixed(2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Status */}
+          <div className="form-group" style={{ marginBottom:'0.75rem' }}>
+            <label style={{ fontSize:11 }}>Status</label>
+            <select value={selectedJob.status} onChange={async e => {
+              await api.patch(`/jobs/${selectedJob.id}/status`, { status: e.target.value });
+              loadJobs();
+            }}>
+              {STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          {/* Betaald */}
+          {selectedJob.status === 'voltooid' && selectedJob.klant_id && (
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:'0.75rem', fontSize:13 }}>
+              <input type="checkbox" checked={!!selectedJob.betaald}
+                style={{ width:16, height:16, cursor:'pointer', accentColor:'var(--accent2)' }}
+                onChange={async e => {
+                  await api.patch(`/jobs/${selectedJob.id}/betaald`, { betaald: e.target.checked });
+                  loadJobs();
+                }} />
+              <span>Betaald</span>
+              {selectedJob.betaald_op && <span style={{ color:'var(--muted)', fontSize:11 }}>{selectedJob.betaald_op.split('T')[0]}</span>}
+            </div>
+          )}
+
+          {/* Notities */}
+          {selectedJob.notities && (
+            <div style={{ background:'#fffbeb', borderLeft:'3px solid #f59e0b', padding:'7px 10px', borderRadius:4, fontSize:12, color:'#664400', marginBottom:'0.75rem' }}>
+              📝 {selectedJob.notities}
+            </div>
+          )}
+
+          {/* Acties */}
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            <button className="btn" style={{ textAlign:'center' }} onClick={() => {
+              setKostenJob({ ...selectedJob, printer_naam: selectedJob.printer_naam });
+            }}>💶 Kostprijs berekenen</button>
+          </div>
+        </div>
+      )}
+      </div>
 
       {modal !== null && (
         <JobModal job={modal?.id ? modal : null} printers={printers} klanten={klanten}
