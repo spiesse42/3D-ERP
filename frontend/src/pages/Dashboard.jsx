@@ -265,20 +265,21 @@ export default function Dashboard() {
   const [loading,      setLoading]      = useState(true);
   const { printerConfig, printerData }  = usePrinterData();
   const navigate = useNavigate();
-
   const [jobs, setJobs] = useState([]);
 
   const loadOperationeel = () => api.get('/rapportage/dashboard/operationeel')
-    .then(d => { setOperationeel(d); setLoading(false); })
-    .catch(() => setLoading(false));
+    .then(d => { setOperationeel(d); })
+    .catch(() => {});
 
   const loadJobs = () => api.get('/jobs').then(setJobs).catch(() => {});
 
   useEffect(() => {
-    loadOperationeel();
-    loadJobs();
-    api.get('/filament/rollen').then(setRollen);
-    api.get('/klanten').then(setKlanten);
+    api.get('/rapportage/dashboard/operationeel')
+      .then(d => { setOperationeel(d); setLoading(false); })
+      .catch(() => setLoading(false));
+    api.get('/jobs').then(setJobs).catch(() => {});
+    api.get('/filament/rollen').then(setRollen).catch(() => {});
+    api.get('/klanten').then(setKlanten).catch(() => {});
   }, []);
 
   const activeRollen = rollen.filter(r => r.actief);
