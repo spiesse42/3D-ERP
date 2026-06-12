@@ -277,7 +277,13 @@ export default function Klanten() {
                 {filtered.map(k => (
                   <tr key={k.id} style={{ cursor:'pointer' }} onClick={() => setDetailKlant(k)}>
                     <td>
-                      <span title={k.type === 'zakelijk' ? 'Zakelijk' : 'Particulier'}>
+                      <span title={k.type === 'zakelijk' ? 'Zakelijk' : 'Particulier'}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          width: 22, height: 22, borderRadius: '50%',
+                          background: k.type === 'zakelijk' ? '#3b82f6' : '#22c55e',
+                          color: '#fff', fontSize: 11, fontWeight: 700,
+                        }}>
                         {k.type === 'zakelijk' ? 'Z' : 'P'}
                       </span>
                     </td>

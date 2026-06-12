@@ -19,8 +19,21 @@ const KLEUREN = [
   { naam: 'Transparant', hex: '#e0f2fe' },
 ];
 
+const KLEUR_GROEPEN = {
+  'lavendel':'#a855f7','lila':'#a855f7','violet':'#a855f7','magenta':'#ec4899',
+  'fuchsia':'#ec4899','zalm':'#f97316','koraal':'#f97316','bordeaux':'#ef4444',
+  'donkerrood':'#ef4444','turquoise':'#22c55e','mintgroen':'#22c55e','limoen':'#eab308',
+  'marineblauw':'#3b82f6','donkerblauw':'#3b82f6','lichtblauw':'#3b82f6',
+  'crème':'#d4b896','ivoor':'#f5f5f5','antraciet':'#808080','zwartgrijs':'#808080',
+  'koper':'#d4af37','brons':'#92400e','naturel':'#d4b896','fluorescerend':'#eab308',
+};
+
 function kleurHex(naam) {
-  return KLEUREN.find(k => k.naam?.toLowerCase() === naam?.toLowerCase())?.hex || '#555';
+  if (!naam) return '#555';
+  const lower = naam.toLowerCase();
+  const exacte = KLEUREN.find(k => k.naam?.toLowerCase() === lower);
+  if (exacte) return exacte.hex;
+  return KLEUR_GROEPEN[lower] || '#555';
 }
 
 function KleurDot({ kleur, size = 12 }) {
