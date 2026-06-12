@@ -2,6 +2,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from './api.js';
 
+const _kwhAccum = {};
+const _lastPoll  = {};
+
 function formatSec(sec) {
   if (!sec || sec <= 0) return '—';
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
@@ -13,8 +16,7 @@ export function usePrinterData() {
   const [printerData,   setPrinterData]   = useState({});
   const intervalRef = useRef(null);
   const kwhStartRef  = useRef({});
-  const kwhAccumRef  = useRef({});  // geaccumuleerde kWh via Watt
-  const lastPollRef  = useRef({});  // timestamp laatste poll per printer
+  
 
   useEffect(() => {
     api.get('/printers/config').then(setPrinterConfig).catch(() => {});
@@ -74,19 +76,19 @@ export function usePrinterData() {
         // Watt-accumulatie: kWh += W * dt / 3.600.000
         const now = Date.now();
         if (isActief && watt != null && watt > 0) {
-          if (kwhAccumRef.current[p.id] == null) kwhAccumRef.current[p.id] = 0;
-          const last = lastPollRef.current[p.id];
+          if (_kwhAccum[p.id] == null) _kwhAccum[p.id] = 0;
+          const last = _lastPoll[p.id];
           if (last != null) {
             const dtH = (now - last) / 3600000;
-            kwhAccumRef.current[p.id] += watt * dtH / 1000;
+            _kwhAccum[p.id] += watt * dtH / 1000;
           }
         }
         if (isIdle) {
-          kwhAccumRef.current[p.id] = null;
+          _kwhAccum[p.id] = null;
         }
-        lastPollRef.current[p.id] = now;
+        _lastPoll[p.id] = now;
 
-        const kwhDelta = kwhAccumRef.current[p.id] ?? null;
+        const kwhDelta = _kwhAccum[p.id] ?? null;
         const kwhStart = kwh != null && kwhDelta != null ? kwh - kwhDelta : null;
 
         // Temperaturen — expliciet null check (0°C is geldig)
