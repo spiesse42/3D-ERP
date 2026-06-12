@@ -59,14 +59,16 @@ r.post('/', (req, res) => {
 r.put('/:id', (req, res) => {
   const db = getDb();
   const { klant_id, printer_id, naam, status, stl_bestandsnaam, print_uren_geschat,
-          print_uren_werkelijk, is_multicolor, aantal_kleuren, gestart_op, voltooid_op, notities } = req.body;
+          print_uren_werkelijk, is_multicolor, aantal_kleuren, gestart_op, voltooid_op,
+          notities, betaald, betaald_op } = req.body;
   db.prepare(`
     UPDATE jobs SET klant_id=?,printer_id=?,naam=?,status=?,stl_bestandsnaam=?,
       print_uren_geschat=?,print_uren_werkelijk=?,is_multicolor=?,aantal_kleuren=?,
-      gestart_op=?,voltooid_op=?,notities=? WHERE id=?
+      gestart_op=?,voltooid_op=?,notities=?,betaald=?,betaald_op=? WHERE id=?
   `).run(klant_id||null, printer_id, naam, status||'gepland', stl_bestandsnaam||null,
          print_uren_geschat||null, print_uren_werkelijk||null, is_multicolor?1:0,
-         aantal_kleuren||1, gestart_op||null, voltooid_op||null, notities||null, req.params.id);
+         aantal_kleuren||1, gestart_op||null, voltooid_op||null, notities||null,
+         betaald?1:0, betaald_op||null, req.params.id);
   res.json({ ok: true });
 });
 
@@ -78,6 +80,14 @@ r.patch('/:id/status', (req, res) => {
   if (status === 'voltooid') updates.voltooid_op = new Date().toISOString();
   db.prepare(`UPDATE jobs SET status=?,gestart_op=COALESCE(?,gestart_op),voltooid_op=? WHERE id=?`)
     .run(status, updates.gestart_op||null, updates.voltooid_op||null, req.params.id);
+  res.json({ ok: true });
+});
+r.patch('/:id/betaald', (req, res) => {
+  const db = getDb();
+  const betaald = req.body.betaald ? 1 : 0;
+  const betaald_op = betaald ? new Date().toISOString() : null;
+  db.prepare(`UPDATE jobs SET betaald=?, betaald_op=? WHERE id=?`)
+    .run(betaald, betaald_op, req.params.id);
   res.json({ ok: true });
 });
 

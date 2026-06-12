@@ -361,8 +361,8 @@ export default function Jobs() {
         ? <div className="empty">Geen jobs gevonden</div>
         : <div className="card" style={{ padding:0 }}>
             <table>
-              <thead><tr><th>Naam</th><th>Klant</th><th>Printer</th><th>Status</th><th>Uren</th><th>Prijs</th><th>Acties</th></tr></thead>
-              <tbody>
+<thead><tr><th>Naam</th><th>Klant</th><th>Printer</th><th>Status</th><th>Uren</th><th>Prijs</th><th>Betaald</th><th>Acties</th></tr></thead>
+	<tbody>
                 {filtered.map(j => (
                   <tr key={j.id} style={{ background: j.id === highlightId ? 'var(--bg3)' : undefined, outline: j.id === highlightId ? '2px solid var(--accent)' : undefined }}>
                     <td>
@@ -375,10 +375,21 @@ export default function Jobs() {
                     <td style={{ color:'var(--muted)' }}>
                       {j.print_uren_werkelijk != null ? `${j.print_uren_werkelijk}u` : j.print_uren_geschat != null ? `~${j.print_uren_geschat}u` : '—'}
                     </td>
-                    <td>{j.verkoopprijs != null ? <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span> : <span style={{ color:'var(--muted)' }}>—</span>}</td>
+<td>{j.verkoopprijs != null ? <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span> : <span style={{ color:'var(--muted)' }}>—</span>}</td>
+                    <td onClick={e => e.stopPropagation()}>
+                      {j.status === 'voltooid' && j.klant_id
+                        ? <input type="checkbox" checked={!!j.betaald}
+                            style={{ width:16, height:16, cursor:'pointer', accentColor:'var(--accent2)' }}
+                            onChange={async e => {
+                              await api.patch(`/jobs/${j.id}/betaald`, { betaald: e.target.checked });
+                              loadJobs();
+                            }} />
+                        : <span style={{ color:'var(--muted)' }}>—</span>
+                      }
+                    </td>
                     <td>
                       <div style={{ display:'flex', gap:6 }}>
-                        <button className="btn" style={{ fontSize:11, padding:'4px 8px' }}
+                <button className="btn" style={{ fontSize:11, padding:'4px 8px' }}
                           onClick={() => setKostenJob({ ...j,
                             printer_naam: j.printer_naam,
                           })}>€ Kost</button>
