@@ -241,7 +241,7 @@ function JobModal({ job, printers, klanten, onClose, onSaved }) {
 const [form, setForm] = useState(job ? {
     printer_id: job.printer_id, naam: job.naam, status: job.status,
     klant_id: job.klant_id || '', is_multicolor: job.is_multicolor,
-    aantal_kleuren: job.aantal_kleuren, print_uren_geschat: job.print_uren_geschat || '',
+    aantal_kleuren: job.aantal_kleuren || '', print_uren_geschat: job.print_uren_geschat || '',
     print_uren_werkelijk: job.print_uren_werkelijk || '', stl_bestandsnaam: job.stl_bestandsnaam || '',
     notities: job.notities || '',
   } : { printer_id: printers[0]?.id || '', naam:'', status:'gepland', is_multicolor:false, aantal_kleuren:1, print_uren_geschat:'', notities:'' });  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));

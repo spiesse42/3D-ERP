@@ -262,11 +262,16 @@ export default function Dashboard() {
   const [rollen,       setRollen]       = useState([]);
   const [klanten,      setKlanten]      = useState([]);
   const [operationeel, setOperationeel] = useState({ gepland:[], bezig:[], te_factureren:[] });
+  const [loading,      setLoading]      = useState(true);
   const { printerConfig, printerData }  = usePrinterData();
   const navigate = useNavigate();
 
   const [jobs, setJobs] = useState([]);
-  const loadOperationeel = () => api.get('/rapportage/dashboard/operationeel').then(setOperationeel).catch(() => {});
+
+  const loadOperationeel = () => api.get('/rapportage/dashboard/operationeel')
+    .then(d => { setOperationeel(d); setLoading(false); })
+    .catch(() => setLoading(false));
+
   const loadJobs = () => api.get('/jobs').then(setJobs).catch(() => {});
 
   useEffect(() => {
@@ -285,6 +290,12 @@ export default function Dashboard() {
       cursor:'pointer', borderRadius:6,
     };
   }
+
+  if (loading) return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'60vh', color:'var(--muted)', fontSize:14 }}>
+      ⏳ Dashboard laden...
+    </div>
+  );
 
   return (
     <div>
@@ -366,7 +377,9 @@ export default function Dashboard() {
               onMouseLeave={e => e.currentTarget.style.background='transparent'}>
               <div>
                 <div style={{ fontWeight:500 }}>{j.naam}</div>
-                <div style={{ color:'var(--muted)', fontSize:11 }}>{j.klant_naam}</div>
+                <div style={{ color:'var(--muted)', fontSize:11 }}>
+                  {j.klant_voornaam ? `${j.klant_voornaam} ${j.klant_naam}` : j.klant_naam}
+                </div>
               </div>
               {j.verkoopprijs != null
                 ? <span style={{ color:'var(--accent2)', fontWeight:600 }}>€{j.verkoopprijs.toFixed(2)}</span>
