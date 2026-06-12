@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import KostenModal from '../components/KostenModal.jsx';
 
@@ -215,6 +216,8 @@ export default function Jobs() {
   const [kwhStart, setKwhStart] = useState({});
   const [kwhCurrent, setKwhCurrent] = useState({});
   const intervalRef = useRef(null);
+  const [searchParams] = useSearchParams();
+  const highlightId = searchParams.get('highlight') ? parseInt(searchParams.get('highlight')) : null;
 
   const loadJobs = () => api.get('/jobs').then(setJobs);
 
@@ -361,7 +364,7 @@ export default function Jobs() {
               <thead><tr><th>Naam</th><th>Klant</th><th>Printer</th><th>Status</th><th>Uren</th><th>Prijs</th><th>Acties</th></tr></thead>
               <tbody>
                 {filtered.map(j => (
-                  <tr key={j.id}>
+                  <tr key={j.id} style={{ background: j.id === highlightId ? 'var(--bg3)' : undefined, outline: j.id === highlightId ? '2px solid var(--accent)' : undefined }}>
                     <td>
                       <div style={{ fontWeight:500 }}>{j.naam}</div>
                       {j.is_multicolor ? <div style={{ fontSize:11, color:'var(--accent)' }}>BMCU · {j.aantal_kleuren} kleuren</div> : null}
