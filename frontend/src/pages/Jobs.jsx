@@ -180,7 +180,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
               ))}
             </select>
           </div>
-          {data?.heeft_bmcu && (
+         {!!data?.heeft_bmcu && (
             <div className="form-row" style={{ marginBottom:8 }}>
               <div className="form-group">
                 <label>Multicolor (BMCU)</label>
