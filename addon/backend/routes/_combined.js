@@ -166,6 +166,120 @@ rapportage.get('/dashboard', (req, res) => {
   res.json({ omzet_maand, stock, openstaand, jobs_status });
 });
 
+// Statistieken: top 10 filament + kleur
+rapportage.get('/stats/filament', (req, res) => {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT ft.merk, ft.materiaal, fr.kleur,
+      COUNT(jm.id) as aantal_jobs,
+      ROUND(SUM(jm.gram_gebruikt), 0) as gram_totaal
+    FROM job_materialen jm
+    JOIN filament_rollen fr ON fr.id = jm.filament_rol_id
+    JOIN filament_types ft ON ft.id = fr.filament_type_id
+    GROUP BY ft.id, fr.kleur
+    ORDER BY gram_totaal DESC
+    LIMIT 10
+  `).all();
+  res.json(rows);
+});
+
+// Statistieken: jobs per printer
+rapportage.get('/stats/jobs-per-printer', (req, res) => {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT p.naam as printer, COUNT(j.id) as totaal,
+      SUM(CASE WHEN j.status = 'voltooid' THEN 1 ELSE 0 END) as voltooid,
+      SUM(CASE WHEN j.status = 'gefaald'  THEN 1 ELSE 0 END) as gefaald
+    FROM jobs j
+    JOIN printers p ON p.id = j.printer_id
+    GROUP BY j.printer_id
+    ORDER BY totaal DESC
+  `).all();
+  res.json(rows);
+});
+
+// Statistieken: jobs per maand
+rapportage.get('/stats/jobs-per-maand', (req, res) => {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT strftime('%Y-%m', aangemaakt_op) as maand,
+      COUNT(*) as totaal,
+      SUM(CASE WHEN status = 'voltooid'    THEN 1 ELSE 0 END) as voltooid,
+      SUM(CASE WHEN status = 'gefaald'     THEN 1 ELSE 0 END) as gefaald,
+      SUM(CASE WHEN status = 'geannuleerd' THEN 1 ELSE 0 END) as geannuleerd
+    FROM jobs
+    WHERE aangemaakt_op IS NOT NULL
+    GROUP BY maand
+    ORDER BY maand DESC
+    LIMIT 24
+  `).all();
+  res.json(rows);
+});
+
+// Statistieken: kWh per dag/maand/jaar
+rapportage.get('/stats/kwh', (req, res) => {
+  const db = getDb();
+  const perDag = db.prepare(`
+    SELECT strftime('%Y-%m-%d', j.voltooid_op) as dag,
+      ROUND(SUM(jk.kwh_verbruikt), 3) as kwh
+    FROM jobs j JOIN job_kosten jk ON jk.job_id = j.id
+    WHERE j.status = 'voltooid' AND j.voltooid_op IS NOT NULL
+    GROUP BY dag ORDER BY dag DESC LIMIT 30
+  `).all();
+  const perMaand = db.prepare(`
+    SELECT strftime('%Y-%m', j.voltooid_op) as maand,
+      ROUND(SUM(jk.kwh_verbruikt), 3) as kwh
+    FROM jobs j JOIN job_kosten jk ON jk.job_id = j.id
+    WHERE j.status = 'voltooid' AND j.voltooid_op IS NOT NULL
+    GROUP BY maand ORDER BY maand DESC LIMIT 12
+  `).all();
+  const perJaar = db.prepare(`
+    SELECT strftime('%Y', j.voltooid_op) as jaar,
+      ROUND(SUM(jk.kwh_verbruikt), 3) as kwh
+    FROM jobs j JOIN job_kosten jk ON jk.job_id = j.id
+    WHERE j.status = 'voltooid' AND j.voltooid_op IS NOT NULL
+    GROUP BY jaar ORDER BY jaar DESC
+  `).all();
+  res.json({ per_dag: perDag, per_maand: perMaand, per_jaar: perJaar });
+});
+
+// Dashboard: operationele data
+rapportage.get('/dashboard/operationeel', (req, res) => {
+  const db = getDb();
+  const gepland = db.prepare(`
+    SELECT j.*, k.naam as klant_naam, p.naam as printer_naam
+    FROM jobs j
+    LEFT JOIN klanten k ON k.id = j.klant_id
+    LEFT JOIN printers p ON p.id = j.printer_id
+    WHERE j.status = 'gepland'
+    ORDER BY j.aangemaakt_op ASC
+  `).all();
+  const bezig = db.prepare(`
+    SELECT j.*, k.naam as klant_naam, p.naam as printer_naam
+    FROM jobs j
+    LEFT JOIN klanten k ON k.id = j.klant_id
+    LEFT JOIN printers p ON p.id = j.printer_id
+    WHERE j.status = 'bezig'
+    ORDER BY j.gestart_op ASC
+  `).all();
+  const te_factureren = db.prepare(`
+    SELECT j.*, k.naam as klant_naam, p.naam as printer_naam,
+      jk.verkoopprijs
+    FROM jobs j
+    LEFT JOIN klanten k ON k.id = j.klant_id
+    LEFT JOIN printers p ON p.id = j.printer_id
+    LEFT JOIN job_kosten jk ON jk.job_id = j.id
+    WHERE j.status = 'voltooid'
+      AND j.klant_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM offertes_v2 ov
+        WHERE ov.job_id = j.id AND ov.status IN ('betaald','gefactureerd')
+      )
+    ORDER BY j.voltooid_op DESC
+  `).all();
+  res.json({ gepland, bezig, te_factureren });
+});
+
 rapportage.get('/csv/jobs', (req, res) => {
   const db = getDb();
   const rows = db.prepare(`
