@@ -33,7 +33,9 @@ r.get('/:id', (req, res) => {
   `).get(req.params.id);
   if (!job) return res.status(404).json({ error: 'Niet gevonden' });
   const materialen = db.prepare(`
-    SELECT jm.*, r.gewicht_gram_huidig, ft.merk, ft.materiaal, ft.kleur, ft.inkoop_prijs_per_kg
+    SELECT jm.*, r.gewicht_gram_huidig, r.kleur, r.aankoopprijs_eur, r.gewicht_gram_start,
+      ft.merk, ft.materiaal, ft.inkoop_prijs_per_kg,
+      COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start / 1000.0, 0), ft.inkoop_prijs_per_kg) as prijs_per_kg_effectief
     FROM job_materialen jm
     JOIN filament_rollen r ON r.id = jm.filament_rol_id
     JOIN filament_types ft ON ft.id = r.filament_type_id
