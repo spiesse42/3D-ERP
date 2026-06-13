@@ -14,7 +14,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const [emailTo,         setEmailTo]         = useState('');
   const [emailStatus,     setEmailStatus]     = useState('');
   const [selectedKlantId, setSelectedKlantId] = useState(String(job.klant_id || ''));
-  const [autoCalc,        setAutoCalc]        = useState(false);
+  const [autoCalc,        setAutoCalc]        = useState(true);
 
   // Printtijd
   const [printUren, setPrintUren] = useState(Math.floor(job.print_uren_werkelijk || job.print_uren_geschat || 0));
@@ -276,28 +276,22 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             <button className="btn primary" style={{ fontSize:11 }} onClick={voegMateriaaltoe}>+ Voeg toe</button>
           </div>
 
-          {materialen.map(m => (
-            <div key={m.id} style={{ background:'var(--bg2)', borderRadius:6, padding:'6px 10px', marginBottom:4, fontSize:12 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
-                <span style={{ fontWeight:500, flex:1 }}>{m.merk} {m.materiaal} {m.kleur}</span>
-                <input
-                  type="number" min="0.1" step="0.1"
-                  value={m.gram_gebruikt}
-                  style={{ width:70, fontSize:12 }}
-                  onChange={async e => {
-                    const nieuwGram = parseFloat(e.target.value);
-                    if (isNaN(nieuwGram) || nieuwGram <= 0) return;
-                    try {
-                      await api.put(`/jobs/${m.job_id || job.id}/materialen/${m.id}`, { gram_gebruikt: nieuwGram });
-                      setMaterialen(prev => prev.map(x => x.id === m.id ? { ...x, gram_gebruikt: nieuwGram } : x));
-                    } catch(e) { alert(e.message); }
-                  }}
-                />
-                <span style={{ color:'var(--muted)', minWidth:60 }}>
-                  → €{((m.gram_gebruikt / 1000) * (m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0)).toFixed(3)}
-                </span>
-                <button onClick={() => verwijderMateriaal(m.id)}
-                  style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer', fontSize:12 }}>✕</button>
+          {Object.values(matGroepen).map(mg => (
+            <div key={mg.naam} style={{ background:'var(--bg2)', borderRadius:6, padding:'6px 10px', marginBottom:4, fontSize:12 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div>
+                  <span style={{ fontWeight:500 }}>{mg.naam}</span>
+                  <span style={{ color:'var(--muted)', marginLeft:8 }}>
+                    {mg.gram_totaal.toFixed(1)}g → €{((mg.gram_totaal / 1000) * mg.prijs).toFixed(3)}
+                  </span>
+                </div>
+                <div style={{ display:'flex', gap:4 }}>
+                  {mg.items.map(m => (
+                    <button key={m.id} onClick={() => verwijderMateriaal(m.id)}
+                      style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer', fontSize:12 }}
+                      title={`${m.gram_gebruikt}g`}>✕</button>
+                  ))}
+                </div>
               </div>
             </div>
           ))}
