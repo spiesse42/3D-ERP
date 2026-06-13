@@ -38,6 +38,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const [opmerking,       setOpmerking]       = useState(job.notities || '');
   const [kwh,             setKwh]             = useState('');
   const [tarievenGeladen, setTarievenGeladen] = useState(false);
+  const [btw,             setBtw]             = useState(false);
 
   const live     = printerLiveData;
   const kwhDelta = live?.kwh_delta;
@@ -49,6 +50,13 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const liveElapsedMin = Math.floor((liveElapsedSec % 3600) / 60);
 
   useEffect(() => {
+    // BTW automatisch op basis van klanttype
+    if (selectedKlantId) {
+      api.get('/klanten').then(klanten => {
+        const k = klanten.find(k => String(k.id) === String(selectedKlantId));
+        setBtw(k?.type === 'zakelijk');
+      }).catch(() => {});
+    }
     api.get('/filament/rollen').then(r => setRollen(r.filter(x => x.actief)));
     api.get('/tarieven').then(rows => {
       const t = Object.fromEntries(rows.map(r => [r.sleutel, r.waarde]));
@@ -60,7 +68,16 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
       setTarievenGeladen(true);
     });
     api.get(`/jobs/${job.id}`).then(d => {
-      if (d.materialen?.length) setMaterialen(d.materialen);
+      if (d.materialen?.length) {
+        // Laad prijs_per_kg_effectief via filament/rollen
+        api.get('/filament/rollen').then(rollen => {
+          const materialen = d.materialen.map(m => {
+            const rol = rollen.find(r => r.id === m.filament_rol_id);
+            return { ...m, prijs_per_kg_effectief: rol?.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0 };
+          });
+          setMaterialen(materialen);
+        }).catch(() => setMaterialen(d.materialen));
+      }
       if (d.kosten) setResult(d.kosten);
       if (d.notities) setOpmerking(d.notities);
     }).catch(() => {});
@@ -204,6 +221,10 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             {selectedKlantId !== String(job.klant_id || '') && selectedKlantId && (
               <button className="btn primary" style={{ fontSize:11 }} onClick={koppelKlant}>Koppelen</button>
             )}
+          <label style={{ fontSize:11, display:'flex', alignItems:'center', gap:5, cursor:'pointer', marginTop:6 }}>
+            <input type="checkbox" checked={btw} onChange={e => setBtw(e.target.checked)} />
+            BTW 21% (zakelijk)
+          </label>
           </div>
         </div>
 
@@ -241,7 +262,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
               <option value="">— selecteer rol —</option>
               {rollen.map(r => (
                 <option key={r.id} value={r.id}>
-                  {r.lotnummer || `Rol #${r.id}`} — {r.merk} {r.materiaal} {r.kleur} — {r.gewicht_gram_huidig}g
+                  {r.lotnummer || `Rol #${r.id}`} — {r.merk} {r.materiaal} {r.kleur} — {r.gewicht_gram_huidig}g — €{(r.prijs_per_kg_effectief||0).toFixed(2)}/kg
                 </option>
               ))}
             </select>
@@ -421,6 +442,18 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
               <span style={{ fontSize:22, color:'var(--accent2)' }}>€{result.verkoopprijs?.toFixed(2)}</span>
             </div>
             {aantal > 1 && <div style={{ textAlign:'right', fontSize:11, color:'var(--muted)' }}>€{(result.verkoopprijs / aantal).toFixed(2)}/stuk</div>}
+            {btw && (
+              <>
+                <div style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', fontSize:12, color:'var(--muted)' }}>
+                  <span>BTW 21%</span>
+                  <span>€{(result.verkoopprijs * 0.21).toFixed(2)}</span>
+                </div>
+                <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0 4px', fontWeight:700, borderTop:'1px solid var(--border)' }}>
+                  <span>Totaal incl. BTW</span>
+                  <span style={{ fontSize:22, color:'var(--accent2)' }}>€{(result.verkoopprijs * 1.21).toFixed(2)}</span>
+                </div>
+              </>
+            )}
 
             <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:6 }}>
               <a className="btn" style={{ textAlign:'center' }}
