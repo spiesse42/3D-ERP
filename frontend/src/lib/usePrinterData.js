@@ -2,10 +2,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from './api.js';
 
-const _kwhAccum = {};
+const _kwhAccum = {};       // lopende kWh delta in geheugen
 const _lastPoll  = {};
 const _prevStatus = {};
-const _kwhStartFetching = {}; // voorkomt dubbele DB fetch bij async timing
+const _kwhLoaded = {};      // is delta al uit DB geladen voor deze printer?
+const _kwhLastSave = {};    // timestamp laatste DB save
 
 function formatSec(sec) {
   if (!sec || sec <= 0) return '—';
@@ -75,30 +76,43 @@ export function usePrinterData() {
         const isActief = ['running','printing','prepare'].includes(statusLower);
         const isIdle   = ['idle','standby','finish','complete','offline','unavailable','failed'].includes(statusLower);
 
-        // kWh delta: Watt-accumulatie + DB persistentie voor refresh
+        // kWh delta via Watt-accumulatie, persistent in DB (kwh_start = opgeslagen delta)
         const now = Date.now();
+
+        // Stap 1: laad opgeslagen delta uit DB bij eerste poll (na refresh/tabwissel)
+        if (isActief && _kwhAccum[p.id] == null && !_kwhLoaded[p.id]) {
+          _kwhLoaded[p.id] = true;
+          _kwhAccum[p.id] = 0; // tijdelijk tot DB-waarde binnen is
+          api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {
+            const actief = jobs.find(j => j.printer_id === p.id);
+            if (actief && actief.kwh_start != null) {
+              // Herstel opgeslagen delta — tel huidige geheugenwaarde erbij
+              _kwhAccum[p.id] = actief.kwh_start + (_kwhAccum[p.id] || 0);
+            }
+          }).catch(() => {});
+        }
+
+        // Stap 2: accumuleer Watt × tijd
         if (isActief && watt != null && watt > 0) {
-          if (_kwhAccum[p.id] == null && !_kwhStartFetching[p.id]) {
-            _kwhAccum[p.id] = 0;
-            _kwhStartFetching[p.id] = true;
-            api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {
-              const actief = jobs.find(j => j.printer_id === p.id);
-              if (actief) {
-                if (actief.kwh_start != null && kwh != null) {
-                  _kwhAccum[p.id] = Math.max(0, kwh - actief.kwh_start);
-                } else if (actief.kwh_start == null && kwh != null) {
-                  api.patch(`/jobs/${actief.id}/kwh_start`, { kwh_start: kwh }).catch(() => {});
-                }
-              }
-              _kwhStartFetching[p.id] = false;
-            }).catch(() => { _kwhStartFetching[p.id] = false; });
-          }
+          if (_kwhAccum[p.id] == null) _kwhAccum[p.id] = 0;
           const last = _lastPoll[p.id];
-          if (last != null && _kwhAccum[p.id] != null) {
+          if (last != null) {
             const dtH = (now - last) / 3600000;
             _kwhAccum[p.id] += watt * dtH / 1000;
           }
+
+          // Stap 3: sla delta periodiek op in DB (elke 30s)
+          if (_kwhLastSave[p.id] == null || (now - _kwhLastSave[p.id]) > 30000) {
+            _kwhLastSave[p.id] = now;
+            const deltaNu = _kwhAccum[p.id];
+            api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {
+              const actief = jobs.find(j => j.printer_id === p.id);
+              if (actief) api.patch(`/jobs/${actief.id}/kwh_start`, { kwh_start: deltaNu }).catch(() => {});
+            }).catch(() => {});
+          }
         }
+
+        // Stap 4: bij finish/cancel — wis delta in DB en geheugen
         if (isIdle) {
           if (_kwhAccum[p.id] != null) {
             api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {
@@ -107,8 +121,10 @@ export function usePrinterData() {
             }).catch(() => {});
           }
           _kwhAccum[p.id] = null;
-          _kwhStartFetching[p.id] = false;
+          _kwhLoaded[p.id] = false;
+          _kwhLastSave[p.id] = null;
         }
+
                 _lastPoll[p.id] = now;
 
         // Auto-voltooid: als printer finish is, zet bezig job op voltooid
@@ -123,10 +139,10 @@ export function usePrinterData() {
         _prevStatus[p.id] = statusLower;
 
         // kwhDelta = huidig kWh - start kWh
-        const kwhDelta = (kwh != null && _kwhAccum[p.id] != null)
-          ? Math.max(0, kwh - _kwhAccum[p.id])
-          : null;
-        const kwhStart = _kwhAccum[p.id] ?? null;
+        // _kwhAccum bevat nu de delta zelf (Watt-accumulatie)
+        const kwhDelta = _kwhAccum[p.id] ?? null;
+        // Start kWh = huidige meterstand minus verbruikte delta (informatief)
+        const kwhStart = (kwh != null && kwhDelta != null) ? kwh - kwhDelta : null;
 
         // Temperaturen — expliciet null check (0°C is geldig)
         const bedTemp    = s.bed_temp    != null && s.bed_temp    !== 'unavailable' && s.bed_temp    !== 'unknown' ? s.bed_temp    : null;
