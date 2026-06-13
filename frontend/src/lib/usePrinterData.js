@@ -76,32 +76,33 @@ export function usePrinterData() {
         const isActief = ['running','printing','prepare'].includes(statusLower);
         const isIdle   = ['idle','standby','finish','complete','offline','unavailable','failed'].includes(statusLower);
 
-        // kWh delta via Watt-accumulatie, persistent in DB (kwh_start = opgeslagen delta)
+        // kWh delta per JOB (niet per printer-status).
+        // De actieve bezig-job draagt zijn eigen verbruikte delta in job.kwh_start.
+        // Nieuwe print = nieuwe job = eigen teller. Geen wis-logica nodig.
         const now = Date.now();
 
-        // Stap 1: laad opgeslagen delta uit DB bij eerste poll (na refresh/tabwissel)
-        if (isActief && _kwhAccum[p.id] == null && !_kwhLoaded[p.id]) {
-          _kwhLoaded[p.id] = true;
-          _kwhAccum[p.id] = 0; // tijdelijk tot DB-waarde binnen is
-          api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {
-            const actief = jobs.find(j => j.printer_id === p.id);
-            if (actief && actief.kwh_start != null) {
-              // Herstel opgeslagen delta — tel huidige geheugenwaarde erbij
-              _kwhAccum[p.id] = actief.kwh_start + (_kwhAccum[p.id] || 0);
-            }
-          }).catch(() => {});
-        }
-
-        // Stap 2: accumuleer Watt × tijd
         if (isActief && watt != null && watt > 0) {
+          // Laad delta uit DB bij eerste poll voor deze printer (refresh/tabwissel)
+          if (_kwhAccum[p.id] == null && !_kwhLoaded[p.id]) {
+            _kwhLoaded[p.id] = true;
+            _kwhAccum[p.id] = 0;
+            api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {
+              const actief = jobs.find(j => j.printer_id === p.id);
+              if (actief && actief.kwh_start != null) {
+                _kwhAccum[p.id] = actief.kwh_start + (_kwhAccum[p.id] || 0);
+              }
+            }).catch(() => {});
+          }
           if (_kwhAccum[p.id] == null) _kwhAccum[p.id] = 0;
+
+          // Accumuleer Watt × tijd
           const last = _lastPoll[p.id];
           if (last != null) {
             const dtH = (now - last) / 3600000;
             _kwhAccum[p.id] += watt * dtH / 1000;
           }
 
-          // Stap 3: sla delta periodiek op in DB (elke 30s)
+          // Sla delta periodiek op in de bezig-job (elke 30s)
           if (_kwhLastSave[p.id] == null || (now - _kwhLastSave[p.id]) > 30000) {
             _kwhLastSave[p.id] = now;
             const deltaNu = _kwhAccum[p.id];
@@ -112,12 +113,14 @@ export function usePrinterData() {
           }
         }
 
-        // Stap 4: bij finish/cancel — wis delta in DB en geheugen
+        // Bij idle/finish: bewaar definitieve delta in de job, reset enkel geheugen.
+        // De DB-delta blijft staan = definitief verbruik voor de kostprijs.
         if (isIdle) {
-          if (_kwhAccum[p.id] != null) {
-            api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {
-              const actief = jobs.find(j => j.printer_id === p.id);
-              if (actief) api.patch(`/jobs/${actief.id}/kwh_start_clear`, {}).catch(() => {});
+          if (_kwhAccum[p.id] != null && _kwhAccum[p.id] > 0) {
+            const deltaFinaal = _kwhAccum[p.id];
+            api.get(`/jobs?printer_id=${p.id}`).then(jobs => {
+              const job = jobs.find(j => j.printer_id === p.id && (j.status === 'bezig' || j.status === 'voltooid'));
+              if (job) api.patch(`/jobs/${job.id}/kwh_start`, { kwh_start: deltaFinaal }).catch(() => {});
             }).catch(() => {});
           }
           _kwhAccum[p.id] = null;
@@ -125,15 +128,28 @@ export function usePrinterData() {
           _kwhLastSave[p.id] = null;
         }
 
-                _lastPoll[p.id] = now;
+                        _lastPoll[p.id] = now;
 
-        // Auto-voltooid: als printer finish is, zet bezig job op voltooid
-        const isDone  = ['finish','complete','success'].includes(statusLower);
-        const wasBusy = _prevStatus[p.id];
-        if (isDone && (wasBusy === 'running' || wasBusy === 'printing')) {
-          api.get('/jobs?status=bezig').then(jobs => {
+        // Auto-status: robuust, niet afhankelijk van vorige poll-status
+        const isDone   = ['finish','complete','success'].includes(statusLower);
+        const isFailed = statusLower === 'failed';
+        const wasBusy  = _prevStatus[p.id];
+
+        // Finish: zet bezig job op voltooid. Werkt ook bij opstart (wasBusy undefined)
+        // omdat we checken op een bestaande bezig-job, niet op de transitie.
+        if (isDone) {
+          api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {
             const actief = jobs.find(j => j.printer_id === p.id);
             if (actief) api.patch(`/jobs/${actief.id}/status`, { status: 'voltooid' }).catch(() => {});
+          }).catch(() => {});
+        }
+
+        // Failed: enkel bij echte transitie running→failed (niet bij opstart,
+        // anders zou een oude failed-status een nieuwe job kunnen annuleren)
+        if (isFailed && (wasBusy === 'running' || wasBusy === 'printing')) {
+          api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {
+            const actief = jobs.find(j => j.printer_id === p.id);
+            if (actief) api.patch(`/jobs/${actief.id}/status`, { status: 'geannuleerd' }).catch(() => {});
           }).catch(() => {});
         }
         _prevStatus[p.id] = statusLower;
