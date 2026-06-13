@@ -88,8 +88,8 @@ r.post('/bereken/:jobId', (req, res) => {
   const arbeid_per_uur = t.arbeid_per_uur || 15;
   const faalfactor_pct = t.faalfactor_pct || 10;
   const bmcu_per_job = t.bmcu_per_job || 0.10;
-  const voorbereiding_min = t.voorbereiding_min || 15;
-  const nabewerking_min = t.nabewerking_min || 10;
+  const voorbereiding_min_default = t.voorbereiding_min || 15;
+  const nabewerking_min_default = t.nabewerking_min || 10;
   const marge_grens_uur = t.marge_grens_uur || 4;
   const marge_klein_pct = t.marge_klein_pct || 18;
   const marge_groot_pct = t.marge_groot_pct || 10;
@@ -99,6 +99,8 @@ r.post('/bereken/:jobId', (req, res) => {
     is_multicolor = job.is_multicolor,
     incl_voorbereiding = true,
     incl_nabewerking = true,
+    voorbereiding_min = voorbereiding_min_default,
+    nabewerking_min = nabewerking_min_default,
     extra_voorbereiding_min = 0,
     ontwerp_min = 0,
     ontwerp_tarief = t.ontwerp_tarief || 15,
@@ -133,10 +135,10 @@ r.post('/bereken/:jobId', (req, res) => {
   const machine_kost = uren * job.machine_kost_per_uur;
   const bmcu_slijtage = (is_multicolor && job.heeft_bmcu) ? bmcu_per_job : 0;
 
-  // Aanvinkbare voorbereiding/nabewerking
-  const totale_voorb_min = (incl_voorbereiding ? voorbereiding_min : 0) + parseFloat(extra_voorbereiding_min || 0);
+  // Voorbereiding/nabewerking — waarden komen uit de modal (incl. eventuele extra)
+  const totale_voorb_min = parseFloat(voorbereiding_min) || 0;
   const arbeid_voorbereiding = (totale_voorb_min / 60) * arbeid_per_uur;
-  const arbeid_nabewerking = (incl_nabewerking ? nabewerking_min : 0) / 60 * arbeid_per_uur;
+  const arbeid_nabewerking = (parseFloat(nabewerking_min) || 0) / 60 * arbeid_per_uur;
   const arbeid_ontwerp = (parseFloat(ontwerp_min) / 60) * parseFloat(ontwerp_tarief);
   const arbeid_nabewerking_extra = (parseFloat(nabewerking_extra_min) / 60) * parseFloat(nabewerking_extra_tarief);
   const arbeid_totaal = arbeid_voorbereiding + arbeid_nabewerking + arbeid_ontwerp + arbeid_nabewerking_extra;
@@ -213,8 +215,7 @@ r.get('/pdf/:jobId', (req, res) => {
     extraOmschrijving: decodeURIComponent(req.query.extra_omschrijving||''),
     aantal: parseInt(req.query.aantal)||1,
     matDetails: db.prepare(`
-      SELECT jm.gram_gebruikt as gram,
-        COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start / 1000.0, 0), ft.inkoop_prijs_per_kg) as prijs,
+      SELECT jm.gram_gebruikt as gram, ft.inkoop_prijs_per_kg as prijs,
         ft.merk || ' ' || ft.materiaal || COALESCE(' ' || r.kleur, '') as naam
       FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id
       JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?
@@ -248,7 +249,7 @@ r.post('/email/:jobId', async (req, res) => {
     nabExtraMin: extra_velden.nab_extra_min||0, nabExtraTarief: t.nabewerking_tarief||15,
     extraTotaal: extra_velden.extra_totaal||0, extraOmschrijving: extra_velden.extra_omschrijving||'',
     aantal: extra_velden.aantal||1,
-    matDetails: db.prepare(`SELECT jm.gram_gebruikt as gram, COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start / 1000.0, 0), ft.inkoop_prijs_per_kg) as prijs, ft.merk || ' ' || ft.materiaal || COALESCE(' ' || r.kleur, '') as naam FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?`).all(req.params.jobId),
+    matDetails: db.prepare(`SELECT jm.gram_gebruikt as gram, ft.inkoop_prijs_per_kg as prijs, ft.merk || ' ' || ft.materiaal || COALESCE(' ' || r.kleur, '') as naam FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?`).all(req.params.jobId),
   };
   const pdfHtml = buildPdfHtml(volledigeKosten, klant, extraInfo);
   try {
