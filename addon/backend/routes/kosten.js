@@ -213,7 +213,8 @@ r.get('/pdf/:jobId', (req, res) => {
     extraOmschrijving: decodeURIComponent(req.query.extra_omschrijving||''),
     aantal: parseInt(req.query.aantal)||1,
     matDetails: db.prepare(`
-      SELECT jm.gram_gebruikt as gram, ft.inkoop_prijs_per_kg as prijs,
+      SELECT jm.gram_gebruikt as gram,
+        COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start / 1000.0, 0), ft.inkoop_prijs_per_kg) as prijs,
         ft.merk || ' ' || ft.materiaal || COALESCE(' ' || r.kleur, '') as naam
       FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id
       JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?
@@ -247,7 +248,7 @@ r.post('/email/:jobId', async (req, res) => {
     nabExtraMin: extra_velden.nab_extra_min||0, nabExtraTarief: t.nabewerking_tarief||15,
     extraTotaal: extra_velden.extra_totaal||0, extraOmschrijving: extra_velden.extra_omschrijving||'',
     aantal: extra_velden.aantal||1,
-    matDetails: db.prepare(`SELECT jm.gram_gebruikt as gram, ft.inkoop_prijs_per_kg as prijs, ft.merk || ' ' || ft.materiaal || COALESCE(' ' || r.kleur, '') as naam FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?`).all(req.params.jobId),
+    matDetails: db.prepare(`SELECT jm.gram_gebruikt as gram, COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start / 1000.0, 0), ft.inkoop_prijs_per_kg) as prijs, ft.merk || ' ' || ft.materiaal || COALESCE(' ' || r.kleur, '') as naam FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?`).all(req.params.jobId),
   };
   const pdfHtml = buildPdfHtml(volledigeKosten, klant, extraInfo);
   try {
