@@ -187,7 +187,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     if (!emailTo) return alert('Vul een e-mailadres in');
     setEmailStatus('Bezig...');
     try {
-      await api.post(`/kosten/email/${job.id}`, { to: emailTo, extra_velden: { aantal: parseInt(aantal) } });
+      await api.post(`/kosten/email/${job.id}`, { to: emailTo, extra_velden: { aantal: parseInt(aantal), btw } });
       setEmailStatus('✓ Verstuurd!');
       setTimeout(() => setEmailStatus(''), 4000);
     } catch(e) { setEmailStatus('✗ ' + e.message); }
@@ -523,13 +523,21 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             )}
 
             <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:6 }}>
-              <a className="btn" style={{ textAlign:'center' }}
-                href={`${BASE}/kosten/pdf/${job.id}?aantal=${aantal}`} download>
-                ↓ Werkbon PDF
-              </a>
+              <div style={{ display:'flex', gap:6 }}>
+                <a className="btn" style={{ flex:1, textAlign:'center' }}
+                  href={`${BASE}/kosten/pdf/${job.id}?aantal=${aantal}&btw=${btw ? '1' : '0'}`}
+                  target="_blank" rel="noopener noreferrer">
+                  👁 Preview werkbon
+                </a>
+                <a className="btn" style={{ flex:1, textAlign:'center' }}
+                  href={`${BASE}/kosten/pdf/${job.id}?aantal=${aantal}&btw=${btw ? '1' : '0'}`}
+                  download>
+                  ↓ Download
+                </a>
+              </div>
               <div style={{ display:'flex', gap:6 }}>
                 <input value={emailTo} onChange={e => setEmailTo(e.target.value)} placeholder="E-mail voor werkbon" style={{ flex:1 }} />
-                <button className="btn" onClick={stuurEmail}>✉</button>
+                <button className="btn" onClick={stuurEmail}>✉ Mail</button>
               </div>
               {emailStatus && <div style={{ fontSize:11, color: emailStatus.includes('✓') ? 'var(--accent2)' : 'var(--danger)' }}>{emailStatus}</div>}
             </div>
