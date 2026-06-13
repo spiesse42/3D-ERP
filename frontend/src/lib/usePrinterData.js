@@ -74,35 +74,33 @@ export function usePrinterData() {
         const isActief = ['running','printing','prepare'].includes(statusLower);
         const isIdle   = ['idle','standby','finish','complete','offline','unavailable','failed'].includes(statusLower);
 
-        // kWh delta: persistent via DB
-        // Bij eerste poll: laad kwh_start uit DB als die bestaat
-        // Anders: sla huidige kWh op als kwh_start in DB en geheugen
+        // kWh delta: Watt-accumulatie + DB persistentie voor refresh
         const now = Date.now();
-        if (isActief && kwh != null) {
+        if (isActief && watt != null && watt > 0) {
           if (_kwhAccum[p.id] == null) {
-            // Zoek actieve job voor deze printer om kwh_start te laden/opslaan
+            // Eerste poll tijdens actieve print: laad kwh_start uit DB
+            _kwhAccum[p.id] = 0;
             api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {
               const actief = jobs.find(j => j.printer_id === p.id);
               if (actief) {
-                if (actief.kwh_start != null) {
-                  // Herstel uit DB na refresh
-                  _kwhAccum[p.id] = actief.kwh_start;
-                } else {
-                  // Eerste keer: sla huidige kWh op als startpunt
-                  _kwhAccum[p.id] = kwh;
+                if (actief.kwh_start != null && kwh != null) {
+                  // Herstel delta uit DB na refresh: huidig - start
+                  _kwhAccum[p.id] = Math.max(0, kwh - actief.kwh_start);
+                } else if (actief.kwh_start == null && kwh != null) {
+                  // Eerste keer: sla startkWh op in DB
                   api.patch(`/jobs/${actief.id}/kwh_start`, { kwh_start: kwh }).catch(() => {});
                 }
-              } else {
-                // Geen actieve job: gebruik huidig als startpunt in geheugen
-                _kwhAccum[p.id] = kwh;
               }
-            }).catch(() => {
-              _kwhAccum[p.id] = kwh;
-            });
+            }).catch(() => {});
+          }
+          // Watt-accumulatie elke poll
+          const last = _lastPoll[p.id];
+          if (last != null) {
+            const dtH = (now - last) / 3600000;
+            _kwhAccum[p.id] += watt * dtH / 1000;
           }
         }
         if (isIdle) {
-          // Bij finish/cancel: reset geheugen (kwh_start blijft in DB voor historiek)
           if (_kwhAccum[p.id] != null) {
             // Wis kwh_start in DB zodat volgende print opnieuw start
             api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {

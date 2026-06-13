@@ -280,6 +280,13 @@ export default function Dashboard() {
     api.get('/jobs').then(setJobs).catch(() => {});
     api.get('/filament/rollen').then(setRollen).catch(() => {});
     api.get('/klanten').then(setKlanten).catch(() => {});
+
+    // Periodiek herladen zodat statuswijzigingen (finish, cancel) direct zichtbaar zijn
+    const interval = setInterval(() => {
+      loadOperationeel();
+      loadJobs();
+    }, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const activeRollen = rollen.filter(r => r.actief);
