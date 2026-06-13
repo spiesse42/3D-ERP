@@ -83,9 +83,37 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     }).catch(() => {});
   }, [job.id]);
 
+  // Auto-update kWh bij eerste beschikbaarheid
   useEffect(() => {
     if (kwhDelta != null && kwhDelta > 0 && !kwh) setKwh(kwhDelta.toFixed(3));
   }, [kwhDelta]);
+
+  // Continue auto-update van tijd, energie en filament (1 kleur) als Auto aan
+  useEffect(() => {
+    if (!autoCalc || !live) return;
+
+    // Tijd: verstreken tijd van printer
+    if (liveElapsedSec > 0) {
+      setPrintUren(liveElapsedU);
+      setPrintMin(liveElapsedMin);
+    }
+
+    // Energie: live delta
+    if (kwhDelta != null && kwhDelta > 0) {
+      setKwh(kwhDelta.toFixed(3));
+    }
+
+    // Filament: enkel bij 1 kleur (niet multicolor)
+    if (!isMulticolor && liveGram > 0 && materialen.length === 1) {
+      const m = materialen[0];
+      const nieuwGram = parseFloat(liveGram.toFixed(1));
+      if (nieuwGram !== m.gram_gebruikt) {
+        api.put(`/jobs/${job.id}/materialen/${m.id}`, { gram_gebruikt: nieuwGram })
+          .then(() => setMaterialen(prev => prev.map(x => x.id === m.id ? { ...x, gram_gebruikt: nieuwGram } : x)))
+          .catch(() => {});
+      }
+    }
+  }, [live, autoCalc]);
 
   const formValues = JSON.stringify({ printUren, printMin, kwh, isMulticolor, voorbMin, nabMin,
     extraVoorbMin, ontwerpMin, ontwerpTarief, nabewerkingExtraMin, nabewerkingExtraTarief,
@@ -293,8 +321,8 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
                     } catch(e) { alert(e.message); }
                   }}
                 />
-                <span style={{ color:'var(--muted)', minWidth:60 }}>
-                  → €{((m.gram_gebruikt / 1000) * (m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0)).toFixed(3)}
+                <span style={{ color:'var(--muted)', minWidth:100, fontSize:11 }}>
+                  €{(m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0).toFixed(2)}/kg · €{((m.gram_gebruikt / 1000) * (m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0)).toFixed(3)}
                 </span>
                 <button onClick={() => verwijderMateriaal(m.id)}
                   style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer', fontSize:12 }}>✕</button>
