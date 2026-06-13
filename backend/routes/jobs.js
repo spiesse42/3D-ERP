@@ -25,7 +25,8 @@ r.get('/', (req, res) => {
 r.get('/:id', (req, res) => {
   const db = getDb();
   const job = db.prepare(`
-    SELECT j.*, k.naam as klant_naam, p.naam as printer_naam, p.heeft_bmcu
+    SELECT j.*, k.naam as klant_naam, p.naam as printer_naam, p.heeft_bmcu,
+      p.kwh_entity
     FROM jobs j
     LEFT JOIN klanten k ON k.id = j.klant_id
     LEFT JOIN printers p ON p.id = j.printer_id
@@ -87,6 +88,20 @@ r.patch('/:id/status', (req, res) => {
     .run(status, updates.gestart_op||null, updates.voltooid_op||null, req.params.id);
   res.json({ ok: true });
 });
+r.patch('/:id/kwh_start', (req, res) => {
+  const db = getDb();
+  const { kwh_start } = req.body;
+  if (kwh_start == null) return res.status(400).json({ error: 'kwh_start is verplicht' });
+  db.prepare('UPDATE jobs SET kwh_start = ? WHERE id = ?').run(parseFloat(kwh_start), req.params.id);
+  res.json({ ok: true });
+});
+
+r.patch('/:id/kwh_start_clear', (req, res) => {
+  const db = getDb();
+  db.prepare('UPDATE jobs SET kwh_start = NULL WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
 r.patch('/:id/betaald', (req, res) => {
   const db = getDb();
   const betaald = req.body.betaald ? 1 : 0;

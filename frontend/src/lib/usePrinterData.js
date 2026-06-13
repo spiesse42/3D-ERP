@@ -74,44 +74,62 @@ export function usePrinterData() {
         const isActief = ['running','printing','prepare'].includes(statusLower);
         const isIdle   = ['idle','standby','finish','complete','offline','unavailable','failed'].includes(statusLower);
 
-        // Watt-accumulatie: kWh += W * dt / 3.600.000
+        // kWh delta: persistent via DB
+        // Bij eerste poll: laad kwh_start uit DB als die bestaat
+        // Anders: sla huidige kWh op als kwh_start in DB en geheugen
         const now = Date.now();
-        if (isActief && watt != null && watt > 0) {
-          if (_kwhAccum[p.id] == null) _kwhAccum[p.id] = 0;
-          const last = _lastPoll[p.id];
-          if (last != null) {
-            const dtH = (now - last) / 3600000;
-            _kwhAccum[p.id] += watt * dtH / 1000;
+        if (isActief && kwh != null) {
+          if (_kwhAccum[p.id] == null) {
+            // Zoek actieve job voor deze printer om kwh_start te laden/opslaan
+            api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {
+              const actief = jobs.find(j => j.printer_id === p.id);
+              if (actief) {
+                if (actief.kwh_start != null) {
+                  // Herstel uit DB na refresh
+                  _kwhAccum[p.id] = actief.kwh_start;
+                } else {
+                  // Eerste keer: sla huidige kWh op als startpunt
+                  _kwhAccum[p.id] = kwh;
+                  api.patch(`/jobs/${actief.id}/kwh_start`, { kwh_start: kwh }).catch(() => {});
+                }
+              } else {
+                // Geen actieve job: gebruik huidig als startpunt in geheugen
+                _kwhAccum[p.id] = kwh;
+              }
+            }).catch(() => {
+              _kwhAccum[p.id] = kwh;
+            });
           }
         }
         if (isIdle) {
+          // Bij finish/cancel: reset geheugen (kwh_start blijft in DB voor historiek)
+          if (_kwhAccum[p.id] != null) {
+            // Wis kwh_start in DB zodat volgende print opnieuw start
+            api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {
+              const actief = jobs.find(j => j.printer_id === p.id);
+              if (actief) api.patch(`/jobs/${actief.id}/kwh_start_clear`, {}).catch(() => {});
+            }).catch(() => {});
+          }
           _kwhAccum[p.id] = null;
         }
         _lastPoll[p.id] = now;
 
         // Auto-voltooid: als printer finish is, zet bezig job op voltooid
-        const isDone    = ['finish','complete','success'].includes(statusLower);
-        const isFailed  = statusLower === 'failed';
-        const wasBusy   = _prevStatus[p.id];
-        const wasActive = wasBusy === 'running' || wasBusy === 'printing' || wasBusy == null;
-
-        if (isDone && wasActive) {
+        const isDone  = ['finish','complete','success'].includes(statusLower);
+        const wasBusy = _prevStatus[p.id];
+        if (isDone && (wasBusy === 'running' || wasBusy === 'printing')) {
           api.get('/jobs?status=bezig').then(jobs => {
             const actief = jobs.find(j => j.printer_id === p.id);
             if (actief) api.patch(`/jobs/${actief.id}/status`, { status: 'voltooid' }).catch(() => {});
           }).catch(() => {});
         }
-
-        if (isFailed && (wasBusy === 'running' || wasBusy === 'printing')) {
-          api.get('/jobs?status=bezig').then(jobs => {
-            const actief = jobs.find(j => j.printer_id === p.id);
-            if (actief) api.patch(`/jobs/${actief.id}/status`, { status: 'geannuleerd' }).catch(() => {});
-          }).catch(() => {});
-        }
         _prevStatus[p.id] = statusLower;
 
-        const kwhDelta = _kwhAccum[p.id] ?? null;
-        const kwhStart = kwh != null && kwhDelta != null ? kwh - kwhDelta : null;
+        // kwhDelta = huidig kWh - start kWh
+        const kwhDelta = (kwh != null && _kwhAccum[p.id] != null)
+          ? Math.max(0, kwh - _kwhAccum[p.id])
+          : null;
+        const kwhStart = _kwhAccum[p.id] ?? null;
 
         // Temperaturen — expliciet null check (0°C is geldig)
         const bedTemp    = s.bed_temp    != null && s.bed_temp    !== 'unavailable' && s.bed_temp    !== 'unknown' ? s.bed_temp    : null;

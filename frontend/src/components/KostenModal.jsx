@@ -200,6 +200,26 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const margePct   = totaleUren >= margeGrens ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
   const totVoorb   = (parseInt(voorbMin) || 0) + (parseInt(extraVoorbMin) || 0);
 
+  // Geschatte eindkost — op basis van totale printtijd (verstreken + resterend)
+  const isBezig = job.status === 'bezig';
+  const totaleSec = (live?.elapsed_sec || 0) + (live?.remaining_sec || 0);
+  const totaleUrenGeschat = totaleSec > 0 ? totaleSec / 3600 : null;
+  const kwhGeschat = totaleUrenGeschat && (live?.elapsed_sec || 0) > 0 && (live?.kwh_delta || 0) > 0
+    ? (live.kwh_delta / (live.elapsed_sec / 3600)) * totaleUrenGeschat
+    : null;
+
+  const geschatteEindkost = (() => {
+    if (!isBezig || !totaleUrenGeschat || !tarievenGeladen) return null;
+    const matKost = materialen.reduce((s, m) => s + (m.gram_gebruikt / 1000) * (m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0), 0) * (1 + (t.faalfactor_pct || 10) / 100);
+    const energieKost = (kwhGeschat || 0) * (t.kwh_prijs || 0.35);
+    const machineKost = totaleUrenGeschat * (t.machine_kost_per_uur || 0);
+    const bmcu = isMulticolor ? (t.bmcu_per_job || 0.10) : 0;
+    const arbeid = (totVoorb / 60) * (t.arbeid_per_uur || 15) + ((parseInt(nabMin) || 0) / 60) * (t.arbeid_per_uur || 15);
+    const sub = matKost + energieKost + machineKost + bmcu + arbeid;
+    const marge = totaleUrenGeschat >= (t.marge_grens_uur || 4) ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
+    return sub * (1 + marge / 100);
+  })();
+
   const matGroepen = materialen.reduce((acc, m) => {
     const key = `${m.merk || ''} ${m.materiaal || ''} ${m.kleur || ''}`.trim();
     if (!acc[key]) acc[key] = { items:[], gram_totaal:0, prijs: m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0, naam: key };
@@ -274,6 +294,19 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             )}
           </div>
         </div>
+
+        {/* GESCHATTE EINDKOST — enkel tijdens lopende print */}
+        {isBezig && geschatteEindkost != null && (
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.25)', borderRadius:'var(--radius)', padding:'8px 12px', marginBottom:'0.75rem' }}>
+            <div>
+              <div style={{ fontSize:12, fontWeight:600, color:'var(--warn)' }}>Geschatte eindprijs</div>
+              <div style={{ fontSize:10, color:'var(--muted)' }}>
+                op basis van ~{totaleUrenGeschat < 1 ? `${Math.round(totaleUrenGeschat * 60)}m` : `${totaleUrenGeschat.toFixed(1)}u`} totale printtijd · zonder extra's
+              </div>
+            </div>
+            <span style={{ fontSize:20, fontWeight:700, color:'var(--warn)' }}>~€{geschatteEindkost.toFixed(2)}</span>
+          </div>
+        )}
 
         {/* FILAMENT */}
         <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
@@ -472,8 +505,8 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
               <span>Subtotaal</span><span>€{result.totaal_kost?.toFixed(2)}</span>
             </div>
             <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0 4px', fontWeight:700 }}>
-              <span>Verkoopprijs{aantal > 1 ? ` (${aantal}×)` : ''}</span>
-              <span style={{ fontSize:22, color:'var(--accent2)' }}>€{result.verkoopprijs?.toFixed(2)}</span>
+              <span>Verkoopprijs{aantal > 1 ? ` (${aantal}×)` : ''}{isBezig ? <span style={{ fontSize:11, fontWeight:400, color:'var(--muted)', marginLeft:6 }}>(huidig)</span> : ''}</span>
+              <span style={{ fontSize:22, color: isBezig ? 'var(--warn)' : 'var(--accent2)' }}>{isBezig ? '~' : ''}€{result.verkoopprijs?.toFixed(2)}</span>
             </div>
             {aantal > 1 && <div style={{ textAlign:'right', fontSize:11, color:'var(--muted)' }}>€{(result.verkoopprijs / aantal).toFixed(2)}/stuk</div>}
             {btw && (

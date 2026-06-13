@@ -407,7 +407,14 @@ export default function Jobs() {
                         return `${prefix}${h}u ${m}m`;
                       })()}
                     </td>
-                    <td>{j.verkoopprijs != null ? <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span> : <span style={{ color:'var(--muted)' }}>—</span>}</td>
+                    <td>{j.verkoopprijs != null
+                      ? j.status === 'bezig'
+                        ? <div>
+                            <span style={{ color:'var(--warn)' }}>~€{j.verkoopprijs.toFixed(2)}</span>
+                            <div style={{ fontSize:10, color:'var(--muted)' }}>geschat</div>
+                          </div>
+                        : <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span>
+                      : <span style={{ color:'var(--muted)' }}>—</span>}</td>
                     <td onClick={e => e.stopPropagation()}>
                       {j.status === 'voltooid' && j.klant_id
                         ? <input type="checkbox" checked={!!j.betaald}
