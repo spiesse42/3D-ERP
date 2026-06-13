@@ -90,18 +90,22 @@ export function usePrinterData() {
         _lastPoll[p.id] = now;
 
         // Auto-voltooid: als printer finish is, zet bezig job op voltooid
-        const isDone  = ['finish','complete','success'].includes(statusLower);
-        const wasBusy = _prevStatus[p.id];
-        // Trigger bij transitie running→finish, OF bij opstart als printer al op finish staat
-        const shouldFinish = isDone && (
-          wasBusy === 'running' || wasBusy === 'printing' || wasBusy == null
-        );
-        if (shouldFinish) {
+        const isDone    = ['finish','complete','success'].includes(statusLower);
+        const isFailed  = statusLower === 'failed';
+        const wasBusy   = _prevStatus[p.id];
+        const wasActive = wasBusy === 'running' || wasBusy === 'printing' || wasBusy == null;
+
+        if (isDone && wasActive) {
           api.get('/jobs?status=bezig').then(jobs => {
             const actief = jobs.find(j => j.printer_id === p.id);
-            if (actief) {
-              api.patch(`/jobs/${actief.id}/status`, { status: 'voltooid' }).catch(() => {});
-            }
+            if (actief) api.patch(`/jobs/${actief.id}/status`, { status: 'voltooid' }).catch(() => {});
+          }).catch(() => {});
+        }
+
+        if (isFailed && (wasBusy === 'running' || wasBusy === 'printing')) {
+          api.get('/jobs?status=bezig').then(jobs => {
+            const actief = jobs.find(j => j.printer_id === p.id);
+            if (actief) api.patch(`/jobs/${actief.id}/status`, { status: 'geannuleerd' }).catch(() => {});
           }).catch(() => {});
         }
         _prevStatus[p.id] = statusLower;
