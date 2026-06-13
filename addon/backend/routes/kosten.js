@@ -118,7 +118,8 @@ r.post('/bereken/:jobId', (req, res) => {
   }
 
   const materialen = db.prepare(`
-    SELECT jm.gram_gebruikt, ft.inkoop_prijs_per_kg, ft.merk, ft.materiaal, r.kleur, r.id as rol_id
+    SELECT jm.gram_gebruikt, ft.merk, ft.materiaal, r.kleur, r.id as rol_id,
+      COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start / 1000.0, 0), ft.inkoop_prijs_per_kg) as prijs_per_kg_effectief
     FROM job_materialen jm
     JOIN filament_rollen r ON r.id = jm.filament_rol_id
     JOIN filament_types ft ON ft.id = r.filament_type_id
@@ -126,7 +127,7 @@ r.post('/bereken/:jobId', (req, res) => {
   `).all(req.params.jobId);
 
   const materiaal_kost = materialen.reduce((sum, m) =>
-    sum + (m.gram_gebruikt / 1000) * m.inkoop_prijs_per_kg, 0) * (1 + faalfactor_pct / 100);
+    sum + (m.gram_gebruikt / 1000) * m.prijs_per_kg_effectief, 0) * (1 + faalfactor_pct / 100);
 
   const energie_kost = parseFloat(kwh_verbruikt) * kwh_prijs;
   const machine_kost = uren * job.machine_kost_per_uur;

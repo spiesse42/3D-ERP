@@ -157,7 +157,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
 
   const matGroepen = materialen.reduce((acc, m) => {
     const key = `${m.merk || ''} ${m.materiaal || ''} ${m.kleur || ''}`.trim();
-    if (!acc[key]) acc[key] = { items:[], gram_totaal:0, prijs: m.inkoop_prijs_per_kg || 0, naam: key };
+    if (!acc[key]) acc[key] = { items:[], gram_totaal:0, prijs: m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0, naam: key };
     acc[key].items.push(m);
     acc[key].gram_totaal += parseFloat(m.gram_gebruikt);
     return acc;

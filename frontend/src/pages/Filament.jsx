@@ -167,11 +167,16 @@ function RolModal({ types, rol, onClose, onSaved }) {
     const huidigG = parseFloat(huidigStr) || startG;
     const aankoopVal = prijsStr !== '' ? parseFloat(prijsStr.replace(',', '.')) : null;
 
+    if (!aankoopVal || isNaN(aankoopVal) || aankoopVal <= 0) {
+      alert('Aankoopprijs is verplicht en moet groter zijn dan 0');
+      return;
+    }
+
     const payload = {
       ...form,
       gewicht_gram_start:  startG,
       gewicht_gram_huidig: huidigG,
-      aankoopprijs_eur:    (!isNaN(aankoopVal) && aankoopVal > 0) ? aankoopVal : null,
+      aankoopprijs_eur:    aankoopVal,
     };
 
     try {
@@ -264,7 +269,7 @@ function RolModal({ types, rol, onClose, onSaved }) {
         {/* Aankoopprijs + lotnummer */}
         <div className="form-row">
           <div className="form-group">
-            <label>Aankoopprijs rol (€) <span style={{ color: 'var(--muted)', fontWeight: 400 }}>optioneel</span></label>
+            <label>Aankoopprijs rol (€) *</label>
             <input
               type="number" step="0.01" min="0"
               value={prijsStr}
