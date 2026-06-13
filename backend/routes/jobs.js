@@ -124,6 +124,18 @@ r.post('/:id/materialen', (req, res) => {
   res.status(201).json({ id: result.lastInsertRowid });
 });
 
+r.put('/:jobId/materialen/:id', (req, res) => {
+  const db = getDb();
+  const { gram_gebruikt } = req.body;
+  if (!gram_gebruikt || isNaN(parseFloat(gram_gebruikt))) return res.status(400).json({ error: 'gram_gebruikt is verplicht' });
+  const mat = db.prepare('SELECT * FROM job_materialen WHERE id = ?').get(req.params.id);
+  if (!mat) return res.status(404).json({ error: 'Niet gevonden' });
+  const verschil = parseFloat(gram_gebruikt) - mat.gram_gebruikt;
+  db.prepare('UPDATE job_materialen SET gram_gebruikt = ? WHERE id = ?').run(parseFloat(gram_gebruikt), req.params.id);
+  db.prepare('UPDATE filament_rollen SET gewicht_gram_huidig = gewicht_gram_huidig - ? WHERE id = ?').run(verschil, mat.filament_rol_id);
+  res.json({ ok: true });
+});
+
 r.delete('/:jobId/materialen/:id', (req, res) => {
   const db = getDb();
   const mat = db.prepare('SELECT * FROM job_materialen WHERE id = ?').get(req.params.id);
