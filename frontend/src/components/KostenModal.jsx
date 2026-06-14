@@ -382,19 +382,12 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
         {/* ENERGIE */}
         <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
           <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>⚡ Energie</p>
-          {live && (
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginBottom:8, fontSize:11 }}>
-              {[
-                ['Start kWh',   live.kwh_start?.toFixed(3)],
-                ['Huidig kWh',  live.kwh_current?.toFixed(3)],
-                ['Δ Verbruikt', kwhDelta != null ? `${kwhDelta.toFixed(3)} kWh` : null],
-              ].map(([label, val]) => (
-                <div key={label} style={{ background:'var(--bg2)', borderRadius:6, padding:'5px 8px' }}>
-                  <div style={{ color:'var(--muted)' }}>{label}</div>
-                  <div style={{ fontWeight:600, color:'#fbbf24' }}>{val ?? '—'}</div>
-                </div>
-              ))}
-            </div>
+          {live && kwhDelta != null && (
+  <div style={{ background:'var(--bg2)', borderRadius:6, padding:'5px 8px', marginBottom:8, fontSize:11, display:'inline-block' }}>
+    <div style={{ color:'var(--muted)' }}>Δ Verbruikt</div>
+    <div style={{ fontWeight:600, color:'#fbbf24' }}>{kwhDelta.toFixed(3)} kWh</div>
+  </div>
+)}
           )}
           <div style={{ display:'flex', gap:8 }}>
             <input type="number" step="0.001" value={kwh} onChange={e => setKwh(e.target.value)} placeholder="kWh verbruikt" style={{ flex:1 }} />
