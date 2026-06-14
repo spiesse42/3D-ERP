@@ -383,11 +383,10 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
         <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
           <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>⚡ Energie</p>
           {live && kwhDelta != null && (
-  <div style={{ background:'var(--bg2)', borderRadius:6, padding:'5px 8px', marginBottom:8, fontSize:11, display:'inline-block' }}>
-    <div style={{ color:'var(--muted)' }}>Δ Verbruikt</div>
-    <div style={{ fontWeight:600, color:'#fbbf24' }}>{kwhDelta.toFixed(3)} kWh</div>
-  </div>
-)}
+            <div style={{ background:'var(--bg2)', borderRadius:6, padding:'5px 8px', marginBottom:8, fontSize:11, display:'inline-block' }}>
+              <div style={{ color:'var(--muted)' }}>Δ Verbruikt</div>
+              <div style={{ fontWeight:600, color:'#fbbf24' }}>{kwhDelta.toFixed(3)} kWh</div>
+            </div>
           )}
           <div style={{ display:'flex', gap:8 }}>
             <input type="number" step="0.001" value={kwh} onChange={e => setKwh(e.target.value)} placeholder="kWh verbruikt" style={{ flex:1 }} />
