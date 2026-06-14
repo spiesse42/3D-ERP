@@ -56,6 +56,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
   const [rolIds,       setRolIds]       = useState(['']);
   const [rollen,       setRollen]       = useState([]);
   const [saving,       setSaving]       = useState(false);
+  const [gewichtGeschat, setGewichtGeschat] = useState('');
 
   function openForm() {
     setJobNaam(defaultNaam);
@@ -63,6 +64,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
     setIsMulticolor(false);
     setAantalKleuren(2);
     setRolIds(['']);
+    setGewichtGeschat('');
     api.get('/filament/rollen').then(r => setRollen(r.filter(x => x.actief))).catch(() => {});
     setShowJobForm(true);
   }
@@ -91,6 +93,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
         is_multicolor:      isMulticolor ? 1 : 0,
         aantal_kleuren:     isMulticolor ? aantalKleuren : 1,
         notities:           `Aangemaakt vanuit printerkaart — ${pct.toFixed(0)}% voltooid`,
+        gewicht_geschat:    parseFloat(gewichtGeschat) || null,
       });
 
       for (const rid of rolIds.filter(r => r)) {
@@ -231,6 +234,14 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+          {data?.type === 'ender' && (
+            <div className="form-group" style={{ marginBottom:8 }}>
+              <label>Geschat gewicht (g) <span style={{ color:'var(--muted)', fontWeight:400, fontSize:11 }}>uit slicer</span></label>
+              <input type="number" min="0" step="0.1" value={gewichtGeschat}
+                onChange={e => setGewichtGeschat(e.target.value)}
+                placeholder="bv. 11.3" />
             </div>
           )}
           <button className="btn primary" style={{ width:'100%' }} onClick={maakJob}
