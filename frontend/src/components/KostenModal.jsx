@@ -36,12 +36,12 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const [extraOmschrijving,setExtraOmschrijving]= useState('');
   const [aantal,          setAantal]          = useState(1);
   const [opmerking,       setOpmerking]       = useState(job.notities || '');
-  const [kwh,             setKwh]             = useState('');
+  const [kwh,             setKwh]             = useState(job.status === 'voltooid' && job.kwh_start ? String(job.kwh_start.toFixed(3)) : '');
   const [tarievenGeladen, setTarievenGeladen] = useState(false);
   const [btw,             setBtw]             = useState(false);
 
   const live     = printerLiveData;
-  const kwhDelta = live?.kwh_delta;
+  const kwhDelta = live?.kwh_delta ?? (job.kwh_start > 0 ? job.kwh_start : null);
   const liveGram = live?.filament_g || 0;
 
   // Verstreken tijd — Ender geeft seconden via elapsed_sec

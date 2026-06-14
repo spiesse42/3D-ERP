@@ -351,6 +351,9 @@ export default function Jobs() {
     loadJobs();
     api.get('/printers').then(setPrinters);
     api.get('/klanten').then(setKlanten);
+    // Auto-refresh elke 10s zodat auto-finish/cancel zichtbaar wordt zonder refresh
+    const interval = setInterval(loadJobs, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const filtered = filter ? jobs.filter(j => j.status === filter) : jobs;

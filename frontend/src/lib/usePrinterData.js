@@ -74,7 +74,7 @@ export function usePrinterData() {
 
         const statusLower = (s.status || '').toLowerCase();
         const isActief = ['running','printing','prepare'].includes(statusLower);
-        const isIdle   = ['idle','standby','finish','complete','offline','unavailable','failed'].includes(statusLower);
+        const isIdle   = ['idle','standby','finish','complete','offline','unavailable','failed','cancelled'].includes(statusLower);
 
         // kWh delta per JOB (niet per printer-status).
         // De actieve bezig-job draagt zijn eigen verbruikte delta in job.kwh_start.
@@ -132,7 +132,7 @@ export function usePrinterData() {
 
         // Auto-status: robuust, niet afhankelijk van vorige poll-status
         const isDone   = ['finish','complete','success'].includes(statusLower);
-        const isFailed = statusLower === 'failed';
+        const isFailed = statusLower === 'failed' || statusLower === 'cancelled';
         const wasBusy  = _prevStatus[p.id];
 
         // Finish: zet bezig job op voltooid. Werkt ook bij opstart (wasBusy undefined)
