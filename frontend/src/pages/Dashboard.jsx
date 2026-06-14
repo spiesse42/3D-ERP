@@ -291,7 +291,7 @@ function OperationeelWidget({ icon, titel, items, renderRij, leegTekst }) {
   );
 }
 
-function FilamentStockWidget({ rollen }) {
+function FilamentStockWidget({ rollen, navigate }) {
   const PER_PAGINA = 10;
   const [pagina, setPagina] = React.useState(0);
   const totaalPaginas = Math.ceil(rollen.length / PER_PAGINA);
@@ -321,11 +321,16 @@ function FilamentStockWidget({ rollen }) {
               const pct = Math.min(100, Math.round((r.gewicht_gram_huidig / (r.gewicht_gram_start || 1000)) * 100));
               const kleur = pct > 50 ? '#22c55e' : pct > 20 ? '#f59e0b' : '#ef4444';
               return (
-                <div key={r.id} style={{ padding:'6px 8px', background:'var(--bg3)', borderRadius:6 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:4, marginBottom:2 }}>
+                <div key={r.id}
+                  onClick={() => navigate(`/filament?highlight=${r.id}`)}
+                  style={{ padding:'6px 8px', background:'var(--bg3)', borderRadius:6, cursor:'pointer' }}
+                  onMouseEnter={e => e.currentTarget.style.background='var(--bg2)'}
+                  onMouseLeave={e => e.currentTarget.style.background='var(--bg3)'}>
+                  <div style={{ display:'flex', alignItems:'center', gap:4, marginBottom:1 }}>
                     <KleurDot kleur={r.kleur} hex={r.kleur_hex} size={8} />
                     <span style={{ fontSize:11, color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.kleur}</span>
                   </div>
+                  <div style={{ fontSize:10, color:'var(--muted)', marginBottom:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.merk} {r.materiaal}</div>
                   <div style={{ fontSize:12, fontWeight:500, marginBottom:4 }}>{Math.ceil(r.gewicht_gram_huidig)}g</div>
                   <div style={{ height:3, background:'var(--bg2)', borderRadius:2 }}>
                     <div style={{ width:`${pct}%`, height:'100%', background:kleur, borderRadius:2 }} />
@@ -409,7 +414,7 @@ export default function Dashboard() {
           />
         ))}
 
-        <FilamentStockWidget rollen={activeRollen} />
+        <FilamentStockWidget rollen={activeRollen} navigate={navigate} />
       </div>
 
       {/* Rij 2: Operationele secties */}
