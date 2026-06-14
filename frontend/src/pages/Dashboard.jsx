@@ -361,37 +361,53 @@ export default function Dashboard() {
           />
         ))}
 
-        {/* Filamentstock in rij 1 */}
-        <div className="card" style={{ flex:1, minWidth:220 }}>
-          <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.75rem' }}>
-            🧵 Filamentstock
-            <span style={{ fontSize:12, color:'var(--muted)', fontWeight:400, marginLeft:6 }}>({activeRollen.length})</span>
-          </h2>
-          {activeRollen.length === 0
-            ? <p style={{ color:'var(--muted)', fontSize:12 }}>Geen actieve rollen</p>
-            : <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem' }}>
-                {activeRollen.map(r => {
-                  const pct = Math.min(100, Math.round((r.gewicht_gram_huidig / (r.gewicht_gram_start || 1000)) * 100));
-                  const kleur = pct > 50 ? '#22c55e' : pct > 20 ? '#f59e0b' : '#ef4444';
-                  return (
-                    <div key={r.id} style={{ padding:'6px 8px', background:'var(--bg3)', borderRadius:6 }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:4 }}>
-                        <span style={{ fontWeight:500, display:'flex', alignItems:'center', gap:4 }}>
-                          {r.merk} {r.materiaal}
-                          <KleurDot kleur={r.kleur} hex={r.kleur_hex} size={10} />
-                          <span style={{ color:'var(--muted)' }}>{r.kleur}</span>
-                        </span>
-                        <span style={{ color:'var(--muted)' }}>{Math.ceil(r.gewicht_gram_huidig)}g</span>
-                      </div>
-                      <div style={{ height:3, background:'var(--bg2)', borderRadius:2 }}>
-                        <div style={{ width:`${pct}%`, height:'100%', background:kleur, borderRadius:2 }} />
-                      </div>
-                    </div>
-                  );
-                })}
+        {/* Filamentstock in rij 1 — blokjes grid met paginatie */}
+        {(() => {
+          const PER_PAGINA = 10;
+          const [stockPagina, setStockPagina] = React.useState(0);
+          const totaalPaginas = Math.ceil(activeRollen.length / PER_PAGINA);
+          const zichtbaar = activeRollen.slice(stockPagina * PER_PAGINA, (stockPagina + 1) * PER_PAGINA);
+          return (
+            <div className="card" style={{ flex:1, minWidth:220 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.75rem' }}>
+                <h2 style={{ fontSize:14, fontWeight:600, margin:0 }}>
+                  🧵 Filamentstock
+                  <span style={{ fontSize:12, color:'var(--muted)', fontWeight:400, marginLeft:6 }}>({activeRollen.length})</span>
+                </h2>
+                {totaalPaginas > 1 && (
+                  <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:11, color:'var(--muted)' }}>
+                    <button onClick={() => setStockPagina(p => Math.max(0, p-1))} disabled={stockPagina === 0}
+                      style={{ background:'none', border:'none', cursor:'pointer', color: stockPagina === 0 ? 'var(--border)' : 'var(--text)', fontSize:14, padding:'0 2px' }}>←</button>
+                    <span>{stockPagina + 1}/{totaalPaginas}</span>
+                    <button onClick={() => setStockPagina(p => Math.min(totaalPaginas-1, p+1))} disabled={stockPagina === totaalPaginas-1}
+                      style={{ background:'none', border:'none', cursor:'pointer', color: stockPagina === totaalPaginas-1 ? 'var(--border)' : 'var(--text)', fontSize:14, padding:'0 2px' }}>→</button>
+                  </div>
+                )}
               </div>
-          }
-        </div>
+              {activeRollen.length === 0
+                ? <p style={{ color:'var(--muted)', fontSize:12 }}>Geen actieve rollen</p>
+                : <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(100px, 1fr))', gap:'0.4rem' }}>
+                    {zichtbaar.map(r => {
+                      const pct = Math.min(100, Math.round((r.gewicht_gram_huidig / (r.gewicht_gram_start || 1000)) * 100));
+                      const kleur = pct > 50 ? '#22c55e' : pct > 20 ? '#f59e0b' : '#ef4444';
+                      return (
+                        <div key={r.id} style={{ padding:'6px 8px', background:'var(--bg3)', borderRadius:6 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:4, marginBottom:2 }}>
+                            <KleurDot kleur={r.kleur} hex={r.kleur_hex} size={8} />
+                            <span style={{ fontSize:11, color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.kleur}</span>
+                          </div>
+                          <div style={{ fontSize:12, fontWeight:500, marginBottom:4 }}>{Math.ceil(r.gewicht_gram_huidig)}g</div>
+                          <div style={{ height:3, background:'var(--bg2)', borderRadius:2 }}>
+                            <div style={{ width:`${pct}%`, height:'100%', background:kleur, borderRadius:2 }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+              }
+            </div>
+          );
+        })()}
       </div>
 
       {/* Rij 2: Operationele secties */}
