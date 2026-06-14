@@ -144,7 +144,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
         {[
           ['⏱ Verstreken',  data?.elapsed   || '—'],
           ['⏳ Resterend',  data?.remaining || '—'],
-          ['🧵 Filament',   data?.filament  || '—'],
+          ['🧵 Filament',   data?.filament_g != null ? `${Math.ceil(data.filament_g)} g` : '—'],
           ['📐 Laag',       data?.layer     || '—'],
           ['⚡ Vermogen',    data?.watt      != null ? `${data.watt.toFixed(1)} W` : '—'],
           ['⚡ Δ Verbruikt', data?.kwh_delta != null ? `${data.kwh_delta.toFixed(3)} kWh` : '—'],

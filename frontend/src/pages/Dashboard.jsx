@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api.js';
 import { useNavigate } from 'react-router-dom';
 import { usePrinterData } from '../lib/usePrinterData.js';
@@ -150,7 +150,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
         {[
           ['⏱ Verstreken',  data?.elapsed   || '—'],
           ['⏳ Resterend',  data?.remaining || '—'],
-          ['🧵 Filament',   data?.filament  || '—'],
+          ['🧵 Filament',   data?.filament_g != null ? `${Math.ceil(data.filament_g)} g` : '—'],
           ['📐 Laag',       data?.layer     || '—'],
           ['⚡ Vermogen',    data?.watt      != null ? `${data.watt.toFixed(1)} W` : '—'],
           ['⚡ Δ Verbruikt', data?.kwh_delta != null ? `${data.kwh_delta.toFixed(3)} kWh` : '—'],
@@ -255,16 +255,38 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
 }
 
 function OperationeelWidget({ icon, titel, items, renderRij, leegTekst }) {
+  const PER_PAGINA = 5;
+  const [pagina, setPagina] = React.useState(0);
+  const totaal = items.length;
+  const totaalPaginas = Math.ceil(totaal / PER_PAGINA);
+  const zichtbaar = items.slice(pagina * PER_PAGINA, (pagina + 1) * PER_PAGINA);
+
+  // Reset pagina als items wijzigen
+  React.useEffect(() => { setPagina(0); }, [totaal]);
+
   return (
-    <div className="card" style={{ flex:1, minWidth:0 }}>
-      <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.75rem' }}>
-        {icon} {titel}
-        <span style={{ fontSize:12, color:'var(--muted)', fontWeight:400, marginLeft:6 }}>({items.length})</span>
-      </h2>
-      {items.length === 0
-        ? <p style={{ color:'var(--muted)', fontSize:12 }}>{leegTekst}</p>
-        : items.map(renderRij)
-      }
+    <div className="card" style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.75rem' }}>
+        <h2 style={{ fontSize:14, fontWeight:600, margin:0 }}>
+          {icon} {titel}
+          <span style={{ fontSize:12, color:'var(--muted)', fontWeight:400, marginLeft:6 }}>({totaal})</span>
+        </h2>
+        {totaalPaginas > 1 && (
+          <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:11, color:'var(--muted)' }}>
+            <button onClick={() => setPagina(p => Math.max(0, p-1))} disabled={pagina === 0}
+              style={{ background:'none', border:'none', cursor:'pointer', color: pagina === 0 ? 'var(--border)' : 'var(--text)', fontSize:14, padding:'0 2px' }}>←</button>
+            <span>{pagina + 1}/{totaalPaginas}</span>
+            <button onClick={() => setPagina(p => Math.min(totaalPaginas-1, p+1))} disabled={pagina === totaalPaginas-1}
+              style={{ background:'none', border:'none', cursor:'pointer', color: pagina === totaalPaginas-1 ? 'var(--border)' : 'var(--text)', fontSize:14, padding:'0 2px' }}>→</button>
+          </div>
+        )}
+      </div>
+      <div style={{ flex:1, minHeight:200 }}>
+        {totaal === 0
+          ? <p style={{ color:'var(--muted)', fontSize:12 }}>{leegTekst}</p>
+          : zichtbaar.map(renderRij)
+        }
+      </div>
     </div>
   );
 }
@@ -452,7 +474,7 @@ export default function Dashboard() {
                         <KleurDot kleur={r.kleur} hex={r.kleur_hex} size={10} />
                         <span style={{ color:'var(--muted)' }}>{r.kleur}</span>
                       </span>
-                      <span style={{ color:'var(--muted)' }}>{r.gewicht_gram_huidig}g</span>
+                      <span style={{ color:'var(--muted)' }}>{Math.ceil(r.gewicht_gram_huidig)}g</span>
                     </div>
                     <div style={{ height:3, background:'var(--bg2)', borderRadius:2 }}>
                       <div style={{ width:`${pct}%`, height:'100%', background:kleur, borderRadius:2 }} />

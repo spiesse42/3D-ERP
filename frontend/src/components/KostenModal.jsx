@@ -363,7 +363,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
                 <span style={{ fontWeight:500, flex:1 }}>{m.merk} {m.materiaal} {m.kleur}</span>
                 <input
                   type="number" min="0.1" step="0.1"
-                  value={m.gram_gebruikt}
+                  value={Math.ceil(m.gram_gebruikt)}
                   style={{ width:70, fontSize:12, MozAppearance:'textfield', appearance:'textfield' }}
                   onChange={async e => {
                     const nieuwGram = parseFloat(e.target.value);
@@ -375,7 +375,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
                   }}
                 />
                 <span style={{ color:'var(--muted)', minWidth:100, fontSize:11 }}>
-                  €{(m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0).toFixed(2)}/kg · €{((m.gram_gebruikt / 1000) * (m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0)).toFixed(3)}
+                  €{(m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0).toFixed(2)}/kg · €{((Math.ceil(m.gram_gebruikt) / 1000) * (m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0)).toFixed(3)}
                 </span>
                 <button onClick={() => verwijderMateriaal(m.id)}
                   style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer', fontSize:12 }}>✕</button>
@@ -494,7 +494,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
           <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'1rem', marginBottom:'0.75rem' }}>
             <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>📊 Werkbon kostprijsoverzicht</p>
             {[
-              { label:'Materiaal', val: result.materiaal_kost, sub: `${Object.values(matGroepen).reduce((s, m) => s + m.gram_totaal, 0).toFixed(1)}g` },
+              { label:'Materiaal', val: result.materiaal_kost, sub: `${Math.ceil(Object.values(matGroepen).reduce((s, m) => s + m.gram_totaal, 0))}g` },
               { label:'Energie',   val: result.energie_kost,   sub: `${result.kwh_verbruikt} kWh` },
               ...(result.machine_kost > 0 ? [{ label:`Machine (${(parseInt(printUren) + parseInt(printMin)/60).toFixed(1)}u)`, val: result.machine_kost }] : []),
               ...(totVoorb > 0   ? [{ label:`Voorbereiding (${totVoorb} min)`,              val: (totVoorb / 60) * arbTarief }] : []),
