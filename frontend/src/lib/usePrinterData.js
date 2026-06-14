@@ -64,7 +64,7 @@ export function usePrinterData() {
             const diff = (new Date(s.remaining).getTime() - Date.now()) / 1000;
             if (diff > 0) remaining = diff;
           }
-          filamentG = (parseFloat(s.filament) || 0) * 2.98;
+          filamentG = (parseFloat(s.filament) || 0) * 2.98; // PLA 1.75mm: 2.98 g/m
         }
 
         const wattVal = parseFloat(s.watt);

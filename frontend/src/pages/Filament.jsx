@@ -167,16 +167,11 @@ function RolModal({ types, rol, onClose, onSaved }) {
     const huidigG = parseFloat(huidigStr) || startG;
     const aankoopVal = prijsStr !== '' ? parseFloat(prijsStr.replace(',', '.')) : null;
 
-    if (!aankoopVal || isNaN(aankoopVal) || aankoopVal <= 0) {
-      alert('Aankoopprijs is verplicht en moet groter zijn dan 0');
-      return;
-    }
-
     const payload = {
       ...form,
       gewicht_gram_start:  startG,
       gewicht_gram_huidig: huidigG,
-      aankoopprijs_eur:    aankoopVal,
+      aankoopprijs_eur:    (!isNaN(aankoopVal) && aankoopVal > 0) ? aankoopVal : null,
     };
 
     try {
@@ -269,7 +264,7 @@ function RolModal({ types, rol, onClose, onSaved }) {
         {/* Aankoopprijs + lotnummer */}
         <div className="form-row">
           <div className="form-group">
-            <label>Aankoopprijs rol (€) *</label>
+            <label>Aankoopprijs rol (€) <span style={{ color: 'var(--muted)', fontWeight: 400 }}>optioneel</span></label>
             <input
               type="number" step="0.01" min="0"
               value={prijsStr}
@@ -393,7 +388,7 @@ export default function Filament() {
                 </thead>
                 <tbody>
                   {rollen.map(r => (
-                    <tr key={r.id} style={{ opacity: r.actief ? 1 : 0.5, cursor:'pointer' }} onClick={() => setRolModal(r)}>
+                    <tr key={r.id} ref={r.id === highlightId ? highlightRef : null} style={{ opacity: r.actief ? 1 : 0.5, cursor:'pointer', outline: r.id === highlightId ? '2px solid var(--accent)' : undefined, background: r.id === highlightId ? 'var(--bg3)' : undefined }} onClick={() => setRolModal(r)}>
                       <td>
                         <div style={{ fontWeight: 500 }}>{r.merk} {r.materiaal}</div>
                       </td>
