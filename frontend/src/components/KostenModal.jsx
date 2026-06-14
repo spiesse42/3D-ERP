@@ -40,11 +40,18 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const [tarievenGeladen, setTarievenGeladen] = useState(false);
   const [btw,             setBtw]             = useState(false);
   const [autoSaveTimer,   setAutoSaveTimer]   = useState(null);
+  const [autoSaveMsg,     setAutoSaveMsg]     = useState('');
   const isReadOnly = ['gecontroleerd','gefactureerd','betaald'].includes(job.status);
 
   const live     = printerLiveData;
   const kwhDelta = live?.kwh_delta ?? (job.kwh_start > 0 ? job.kwh_start : null);
-  const liveGram = live?.filament_g || 0;
+  // liveGram: voor Ender herbereken op basis van gekoppeld materiaaltype
+  const liveGramRaw = live?.filament_g || 0;
+  const eersteMateriaal = materialen[0]?.materiaal?.toLowerCase() || '';
+  const autoFactor = eersteMateriaal.includes('petg') ? 3.20 : 2.98;
+  const liveGram = live?.type === 'ender' && autoFactor !== 2.98
+    ? liveGramRaw / 2.98 * autoFactor
+    : liveGramRaw;
 
   // Verstreken tijd — Ender geeft seconden via elapsed_sec
   const liveElapsedSec = live?.elapsed_sec || 0;
@@ -131,7 +138,12 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   useEffect(() => {
     if (isReadOnly) return;
     const timer = setInterval(() => {
-      if (tarievenGeladen) bereken(false);
+      if (tarievenGeladen) {
+        bereken(false);
+        setAutoSaveMsg('✓ Automatisch bewaard');
+        setTimeout(() => setAutoSaveMsg(''), 3000);
+        window.dispatchEvent(new CustomEvent('erp-autosave', { detail: { msg: '✓ Automatisch bewaard' } }));
+      }
     }, 30000);
     return () => clearInterval(timer);
   }, [tarievenGeladen, isReadOnly, formValues]);
@@ -350,8 +362,9 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             <input type="number" placeholder="gram" value={gram} onChange={e => setGram(e.target.value)} style={{ fontSize:12 }} />
             {liveGram > 0 && (
               <button className="btn" style={{ fontSize:10, padding:'4px 6px', whiteSpace:'nowrap' }}
-                title="Live gewicht overnemen" onClick={() => setGram(liveGram.toFixed(1))}>
-                ↺ {liveGram.toFixed(1)}g
+                title={`Live gewicht overnemen${live?.type === 'ender' ? ` (factor: ${autoFactor} g/m)` : ''}`}
+                onClick={() => setGram(Math.ceil(liveGram).toString())}>
+                ↺ {Math.ceil(liveGram)}g
               </button>
             )}
             <button className="btn primary" style={{ fontSize:11 }} onClick={voegMateriaaltoe}>+ Voeg toe</button>
@@ -486,8 +499,11 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
 
         <button className="btn primary" style={{ width:'100%', marginBottom:'0.75rem', padding:'9px' }}
           onClick={() => bereken(true)} disabled={saving}>
-          {saving ? 'Berekenen...' : '🧮 Bereken kostprijs'}
+          {saving ? 'Berekenen...' : '🧮 Bereken & bewaar'}
         </button>
+        {autoSaveMsg && (
+          <div style={{ fontSize:11, color:'var(--accent2)', textAlign:'center', marginTop:4 }}>{autoSaveMsg}</div>
+        )}
 
         {/* RESULTAAT */}
         {result && (

@@ -351,9 +351,11 @@ export default function Jobs() {
     loadJobs();
     api.get('/printers').then(setPrinters);
     api.get('/klanten').then(setKlanten);
-    // Auto-refresh elke 10s zodat auto-finish/cancel zichtbaar wordt zonder refresh
     const interval = setInterval(loadJobs, 10000);
-    return () => clearInterval(interval);
+
+    return () => {
+      clearInterval(interval);
+    };
   }, []);
 
   const filtered = filter ? jobs.filter(j => j.status === filter) : jobs;
@@ -369,7 +371,7 @@ export default function Jobs() {
     <div>
       <div className="page-header">
         <h1>Jobs</h1>
-        <div style={{ display:'flex', gap:8 }}>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
           <select value={filter} onChange={e => setFilter(e.target.value)} style={{ width:'auto' }}>
             <option value="">Alle statussen</option>
             {STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}

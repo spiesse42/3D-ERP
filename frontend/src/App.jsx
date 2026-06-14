@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import Dashboard from './pages/Dashboard.jsx';
 import Jobs from './pages/Jobs.jsx';
 import Klanten from './pages/Klanten.jsx';
@@ -18,13 +19,37 @@ const NAV = [
   { to: '/instellingen',  icon: '⚙',  label: 'Instellingen' },
 ];
 
-const basename = window.location.pathname.replace(
-  /\/(jobs|klanten|filament|offertes|statistieken|instellingen).*$/, ''
-);
+function AutoSaveIndicator() {
+  const [actief, setActief] = useState(false);
+
+  useEffect(() => {
+    const handler = () => {
+      setActief(true);
+      setTimeout(() => setActief(false), 3000);
+    };
+    window.addEventListener('erp-autosave', handler);
+    return () => window.removeEventListener('erp-autosave', handler);
+  }, []);
+
+  if (!actief) return null;
+  return (
+    <div style={{
+      position:'fixed', top:12, right:16, zIndex:9999,
+      background:'var(--bg2)', border:'1px solid var(--accent2)',
+      borderRadius:20, padding:'4px 12px', fontSize:11,
+      color:'var(--accent2)', display:'flex', alignItems:'center', gap:6,
+      boxShadow:'0 0 8px rgba(34,197,94,0.3)',
+      animation:'fadeIn 0.2s ease'
+    }}>
+      <span style={{ width:7, height:7, borderRadius:'50%', background:'var(--accent2)', display:'inline-block' }} />
+      Automatisch bewaard
+    </div>
+  );
+}
 
 export default function App() {
   return (
-    <BrowserRouter basename={basename}>
+    <BrowserRouter>
       <div className="app-shell">
         <nav className="sidebar">
           <div className="sidebar-brand">
@@ -42,6 +67,7 @@ export default function App() {
             ))}
           </ul>
         </nav>
+        <AutoSaveIndicator />
         <main className="content">
           <Routes>
             <Route path="/"              element={<Dashboard />} />
