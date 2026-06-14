@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
 
 const KLEUREN = [
@@ -52,12 +53,11 @@ function TypeModal({ type, onClose, onSaved }) {
   const [form, setForm] = useState(type?.id ? { ...type } : {
     merk: '', materiaal: 'PLA+', inkoop_prijs_per_kg: '', dichtheid_g_per_cm3: 1.24, leverancier: ''
   });
-  // Lokale string voor prijs zodat je ononderbroken kan typen
   const [prijsStr, setPrijsStr] = useState(String(form.inkoop_prijs_per_kg ?? ''));
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
- async function save() {
+  async function save() {
     if (!form.merk || !form.materiaal) { alert('Merk en materiaal zijn verplicht'); return; }
     const prijs = parseFloat(prijsStr.replace(',', '.'));
     try {
@@ -131,7 +131,6 @@ function RolModal({ types, rol, onClose, onSaved }) {
     lotnummer:          '',
   });
 
-  // Lokale strings voor numerieke velden — cursor springt niet weg
   const [startStr,  setStartStr]  = useState(String(form.gewicht_gram_start));
   const [huidigStr, setHuidigStr] = useState(String(form.gewicht_gram_huidig));
   const [prijsStr,  setPrijsStr]  = useState(String(form.aankoopprijs_eur ?? ''));
@@ -147,7 +146,6 @@ function RolModal({ types, rol, onClose, onSaved }) {
     }
   }
 
-  // Effectieve prijs/kg berekenen voor weergave
   const gekozenType = types.find(t => t.id === parseInt(form.filament_type_id));
   const aankoopNum  = parseFloat(prijsStr.replace(',', '.'));
   const startNum    = parseFloat(startStr) || 1000;
@@ -307,6 +305,17 @@ export default function Filament() {
   const [typeModal, setTypeModal] = useState(null);
   const [rolModal,  setRolModal]  = useState(null);
 
+  // Highlight via URL parameter (bv. vanuit Dashboard filamentstock widget)
+  const [searchParams] = useSearchParams();
+  const highlightId = searchParams.get('highlight') ? parseInt(searchParams.get('highlight')) : null;
+  const highlightRef = useRef(null);
+
+  useEffect(() => {
+    if (highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [highlightId, rollen]);
+
   const load = () => {
     api.get('/filament/types').then(setTypes);
     api.get('/filament/rollen').then(setRollen);
@@ -388,7 +397,15 @@ export default function Filament() {
                 </thead>
                 <tbody>
                   {rollen.map(r => (
-                    <tr key={r.id} ref={r.id === highlightId ? highlightRef : null} style={{ opacity: r.actief ? 1 : 0.5, cursor:'pointer', outline: r.id === highlightId ? '2px solid var(--accent)' : undefined, background: r.id === highlightId ? 'var(--bg3)' : undefined }} onClick={() => setRolModal(r)}>
+                    <tr key={r.id}
+                      ref={r.id === highlightId ? highlightRef : null}
+                      style={{
+                        opacity: r.actief ? 1 : 0.5,
+                        cursor: 'pointer',
+                        outline: r.id === highlightId ? '2px solid var(--accent)' : undefined,
+                        background: r.id === highlightId ? 'var(--bg3)' : undefined,
+                      }}
+                      onClick={() => setRolModal(r)}>
                       <td>
                         <div style={{ fontWeight: 500 }}>{r.merk} {r.materiaal}</div>
                       </td>
@@ -443,14 +460,15 @@ export default function Filament() {
           ? <div className="empty">Geen filamenttypes</div>
           : <div className="card" style={{ padding: 0 }}>
               <table>
-                <thead><tr><th>Merk</th><th>Materiaal</th><th>Dichtheid</th><th>Leverancier</th><th>Acties</th></tr>
-		</thead>
+                <thead>
+                  <tr><th>Merk</th><th>Materiaal</th><th>Dichtheid</th><th>Leverancier</th><th>Acties</th></tr>
+                </thead>
                 <tbody>
                   {types.map(t => (
-                    <tr key={t.id} style={{ cursor:'pointer' }} onClick={() => setTypeModal(t)}>
+                    <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setTypeModal(t)}>
                       <td style={{ fontWeight: 500 }}>{t.merk}</td>
                       <td>{t.materiaal}</td>
-                       <td style={{ color: 'var(--muted)' }}>{t.dichtheid_g_per_cm3} g/cm³</td>
+                      <td style={{ color: 'var(--muted)' }}>{t.dichtheid_g_per_cm3} g/cm³</td>
                       <td style={{ color: 'var(--muted)' }}>{t.leverancier || '—'}</td>
                       <td>
                         <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
