@@ -211,7 +211,13 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const geschatteEindkost = (() => {
     if (!isBezig || !totaleUrenGeschat || !tarievenGeladen) return null;
     const matKost = materialen.reduce((s, m) => s + (m.gram_gebruikt / 1000) * (m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0), 0) * (1 + (t.faalfactor_pct || 10) / 100);
-    const energieKost = (kwhGeschat || 0) * (t.kwh_prijs || 0.35);
+    const BAMBU_WATT_FALLBACK = 0.085; // 85W gemiddelde in kW
+    const elapsedUren = (live?.elapsed_sec || 0) / 3600;
+    const gemiddeldKw = elapsedUren > 0.033 && (live?.kwh_delta || 0) > 0
+    ? (live.kwh_delta / elapsedUren)
+    : BAMBU_WATT_FALLBACK;
+    const geschatteEnergie = gemiddeldKw * totaleUrenGeschat;
+    const energieKost = geschatteEnergie * (t.kwh_prijs || 0.35);    
     const machineKost = totaleUrenGeschat * (t.machine_kost_per_uur || 0);
     const bmcu = isMulticolor ? (t.bmcu_per_job || 0.10) : 0;
     const arbeid = (totVoorb / 60) * (t.arbeid_per_uur || 15) + ((parseInt(nabMin) || 0) / 60) * (t.arbeid_per_uur || 15);
@@ -373,20 +379,12 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
         {/* ENERGIE */}
         <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
           <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>⚡ Energie</p>
-          {live && (
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginBottom:8, fontSize:11 }}>
-              {[
-                ['Start kWh',   live.kwh_start?.toFixed(3)],
-                ['Huidig kWh',  live.kwh_current?.toFixed(3)],
-                ['Δ Verbruikt', kwhDelta != null ? `${kwhDelta.toFixed(3)} kWh` : null],
-              ].map(([label, val]) => (
-                <div key={label} style={{ background:'var(--bg2)', borderRadius:6, padding:'5px 8px' }}>
-                  <div style={{ color:'var(--muted)' }}>{label}</div>
-                  <div style={{ fontWeight:600, color:'#fbbf24' }}>{val ?? '—'}</div>
-                </div>
-              ))}
-            </div>
-          )}
+          {live && kwhDelta != null && (
+  <div style={{ background:'var(--bg2)', borderRadius:6, padding:'5px 8px', marginBottom:8, fontSize:11, display:'inline-block' }}>
+    <div style={{ color:'var(--muted)' }}>Δ Verbruikt</div>
+    <div style={{ fontWeight:600, color:'#fbbf24' }}>{kwhDelta.toFixed(3)} kWh</div>
+  </div>
+)}
           <div style={{ display:'flex', gap:8 }}>
             <input type="number" step="0.001" value={kwh} onChange={e => setKwh(e.target.value)} placeholder="kWh verbruikt" style={{ flex:1 }} />
             {kwhDelta != null && kwhDelta > 0 && (
