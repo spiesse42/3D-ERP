@@ -39,6 +39,8 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const [kwh,             setKwh]             = useState(job.status === 'voltooid' && job.kwh_start ? String(job.kwh_start.toFixed(3)) : '');
   const [tarievenGeladen, setTarievenGeladen] = useState(false);
   const [btw,             setBtw]             = useState(false);
+  const [autoSaveTimer,   setAutoSaveTimer]   = useState(null);
+  const isReadOnly = ['gecontroleerd','gefactureerd','betaald'].includes(job.status);
 
   const live     = printerLiveData;
   const kwhDelta = live?.kwh_delta ?? (job.kwh_start > 0 ? job.kwh_start : null);
@@ -124,6 +126,15 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     const timer = setTimeout(() => { bereken(false); }, 800);
     return () => clearTimeout(timer);
   }, [formValues, autoCalc, tarievenGeladen]);
+
+  // Auto-save elke 30s
+  useEffect(() => {
+    if (isReadOnly) return;
+    const timer = setInterval(() => {
+      if (tarievenGeladen) bereken(false);
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [tarievenGeladen, isReadOnly, formValues]);
 
   async function voegMateriaaltoe() {
     if (!selectedRol || !gram) return alert('Selecteer een rol en geef gram op');
@@ -523,6 +534,24 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
               </>
             )}
 
+            {/* STATUS ACTIES */}
+            <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:6 }}>
+              {job.status === 'voltooid' && (
+                <button className="btn primary" style={{ width:'100%' }} onClick={async () => {
+                  await api.patch(`/jobs/${job.id}/status`, { status: 'gecontroleerd' });
+                  onJobUpdated?.();
+                  onClose();
+                }}>✓ Markeer als gecontroleerd</button>
+              )}
+              {['gecontroleerd','gefactureerd'].includes(job.status) && (
+                <button className="btn" style={{ width:'100%' }} onClick={async () => {
+                  await api.patch(`/jobs/${job.id}/status`, { status: 'voltooid' });
+                  onJobUpdated?.();
+                  onClose();
+                }}>↺ Heropen (terug naar voltooid)</button>
+              )}
+            </div>
+
             <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:6 }}>
               <div style={{ display:'flex', gap:6 }}>
                 <a className="btn" style={{ flex:1, textAlign:'center' }}
@@ -532,7 +561,13 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
                 </a>
                 <a className="btn" style={{ flex:1, textAlign:'center' }}
                   href={`${BASE}/kosten/pdf/${job.id}?aantal=${aantal}&btw=${btw ? '1' : '0'}`}
-                  download>
+                  download
+                  onClick={async () => {
+                    if (['gecontroleerd'].includes(job.status)) {
+                      await api.patch(`/jobs/${job.id}/status`, { status: 'gefactureerd' });
+                      onJobUpdated?.();
+                    }
+                  }}>
                   ↓ Download
                 </a>
               </div>

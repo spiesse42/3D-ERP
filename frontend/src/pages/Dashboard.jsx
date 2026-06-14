@@ -272,7 +272,7 @@ function OperationeelWidget({ icon, titel, items, renderRij, leegTekst }) {
 export default function Dashboard() {
   const [rollen,       setRollen]       = useState([]);
   const [klanten,      setKlanten]      = useState([]);
-  const [operationeel, setOperationeel] = useState({ gepland:[], bezig:[], te_factureren:[] });
+  const [operationeel, setOperationeel] = useState({ gepland:[], bezig:[], voltooid:[], controle_facturatie:[] });
   const [loading,      setLoading]      = useState(true);
   const { printerConfig, printerData }  = usePrinterData();
   const navigate = useNavigate();
@@ -387,18 +387,41 @@ export default function Dashboard() {
         />
 
         <OperationeelWidget
-          icon="💶" titel="Te factureren" leegTekst="Niets openstaand"
-          items={operationeel.te_factureren}
+          icon="✅" titel="Voltooid" leegTekst="Geen voltooide jobs"
+          items={operationeel.voltooid}
           renderRij={j => (
             <div key={j.id} style={jobRijStijl()}
               onClick={() => navigate(`/jobs?highlight=${j.id}`)}
               onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
               onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-              <div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:500 }}>{j.naam}</div>
+                <div style={{ color:'var(--muted)', fontSize:11 }}>
+                  {j.klant_voornaam ? `${j.klant_voornaam} ${j.klant_naam}` : j.klant_naam || '—'}
+                </div>
+              </div>
+              {j.verkoopprijs != null
+                ? <span style={{ color:'var(--warn)', fontWeight:600 }}>~€{j.verkoopprijs.toFixed(2)}</span>
+                : <span style={{ color:'var(--muted)', fontSize:11 }}>geen prijs</span>
+              }
+            </div>
+          )}
+        />
+
+        <OperationeelWidget
+          icon="💶" titel="Controle / Facturatie" leegTekst="Niets openstaand"
+          items={operationeel.controle_facturatie}
+          renderRij={j => (
+            <div key={j.id} style={jobRijStijl()}
+              onClick={() => navigate(`/jobs?highlight=${j.id}`)}
+              onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
+              onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+              <div style={{ flex:1 }}>
                 <div style={{ fontWeight:500 }}>{j.naam}</div>
                 <div style={{ color:'var(--muted)', fontSize:11 }}>
                   {j.klant_voornaam ? `${j.klant_voornaam} ${j.klant_naam}` : j.klant_naam}
                 </div>
+                <span style={{ fontSize:10, padding:'1px 5px', borderRadius:3, background: j.status === 'gefactureerd' ? 'rgba(245,158,11,0.2)' : 'rgba(139,92,246,0.2)', color: j.status === 'gefactureerd' ? 'var(--warn)' : '#8b5cf6' }}>{j.status}</span>
               </div>
               {j.verkoopprijs != null
                 ? <span style={{ color:'var(--accent2)', fontWeight:600 }}>€{j.verkoopprijs.toFixed(2)}</span>

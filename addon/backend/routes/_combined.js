@@ -247,15 +247,16 @@ rapportage.get('/stats/kwh', (req, res) => {
 rapportage.get('/dashboard/operationeel', (req, res) => {
   const db = getDb();
   const gepland = db.prepare(`
-SELECT j.*, k.naam as klant_naam, k.voornaam as klant_voornaam, p.naam as printer_naam
+    SELECT j.*, k.naam as klant_naam, k.voornaam as klant_voornaam, p.naam as printer_naam
     FROM jobs j
     LEFT JOIN klanten k ON k.id = j.klant_id
     LEFT JOIN printers p ON p.id = j.printer_id
     WHERE j.status = 'gepland'
     ORDER BY j.aangemaakt_op ASC
   `).all();
+
   const bezig = db.prepare(`
-SELECT j.*, k.naam as klant_naam, k.voornaam as klant_voornaam, p.naam as printer_naam
+    SELECT j.*, k.naam as klant_naam, k.voornaam as klant_voornaam, p.naam as printer_naam
     FROM jobs j
     LEFT JOIN klanten k ON k.id = j.klant_id
     LEFT JOIN printers p ON p.id = j.printer_id
@@ -263,23 +264,32 @@ SELECT j.*, k.naam as klant_naam, k.voornaam as klant_voornaam, p.naam as printe
     ORDER BY j.gestart_op ASC
   `).all();
 
-  const te_factureren = db.prepare(`
+  const voltooid = db.prepare(`
     SELECT j.*, k.naam as klant_naam, k.voornaam as klant_voornaam, p.naam as printer_naam,
-jk.verkoopprijs
+      jk.verkoopprijs
     FROM jobs j
     LEFT JOIN klanten k ON k.id = j.klant_id
     LEFT JOIN printers p ON p.id = j.printer_id
     LEFT JOIN job_kosten jk ON jk.job_id = j.id
     WHERE j.status = 'voltooid'
+    ORDER BY j.voltooid_op DESC
+    LIMIT 20
+  `).all();
+
+  const controle_facturatie = db.prepare(`
+    SELECT j.*, k.naam as klant_naam, k.voornaam as klant_voornaam, p.naam as printer_naam,
+      jk.verkoopprijs
+    FROM jobs j
+    LEFT JOIN klanten k ON k.id = j.klant_id
+    LEFT JOIN printers p ON p.id = j.printer_id
+    LEFT JOIN job_kosten jk ON jk.job_id = j.id
+    WHERE j.status IN ('gecontroleerd','gefactureerd')
       AND j.klant_id IS NOT NULL
       AND (j.betaald = 0 OR j.betaald IS NULL)
-      AND NOT EXISTS (
-        SELECT 1 FROM offertes_v2 ov
-        WHERE ov.job_id = j.id AND ov.status IN ('betaald','gefactureerd')
-      )
     ORDER BY j.voltooid_op DESC
   `).all();
-  res.json({ gepland, bezig, te_factureren });
+
+  res.json({ gepland, bezig, voltooid, controle_facturatie });
 });
 
 rapportage.get('/csv/jobs', (req, res) => {

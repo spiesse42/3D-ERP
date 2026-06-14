@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import KostenModal from '../components/KostenModal.jsx';
 
-const STATUSSEN = ['gepland','bezig','voltooid','gefaald','geannuleerd'];
+const STATUSSEN = ['gepland','bezig','voltooid','gecontroleerd','gefactureerd','betaald','gefaald','geannuleerd'];
 
 function StatusDot({ status }) {
   const colors = { running:'#ef4444', printing:'#ef4444', finish:'#22c55e', complete:'#22c55e', success:'#22c55e', idle:'#f59e0b', standby:'#f59e0b', unavailable:'#555' };
@@ -421,13 +421,22 @@ export default function Jobs() {
                         return `${prefix}${h}u ${m}m`;
                       })()}
                     </td>
-                    <td>{j.verkoopprijs != null ? <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span> : <span style={{ color:'var(--muted)' }}>—</span>}</td>
+                    <td>{j.verkoopprijs != null
+                      ? ['bezig','voltooid'].includes(j.status)
+                        ? <div><span style={{ color:'var(--warn)' }}>~€{j.verkoopprijs.toFixed(2)}</span><div style={{ fontSize:10, color:'var(--muted)' }}>geschat</div></div>
+                        : <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span>
+                      : <span style={{ color:'var(--muted)' }}>—</span>}</td>
                     <td onClick={e => e.stopPropagation()}>
-                      {j.status === 'voltooid'
-                        ? <input type="checkbox" checked={!!j.betaald}
+                      {['voltooid','gecontroleerd','gefactureerd','betaald'].includes(j.status)
+                        ? <input type="checkbox"
+                            checked={j.status === 'betaald'}
                             style={{ width:16, height:16, cursor:'pointer', accentColor:'var(--accent2)' }}
                             onChange={async e => {
-                              await api.patch(`/jobs/${j.id}/betaald`, { betaald: e.target.checked });
+                              if (e.target.checked) {
+                                await api.patch(`/jobs/${j.id}/status`, { status: 'betaald' });
+                              } else {
+                                await api.patch(`/jobs/${j.id}/status`, { status: 'gefactureerd' });
+                              }
                               loadJobs();
                             }} />
                         : <span style={{ color:'var(--muted)' }}>—</span>
