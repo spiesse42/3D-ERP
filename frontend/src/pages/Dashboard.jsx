@@ -347,7 +347,7 @@ export default function Dashboard() {
         </span>
       </div>
 
-      {/* Rij 1: Printerkaarten + operationele widgets */}
+      {/* Rij 1: Printerkaarten + Filamentstock */}
       <div style={{ display:'flex', gap:'1rem', marginBottom:'1.5rem', flexWrap:'wrap' }}>
         {printerConfig.map(p => (
           <PrinterCard
@@ -361,6 +361,41 @@ export default function Dashboard() {
           />
         ))}
 
+        {/* Filamentstock in rij 1 */}
+        <div className="card" style={{ flex:1, minWidth:220 }}>
+          <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.75rem' }}>
+            🧵 Filamentstock
+            <span style={{ fontSize:12, color:'var(--muted)', fontWeight:400, marginLeft:6 }}>({activeRollen.length})</span>
+          </h2>
+          {activeRollen.length === 0
+            ? <p style={{ color:'var(--muted)', fontSize:12 }}>Geen actieve rollen</p>
+            : <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem' }}>
+                {activeRollen.map(r => {
+                  const pct = Math.min(100, Math.round((r.gewicht_gram_huidig / (r.gewicht_gram_start || 1000)) * 100));
+                  const kleur = pct > 50 ? '#22c55e' : pct > 20 ? '#f59e0b' : '#ef4444';
+                  return (
+                    <div key={r.id} style={{ padding:'6px 8px', background:'var(--bg3)', borderRadius:6 }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:4 }}>
+                        <span style={{ fontWeight:500, display:'flex', alignItems:'center', gap:4 }}>
+                          {r.merk} {r.materiaal}
+                          <KleurDot kleur={r.kleur} hex={r.kleur_hex} size={10} />
+                          <span style={{ color:'var(--muted)' }}>{r.kleur}</span>
+                        </span>
+                        <span style={{ color:'var(--muted)' }}>{Math.ceil(r.gewicht_gram_huidig)}g</span>
+                      </div>
+                      <div style={{ height:3, background:'var(--bg2)', borderRadius:2 }}>
+                        <div style={{ width:`${pct}%`, height:'100%', background:kleur, borderRadius:2 }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+          }
+        </div>
+      </div>
+
+      {/* Rij 2: Operationele secties */}
+      <div style={{ display:'flex', gap:'1rem', marginBottom:'1.5rem', flexWrap:'wrap' }}>
         <OperationeelWidget
           icon="📋" titel="Gepland" leegTekst="Geen jobs in wachtrij"
           items={operationeel.gepland}
@@ -454,37 +489,7 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Filamentstock */}
-      <div className="card">
-        <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.75rem' }}>
-          🧵 Filamentstock
-          <span style={{ fontSize:12, color:'var(--muted)', fontWeight:400, marginLeft:6 }}>({activeRollen.length})</span>
-        </h2>
-        {activeRollen.length === 0
-          ? <p style={{ color:'var(--muted)', fontSize:12 }}>Geen actieve rollen</p>
-          : <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(200px, 1fr))', gap:'0.5rem' }}>
-              {activeRollen.map(r => {
-                const pct = Math.min(100, Math.round((r.gewicht_gram_huidig / (r.gewicht_gram_start || 1000)) * 100));
-                const kleur = pct > 50 ? '#22c55e' : pct > 20 ? '#f59e0b' : '#ef4444';
-                return (
-                  <div key={r.id} style={{ padding:'6px 8px', background:'var(--bg3)', borderRadius:6 }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:4 }}>
-                      <span style={{ fontWeight:500, display:'flex', alignItems:'center', gap:4 }}>
-                        {r.merk} {r.materiaal}
-                        <KleurDot kleur={r.kleur} hex={r.kleur_hex} size={10} />
-                        <span style={{ color:'var(--muted)' }}>{r.kleur}</span>
-                      </span>
-                      <span style={{ color:'var(--muted)' }}>{Math.ceil(r.gewicht_gram_huidig)}g</span>
-                    </div>
-                    <div style={{ height:3, background:'var(--bg2)', borderRadius:2 }}>
-                      <div style={{ width:`${pct}%`, height:'100%', background:kleur, borderRadius:2 }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-        }
-      </div>
+
     </div>
   );
 }
