@@ -52,6 +52,7 @@ r.get('/te-bestellen-overzicht', (req, res) => {
 
     const automatisch = db.prepare(`
       SELECT ft.id as filament_type_id, ft.merk, ft.materiaal, ft.categorie, ft.eenheid,
+        r.kleur, r.kleur_hex,
         COUNT(*) as aantal_laag_rollen,
         MIN(r.gewicht_gram_huidig) as laagste_voorraad
       FROM filament_rollen r
@@ -61,35 +62,38 @@ r.get('/te-bestellen-overzicht', (req, res) => {
           ft.min_voorraad,
           CASE WHEN r.gewicht_gram_start <= 200 THEN 50 ELSE 100 END
         )
-      GROUP BY ft.id
+      GROUP BY ft.id, r.kleur
     `).all();
 
     const handmatig = db.prepare(`
-      SELECT tb.id as handmatig_id, tb.notitie, tb.toegevoegd_op,
+      SELECT tb.id as handmatig_id, tb.notitie, tb.toegevoegd_op, tb.kleur, tb.kleur_hex,
         ft.id as filament_type_id, ft.merk, ft.materiaal, ft.categorie, ft.eenheid
       FROM te_bestellen_handmatig tb
       JOIN filament_types ft ON ft.id = tb.filament_type_id
     `).all();
 
+    const sleutel = (typeId, kleur) => `${typeId}::${kleur || ''}`;
     const map = new Map();
     for (const a of automatisch) {
-      map.set(a.filament_type_id, {
+      map.set(sleutel(a.filament_type_id, a.kleur), {
         filament_type_id: a.filament_type_id, merk: a.merk, materiaal: a.materiaal,
-        categorie: a.categorie, eenheid: a.eenheid,
+        categorie: a.categorie, eenheid: a.eenheid, kleur: a.kleur, kleur_hex: a.kleur_hex,
         automatisch: true, laagste_voorraad: a.laagste_voorraad, aantal_laag_rollen: a.aantal_laag_rollen,
         handmatig: false, handmatig_id: null, notitie: null
       });
     }
     for (const h of handmatig) {
-      const bestaand = map.get(h.filament_type_id);
+      const key = sleutel(h.filament_type_id, h.kleur);
+      const bestaand = map.get(key);
       if (bestaand) {
         bestaand.handmatig = true;
         bestaand.handmatig_id = h.handmatig_id;
         bestaand.notitie = h.notitie;
+        if (!bestaand.kleur_hex && h.kleur_hex) bestaand.kleur_hex = h.kleur_hex;
       } else {
-        map.set(h.filament_type_id, {
+        map.set(key, {
           filament_type_id: h.filament_type_id, merk: h.merk, materiaal: h.materiaal,
-          categorie: h.categorie, eenheid: h.eenheid,
+          categorie: h.categorie, eenheid: h.eenheid, kleur: h.kleur, kleur_hex: h.kleur_hex,
           automatisch: false, laagste_voorraad: null, aantal_laag_rollen: 0,
           handmatig: true, handmatig_id: h.handmatig_id, notitie: h.notitie
         });
@@ -105,12 +109,15 @@ r.get('/te-bestellen-overzicht', (req, res) => {
 r.post('/te-bestellen-handmatig', (req, res) => {
   const db = getDb();
   try {
-    const { filament_type_id, notitie } = req.body;
+    const { filament_type_id, kleur, kleur_hex, notitie } = req.body;
     if (!filament_type_id) return res.status(400).json({ error: 'filament_type_id is verplicht' });
-    const bestaat = db.prepare('SELECT id FROM te_bestellen_handmatig WHERE filament_type_id = ?').get(filament_type_id);
-    if (bestaat) return res.status(409).json({ error: 'Dit artikeltype staat al manueel op de "te bestellen"-lijst' });
-    const result = db.prepare('INSERT INTO te_bestellen_handmatig (filament_type_id, notitie) VALUES (?,?)')
-      .run(filament_type_id, notitie || null);
+    const bestaat = db.prepare(
+      "SELECT id FROM te_bestellen_handmatig WHERE filament_type_id = ? AND COALESCE(kleur,'') = COALESCE(?,'')"
+    ).get(filament_type_id, kleur || null);
+    if (bestaat) return res.status(409).json({ error: 'Dit artikel (in deze kleur) staat al manueel op de "te bestellen"-lijst' });
+    const result = db.prepare(
+      'INSERT INTO te_bestellen_handmatig (filament_type_id, kleur, kleur_hex, notitie) VALUES (?,?,?,?)'
+    ).run(filament_type_id, kleur || null, kleur_hex || null, notitie || null);
     res.status(201).json({ id: result.lastInsertRowid });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -174,9 +181,11 @@ r.post('/', (req, res) => {
       'INSERT INTO bestellingen (leverancier_id, referentie, besteld_op, notities) VALUES (?,?,?,?)'
     );
     const insertItem = db.prepare(
-      'INSERT INTO bestelling_items (bestelling_id, filament_type_id, aantal, prijs_totaal, notities) VALUES (?,?,?,?,?)'
+      'INSERT INTO bestelling_items (bestelling_id, filament_type_id, kleur, kleur_hex, aantal, prijs_totaal, notities) VALUES (?,?,?,?,?,?,?)'
     );
-    const verwijderHandmatig = db.prepare('DELETE FROM te_bestellen_handmatig WHERE filament_type_id = ?');
+    const verwijderHandmatig = db.prepare(
+      "DELETE FROM te_bestellen_handmatig WHERE filament_type_id = ? AND COALESCE(kleur,'') = COALESCE(?,'')"
+    );
 
     const bestellingId = db.transaction(() => {
       const info = insertBestelling.run(
@@ -188,12 +197,12 @@ r.post('/', (req, res) => {
       for (const item of items) {
         if (!item.filament_type_id) throw new Error('Elk item heeft een filament_type_id nodig');
         insertItem.run(
-          id, item.filament_type_id,
+          id, item.filament_type_id, item.kleur || null, item.kleur_hex || null,
           (item.aantal !== undefined && item.aantal !== '') ? parseFloat(item.aantal) : null,
           (item.prijs_totaal !== undefined && item.prijs_totaal !== '') ? parseFloat(item.prijs_totaal) : null,
           item.notities || null
         );
-        verwijderHandmatig.run(item.filament_type_id);
+        verwijderHandmatig.run(item.filament_type_id, item.kleur || null);
       }
       return id;
     })();

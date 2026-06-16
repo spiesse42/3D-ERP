@@ -83,6 +83,20 @@ r.delete('/types/:id', (req, res) => {
   }
 });
 
+// GET bestaande kleuren voor een type — voor de kleurkiezer bij bestellen
+r.get('/types/:id/kleuren', (req, res) => {
+  try {
+    const rows = getDb().prepare(`
+      SELECT DISTINCT kleur, kleur_hex FROM filament_rollen
+      WHERE filament_type_id = ? AND kleur IS NOT NULL AND kleur != ''
+      ORDER BY kleur
+    `).all(req.params.id);
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Rollen ───────────────────────────────────────────────────────────────────
 
 r.get('/rollen', (req, res) => {

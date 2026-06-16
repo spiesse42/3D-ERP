@@ -18,6 +18,75 @@ function eenheidLabel(eenheid) {
   return 'g';
 }
 
+// Samengestelde sleutel — een rij/regel is altijd type + kleur, nooit enkel type
+function regelKey(filamentTypeId, kleur) {
+  return `${filamentTypeId}::${kleur || ''}`;
+}
+
+// ─── KleurKiezer — bestaande kleuren uit voorraad-historiek + nieuwe kleur toevoegen ──
+function KleurKiezer({ filamentTypeId, kleur, onChange }) {
+  const [bestaande, setBestaande] = useState([]);
+  const [nieuw, setNieuw] = useState(false);
+
+  useEffect(() => {
+    if (!filamentTypeId) { setBestaande([]); return; }
+    api.get(`/filament/types/${filamentTypeId}/kleuren`).then(rows => {
+      setBestaande(rows);
+      setNieuw(rows.length === 0);
+    });
+  }, [filamentTypeId]);
+
+  if (!filamentTypeId) return null;
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
+        Kleur <span style={{ fontWeight: 400 }}>optioneel</span>
+      </label>
+
+      {bestaande.length > 0 && !nieuw && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+          <button type="button" onClick={() => onChange('', '')}
+            style={{
+              padding: '3px 8px', borderRadius: 20, fontSize: 11, color: 'var(--text)', cursor: 'pointer',
+              border: !kleur ? '2px solid var(--accent)' : '1px solid var(--border)',
+              background: !kleur ? 'var(--bg3)' : 'transparent',
+            }}>
+            geen
+          </button>
+          {bestaande.map(k => (
+            <button key={k.kleur} type="button" onClick={() => onChange(k.kleur, k.kleur_hex)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20,
+                border: kleur === k.kleur ? '2px solid var(--accent)' : '1px solid var(--border)',
+                background: kleur === k.kleur ? 'var(--bg3)' : 'transparent',
+                cursor: 'pointer', fontSize: 11, color: 'var(--text)'
+              }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: k.kleur_hex || '#555', border: '1px solid rgba(255,255,255,0.2)' }} />
+              {k.kleur}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!nieuw ? (
+        <button type="button" className="btn" style={{ fontSize: 11, padding: '3px 8px' }} onClick={() => setNieuw(true)}>
+          + Nieuwe kleur
+        </button>
+      ) : (
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input style={{ flex: 1 }} value={kleur || ''} onChange={e => onChange(e.target.value, '')} placeholder="bv. Lavendel" autoFocus />
+          {bestaande.length > 0 && (
+            <button type="button" className="btn" style={{ fontSize: 11, padding: '3px 8px' }} onClick={() => { setNieuw(false); onChange('', ''); }}>
+              Annuleer
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── LeverancierModal ──────────────────────────────────────────────────────
 function LeverancierModal({ leverancier, onClose, onSaved }) {
   const [form, setForm] = useState(leverancier?.id ? { ...leverancier } : { naam: '', website: '', notities: '' });
@@ -60,19 +129,21 @@ function LeverancierModal({ leverancier, onClose, onSaved }) {
   );
 }
 
-// ─── BestelModal — leverancier kiezen/aanmaken + artikelen vrij samenstellen ──
+// ─── BestelModal — leverancier kiezen/aanmaken + artikelen (type + kleur) vrij samenstellen ──
 function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLeveranciersChanged }) {
   const [regels, setRegels] = useState(items.map(it => ({
     filament_type_id: it.filament_type_id, merk: it.merk, materiaal: it.materiaal, eenheid: it.eenheid,
+    kleur: it.kleur || '', kleur_hex: it.kleur_hex || '',
   })));
   const [extraTypeId, setExtraTypeId] = useState('');
+  const [extraKleur, setExtraKleur] = useState('');
+  const [extraKleurHex, setExtraKleurHex] = useState('');
   const [leverancierId, setLeverancierId] = useState('');
   const [nieuweLeverancierNaam, setNieuweLeverancierNaam] = useState('');
   const [referentie, setReferentie] = useState('');
   const [aantallen, setAantallen] = useState({});
   const [notities, setNotities] = useState('');
 
-  // Eerste leverancier als default zodra de lijst beschikbaar/bijgewerkt is
   useEffect(() => {
     if (!leverancierId && leveranciers.length > 0) setLeverancierId(String(leveranciers[0].id));
   }, [leveranciers]);
@@ -80,13 +151,20 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
   function voegArtikelToe() {
     if (!extraTypeId) return;
     const t = alleTypes.find(x => String(x.id) === String(extraTypeId));
-    if (!t || regels.some(r => String(r.filament_type_id) === String(extraTypeId))) { setExtraTypeId(''); return; }
-    setRegels(rs => [...rs, { filament_type_id: t.id, merk: t.merk, materiaal: t.materiaal, eenheid: t.eenheid }]);
-    setExtraTypeId('');
+    if (!t) return;
+    if (regels.some(r => regelKey(r.filament_type_id, r.kleur) === regelKey(extraTypeId, extraKleur))) {
+      alert('Dit artikel in deze kleur staat al in de lijst');
+      return;
+    }
+    setRegels(rs => [...rs, {
+      filament_type_id: t.id, merk: t.merk, materiaal: t.materiaal, eenheid: t.eenheid,
+      kleur: extraKleur, kleur_hex: extraKleurHex,
+    }]);
+    setExtraTypeId(''); setExtraKleur(''); setExtraKleurHex('');
   }
 
-  function verwijderRegel(filament_type_id) {
-    setRegels(rs => rs.filter(r => r.filament_type_id !== filament_type_id));
+  function verwijderRegel(key) {
+    setRegels(rs => rs.filter(r => regelKey(r.filament_type_id, r.kleur) !== key));
   }
 
   async function bestel() {
@@ -110,14 +188,14 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
         notities: notities || null,
         items: regels.map(r => ({
           filament_type_id: r.filament_type_id,
-          aantal: aantallen[r.filament_type_id] || null,
+          kleur: r.kleur || null,
+          kleur_hex: r.kleur_hex || null,
+          aantal: aantallen[regelKey(r.filament_type_id, r.kleur)] || null,
         })),
       });
       onSaved();
     } catch (e) { alert(e.message); }
   }
-
-  const beschikbareTypes = alleTypes.filter(t => !regels.some(r => String(r.filament_type_id) === String(t.id)));
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -152,30 +230,45 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
             {regels.length === 0 && (
               <div style={{ fontSize: 12, color: 'var(--muted)', padding: '4px 0' }}>Nog geen artikelen toegevoegd</div>
             )}
-            {regels.map(it => (
-              <div key={it.filament_type_id} style={{ display: 'flex', alignItems: 'flex-end', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ flex: 1 }}>{it.merk} {it.materiaal}</div>
-                <div>
-                  <label style={{ fontSize: 10, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>
-                    Aantal ({eenheidLabel(it.eenheid)})
-                  </label>
-                  <input
-                    style={{ width: 100 }}
-                    value={aantallen[it.filament_type_id] || ''}
-                    onChange={e => setAantallen(a => ({ ...a, [it.filament_type_id]: e.target.value }))}
-                  />
+            {regels.map(it => {
+              const key = regelKey(it.filament_type_id, it.kleur);
+              return (
+                <div key={key} style={{ display: 'flex', alignItems: 'flex-end', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {it.kleur && <span style={{ width: 10, height: 10, borderRadius: '50%', background: it.kleur_hex || '#555', border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />}
+                    {it.merk} {it.materiaal}{it.kleur ? ` — ${it.kleur}` : ''}
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 10, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>
+                      Aantal ({eenheidLabel(it.eenheid)})
+                    </label>
+                    <input
+                      style={{ width: 100 }}
+                      value={aantallen[key] || ''}
+                      onChange={e => setAantallen(a => ({ ...a, [key]: e.target.value }))}
+                    />
+                  </div>
+                  <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => verwijderRegel(key)}>✕</button>
                 </div>
-                <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => verwijderRegel(it.filament_type_id)}>✕</button>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <select style={{ flex: 1 }} value={extraTypeId} onChange={e => setExtraTypeId(e.target.value)}>
+            <select style={{ flex: 1 }} value={extraTypeId} onChange={e => { setExtraTypeId(e.target.value); setExtraKleur(''); setExtraKleurHex(''); }}>
               <option value="">+ Artikel toevoegen aan deze bestelling...</option>
-              {beschikbareTypes.map(t => <option key={t.id} value={t.id}>{t.merk} {t.materiaal}</option>)}
+              {alleTypes.map(t => <option key={t.id} value={t.id}>{t.merk} {t.materiaal}</option>)}
             </select>
-            <button className="btn" onClick={voegArtikelToe} disabled={!extraTypeId}>Toevoegen</button>
           </div>
+          {extraTypeId && (
+            <>
+              <KleurKiezer
+                filamentTypeId={extraTypeId}
+                kleur={extraKleur}
+                onChange={(k, h) => { setExtraKleur(k); setExtraKleurHex(h); }}
+              />
+              <button className="btn primary" style={{ marginTop: 8 }} onClick={voegArtikelToe}>Toevoegen aan bestelling</button>
+            </>
+          )}
         </div>
 
         <div className="form-group">
@@ -197,7 +290,7 @@ function OntvangstModal({ item, onClose, onSaved }) {
   const eenheid = item.eenheid || 'gram';
   const [startStr, setStartStr] = useState(item.aantal ? String(item.aantal) : '');
   const [prijsStr, setPrijsStr] = useState(item.prijs_totaal ? String(item.prijs_totaal) : '');
-  const [kleur, setKleur] = useState('');
+  const [kleur, setKleur] = useState(item.kleur || '');
   const [locatie, setLocatie] = useState('');
   const [lotnummer, setLotnummer] = useState('');
   const [gekochtOp, setGekochtOp] = useState(new Date().toISOString().split('T')[0]);
@@ -213,6 +306,7 @@ function OntvangstModal({ item, onClose, onSaved }) {
         gewicht_gram_huidig: start,
         aankoopprijs_eur: prijs,
         kleur: kleur || null,
+        kleur_hex: item.kleur_hex || null,
         locatie: locatie || null,
         lotnummer: lotnummer || null,
         gekocht_op: gekochtOp,
@@ -225,7 +319,7 @@ function OntvangstModal({ item, onClose, onSaved }) {
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-header">
-          <h2>Ontvangen — {item.merk} {item.materiaal}</h2>
+          <h2>Ontvangen — {item.merk} {item.materiaal}{item.kleur ? ` (${item.kleur})` : ''}</h2>
           <button className="btn" onClick={onClose}>✕</button>
         </div>
 
@@ -303,7 +397,10 @@ function BestellingDetailModal({ bestellingId, onClose, onChanged }) {
               <tbody>
                 {bestelling.items.map(it => (
                   <tr key={it.id}>
-                    <td>{it.merk} {it.materiaal}</td>
+                    <td style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {it.kleur && <span style={{ width: 10, height: 10, borderRadius: '50%', background: it.kleur_hex || '#555', border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />}
+                      {it.merk} {it.materiaal}{it.kleur ? ` — ${it.kleur}` : ''}
+                    </td>
                     <td>{it.aantal != null ? `${it.aantal} ${eenheidLabel(it.eenheid)}` : '—'}</td>
                     <td>
                       {it.ontvangen
@@ -347,11 +444,13 @@ export default function Bestellingen() {
   const [leveranciers, setLeveranciers] = useState([]);
   const [bestellingen, setBestellingen] = useState([]);
   const [alleTypes, setAlleTypes]     = useState([]);
-  const [geselecteerd, setGeselecteerd] = useState(new Set());
+  const [geselecteerd, setGeselecteerd] = useState(new Set()); // bevat regelKey(typeId, kleur)
   const [bestelModal, setBestelModal] = useState(false);
   const [leverancierModal, setLeverancierModal] = useState(null);
   const [detailId, setDetailId]       = useState(null);
   const [handmatigType, setHandmatigType] = useState('');
+  const [handmatigKleur, setHandmatigKleur] = useState('');
+  const [handmatigKleurHex, setHandmatigKleurHex] = useState('');
 
   function load() {
     api.get('/bestellingen/te-bestellen-overzicht').then(setOverzicht);
@@ -361,10 +460,10 @@ export default function Bestellingen() {
   }
   useEffect(() => { load(); }, []);
 
-  function toggleSelectie(id) {
+  function toggleSelectie(key) {
     setGeselecteerd(s => {
       const nieuw = new Set(s);
-      if (nieuw.has(id)) nieuw.delete(id); else nieuw.add(id);
+      if (nieuw.has(key)) nieuw.delete(key); else nieuw.add(key);
       return nieuw;
     });
   }
@@ -372,8 +471,12 @@ export default function Bestellingen() {
   async function voegHandmatigToe() {
     if (!handmatigType) return;
     try {
-      await api.post('/bestellingen/te-bestellen-handmatig', { filament_type_id: handmatigType });
-      setHandmatigType('');
+      await api.post('/bestellingen/te-bestellen-handmatig', {
+        filament_type_id: handmatigType,
+        kleur: handmatigKleur || null,
+        kleur_hex: handmatigKleurHex || null,
+      });
+      setHandmatigType(''); setHandmatigKleur(''); setHandmatigKleurHex('');
       load();
     } catch (e) { alert(e.message); }
   }
@@ -393,7 +496,7 @@ export default function Bestellingen() {
     } catch (e) { alert(e.message); }
   }
 
-  const geselecteerdeItems = overzicht.filter(o => geselecteerd.has(o.filament_type_id));
+  const geselecteerdeItems = overzicht.filter(o => geselecteerd.has(regelKey(o.filament_type_id, o.kleur)));
 
   return (
     <div>
@@ -412,12 +515,22 @@ export default function Bestellingen() {
       {/* ── Te bestellen ── */}
       {weergave === 'te-bestellen' && (
         <>
-          <div className="card" style={{ padding: 12, marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
-            <select style={{ flex: 1 }} value={handmatigType} onChange={e => setHandmatigType(e.target.value)}>
-              <option value="">+ Artikeltype manueel toevoegen aan "te bestellen"...</option>
-              {alleTypes.map(t => <option key={t.id} value={t.id}>{t.merk} {t.materiaal}</option>)}
-            </select>
-            <button className="btn" onClick={voegHandmatigToe} disabled={!handmatigType}>Toevoegen</button>
+          <div className="card" style={{ padding: 12, marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <select style={{ flex: 1 }} value={handmatigType}
+                onChange={e => { setHandmatigType(e.target.value); setHandmatigKleur(''); setHandmatigKleurHex(''); }}>
+                <option value="">+ Artikeltype manueel toevoegen aan "te bestellen"...</option>
+                {alleTypes.map(t => <option key={t.id} value={t.id}>{t.merk} {t.materiaal}</option>)}
+              </select>
+              <button className="btn" onClick={voegHandmatigToe} disabled={!handmatigType}>Toevoegen</button>
+            </div>
+            {handmatigType && (
+              <KleurKiezer
+                filamentTypeId={handmatigType}
+                kleur={handmatigKleur}
+                onChange={(k, h) => { setHandmatigKleur(k); setHandmatigKleurHex(h); }}
+              />
+            )}
           </div>
 
           {overzicht.length === 0
@@ -426,25 +539,31 @@ export default function Bestellingen() {
                 <table>
                   <thead><tr><th></th><th>Artikel</th><th>Reden</th><th></th></tr></thead>
                   <tbody>
-                    {overzicht.map(o => (
-                      <tr key={o.filament_type_id}>
-                        <td>
-                          <input type="checkbox" checked={geselecteerd.has(o.filament_type_id)} onChange={() => toggleSelectie(o.filament_type_id)} />
-                        </td>
-                        <td>{o.merk} {o.materiaal}</td>
-                        <td style={{ fontSize: 11 }}>
-                          {o.automatisch && <span className="badge geannuleerd" style={{ marginRight: 6 }}>laag op voorraad</span>}
-                          {o.handmatig && <span className="badge bezig">manueel{o.notitie ? `: ${o.notitie}` : ''}</span>}
-                        </td>
-                        <td>
-                          {o.handmatig && (
-                            <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => verwijderHandmatig(o.handmatig_id)}>
-                              Vlag wegnemen
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {overzicht.map(o => {
+                      const key = regelKey(o.filament_type_id, o.kleur);
+                      return (
+                        <tr key={key}>
+                          <td>
+                            <input type="checkbox" checked={geselecteerd.has(key)} onChange={() => toggleSelectie(key)} />
+                          </td>
+                          <td style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {o.kleur && <span style={{ width: 10, height: 10, borderRadius: '50%', background: o.kleur_hex || '#555', border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />}
+                            {o.merk} {o.materiaal}{o.kleur ? ` — ${o.kleur}` : ''}
+                          </td>
+                          <td style={{ fontSize: 11 }}>
+                            {o.automatisch && <span className="badge geannuleerd" style={{ marginRight: 6 }}>laag op voorraad</span>}
+                            {o.handmatig && <span className="badge bezig">manueel{o.notitie ? `: ${o.notitie}` : ''}</span>}
+                          </td>
+                          <td>
+                            {o.handmatig && (
+                              <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => verwijderHandmatig(o.handmatig_id)}>
+                                Vlag wegnemen
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
