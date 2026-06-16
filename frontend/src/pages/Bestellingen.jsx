@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api.js';
 
 const STATUS_LABEL = {
@@ -129,15 +129,22 @@ function LeverancierModal({ leverancier, onClose, onSaved }) {
   );
 }
 
-// ─── BestelModal — leverancier kiezen/aanmaken + artikelen (type + kleur) vrij samenstellen ──
+// ─── BestelModal — leverancier kiezen/aanmaken + artikelen (type + kleur + rolgewicht) vrij samenstellen ──
 function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLeveranciersChanged }) {
-  const [regels, setRegels] = useState(items.map(it => ({
+  const idCounter = useRef(0);
+  const nextLocalId = () => (idCounter.current += 1);
+
+  const [regels, setRegels] = useState(() => items.map(it => ({
+    _localId: nextLocalId(),
     filament_type_id: it.filament_type_id, merk: it.merk, materiaal: it.materiaal, eenheid: it.eenheid,
     kleur: it.kleur || '', kleur_hex: it.kleur_hex || '',
+    verwacht_gewicht: (it.eenheid || 'gram') === 'gram' ? 1000 : undefined,
   })));
   const [extraTypeId, setExtraTypeId] = useState('');
   const [extraKleur, setExtraKleur] = useState('');
   const [extraKleurHex, setExtraKleurHex] = useState('');
+  const [extraAantal1000, setExtraAantal1000] = useState('');
+  const [extraAantal200, setExtraAantal200] = useState('');
   const [leverancierId, setLeverancierId] = useState('');
   const [nieuweLeverancierNaam, setNieuweLeverancierNaam] = useState('');
   const [referentie, setReferentie] = useState('');
@@ -148,23 +155,46 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
     if (!leverancierId && leveranciers.length > 0) setLeverancierId(String(leveranciers[0].id));
   }, [leveranciers]);
 
+  const extraType = alleTypes.find(x => String(x.id) === String(extraTypeId));
+  const extraEenheid = extraType?.eenheid || 'gram';
+
   function voegArtikelToe() {
-    if (!extraTypeId) return;
-    const t = alleTypes.find(x => String(x.id) === String(extraTypeId));
-    if (!t) return;
-    if (regels.some(r => regelKey(r.filament_type_id, r.kleur) === regelKey(extraTypeId, extraKleur))) {
-      alert('Dit artikel in deze kleur staat al in de lijst');
-      return;
+    if (!extraTypeId || !extraType) return;
+
+    if (extraEenheid === 'gram') {
+      const n1000 = parseInt(extraAantal1000) || 0;
+      const n200 = parseInt(extraAantal200) || 0;
+      if (n1000 <= 0 && n200 <= 0) { alert('Geef minstens 1 rol op (1000g en/of 200g)'); return; }
+      const nieuwe = [];
+      for (let i = 0; i < n1000; i++) {
+        nieuwe.push({
+          _localId: nextLocalId(), filament_type_id: extraType.id, merk: extraType.merk, materiaal: extraType.materiaal,
+          eenheid: extraEenheid, kleur: extraKleur, kleur_hex: extraKleurHex, verwacht_gewicht: 1000,
+        });
+      }
+      for (let i = 0; i < n200; i++) {
+        nieuwe.push({
+          _localId: nextLocalId(), filament_type_id: extraType.id, merk: extraType.merk, materiaal: extraType.materiaal,
+          eenheid: extraEenheid, kleur: extraKleur, kleur_hex: extraKleurHex, verwacht_gewicht: 200,
+        });
+      }
+      setRegels(rs => [...rs, ...nieuwe]);
+    } else {
+      setRegels(rs => [...rs, {
+        _localId: nextLocalId(), filament_type_id: extraType.id, merk: extraType.merk, materiaal: extraType.materiaal,
+        eenheid: extraEenheid, kleur: extraKleur, kleur_hex: extraKleurHex,
+      }]);
     }
-    setRegels(rs => [...rs, {
-      filament_type_id: t.id, merk: t.merk, materiaal: t.materiaal, eenheid: t.eenheid,
-      kleur: extraKleur, kleur_hex: extraKleurHex,
-    }]);
-    setExtraTypeId(''); setExtraKleur(''); setExtraKleurHex('');
+
+    setExtraTypeId(''); setExtraKleur(''); setExtraKleurHex(''); setExtraAantal1000(''); setExtraAantal200('');
   }
 
-  function verwijderRegel(key) {
-    setRegels(rs => rs.filter(r => regelKey(r.filament_type_id, r.kleur) !== key));
+  function verwijderRegel(localId) {
+    setRegels(rs => rs.filter(r => r._localId !== localId));
+  }
+
+  function zetRolgewicht(localId, gewicht) {
+    setRegels(rs => rs.map(r => r._localId === localId ? { ...r, verwacht_gewicht: gewicht } : r));
   }
 
   async function bestel() {
@@ -190,7 +220,8 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
           filament_type_id: r.filament_type_id,
           kleur: r.kleur || null,
           kleur_hex: r.kleur_hex || null,
-          aantal: aantallen[regelKey(r.filament_type_id, r.kleur)] || null,
+          verwacht_gewicht: r.verwacht_gewicht || null,
+          aantal: r.verwacht_gewicht ? 1 : (aantallen[r._localId] || null),
         })),
       });
       onSaved();
@@ -230,31 +261,46 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
             {regels.length === 0 && (
               <div style={{ fontSize: 12, color: 'var(--muted)', padding: '4px 0' }}>Nog geen artikelen toegevoegd</div>
             )}
-            {regels.map(it => {
-              const key = regelKey(it.filament_type_id, it.kleur);
-              return (
-                <div key={key} style={{ display: 'flex', alignItems: 'flex-end', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {it.kleur && <span style={{ width: 10, height: 10, borderRadius: '50%', background: it.kleur_hex || '#555', border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />}
-                    {it.merk} {it.materiaal}{it.kleur ? ` — ${it.kleur}` : ''}
+            {regels.map(it => (
+              <div key={it._localId} style={{ display: 'flex', alignItems: 'flex-end', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {it.kleur && <span style={{ width: 10, height: 10, borderRadius: '50%', background: it.kleur_hex || '#555', border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />}
+                  {it.merk} {it.materiaal}{it.kleur ? ` — ${it.kleur}` : ''}
+                </div>
+
+                {it.verwacht_gewicht ? (
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {[1000, 200].map(g => (
+                      <button key={g} type="button" onClick={() => zetRolgewicht(it._localId, g)}
+                        style={{
+                          fontSize: 10, padding: '3px 7px', borderRadius: 10,
+                          border: it.verwacht_gewicht === g ? '2px solid var(--accent)' : '1px solid var(--border)',
+                          background: it.verwacht_gewicht === g ? 'var(--bg3)' : 'transparent',
+                          color: 'var(--text)', cursor: 'pointer',
+                        }}>
+                        {g}g
+                      </button>
+                    ))}
                   </div>
+                ) : (
                   <div>
                     <label style={{ fontSize: 10, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>
                       Aantal ({eenheidLabel(it.eenheid)})
                     </label>
                     <input
                       style={{ width: 100 }}
-                      value={aantallen[key] || ''}
-                      onChange={e => setAantallen(a => ({ ...a, [key]: e.target.value }))}
+                      value={aantallen[it._localId] || ''}
+                      onChange={e => setAantallen(a => ({ ...a, [it._localId]: e.target.value }))}
                     />
                   </div>
-                  <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => verwijderRegel(key)}>✕</button>
-                </div>
-              );
-            })}
+                )}
+
+                <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => verwijderRegel(it._localId)}>✕</button>
+              </div>
+            ))}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <select style={{ flex: 1 }} value={extraTypeId} onChange={e => { setExtraTypeId(e.target.value); setExtraKleur(''); setExtraKleurHex(''); }}>
+            <select style={{ flex: 1 }} value={extraTypeId} onChange={e => { setExtraTypeId(e.target.value); setExtraKleur(''); setExtraKleurHex(''); setExtraAantal1000(''); setExtraAantal200(''); }}>
               <option value="">+ Artikel toevoegen aan deze bestelling...</option>
               {alleTypes.map(t => <option key={t.id} value={t.id}>{t.merk} {t.materiaal}</option>)}
             </select>
@@ -266,6 +312,18 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
                 kleur={extraKleur}
                 onChange={(k, h) => { setExtraKleur(k); setExtraKleurHex(h); }}
               />
+              {extraEenheid === 'gram' && (
+                <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Aantal rollen van 1000g</label>
+                    <input type="number" min="0" style={{ width: 90 }} value={extraAantal1000} onChange={e => setExtraAantal1000(e.target.value)} placeholder="0" />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Aantal rollen van 200g</label>
+                    <input type="number" min="0" style={{ width: 90 }} value={extraAantal200} onChange={e => setExtraAantal200(e.target.value)} placeholder="0" />
+                  </div>
+                </div>
+              )}
               <button className="btn primary" style={{ marginTop: 8 }} onClick={voegArtikelToe}>Toevoegen aan bestelling</button>
             </>
           )}
@@ -288,7 +346,10 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
 // ─── OntvangstModal — 1 item in voorraad steken ───────────────────────────
 function OntvangstModal({ item, onClose, onSaved }) {
   const eenheid = item.eenheid || 'gram';
-  const [startStr, setStartStr] = useState(item.aantal ? String(item.aantal) : '');
+  const defaultStart = item.verwacht_gewicht
+    ? String(item.verwacht_gewicht)
+    : (eenheid !== 'gram' && item.aantal ? String(item.aantal) : '');
+  const [startStr, setStartStr] = useState(defaultStart);
   const [prijsStr, setPrijsStr] = useState(item.prijs_totaal ? String(item.prijs_totaal) : '');
   const [kleur, setKleur] = useState(item.kleur || '');
   const [locatie, setLocatie] = useState('');
@@ -401,7 +462,7 @@ function BestellingDetailModal({ bestellingId, onClose, onChanged }) {
                       {it.kleur && <span style={{ width: 10, height: 10, borderRadius: '50%', background: it.kleur_hex || '#555', border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />}
                       {it.merk} {it.materiaal}{it.kleur ? ` — ${it.kleur}` : ''}
                     </td>
-                    <td>{it.aantal != null ? `${it.aantal} ${eenheidLabel(it.eenheid)}` : '—'}</td>
+                    <td>{it.verwacht_gewicht ? `${it.verwacht_gewicht}g rol` : (it.aantal != null ? `${it.aantal} ${eenheidLabel(it.eenheid)}` : '—')}</td>
                     <td>
                       {it.ontvangen
                         ? <span className="badge voltooid">Ontvangen</span>

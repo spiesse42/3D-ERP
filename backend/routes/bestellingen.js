@@ -181,7 +181,7 @@ r.post('/', (req, res) => {
       'INSERT INTO bestellingen (leverancier_id, referentie, besteld_op, notities) VALUES (?,?,?,?)'
     );
     const insertItem = db.prepare(
-      'INSERT INTO bestelling_items (bestelling_id, filament_type_id, kleur, kleur_hex, aantal, prijs_totaal, notities) VALUES (?,?,?,?,?,?,?)'
+      'INSERT INTO bestelling_items (bestelling_id, filament_type_id, kleur, kleur_hex, aantal, verwacht_gewicht, prijs_totaal, notities) VALUES (?,?,?,?,?,?,?,?)'
     );
     const verwijderHandmatig = db.prepare(
       "DELETE FROM te_bestellen_handmatig WHERE filament_type_id = ? AND COALESCE(kleur,'') = COALESCE(?,'')"
@@ -199,6 +199,7 @@ r.post('/', (req, res) => {
         insertItem.run(
           id, item.filament_type_id, item.kleur || null, item.kleur_hex || null,
           (item.aantal !== undefined && item.aantal !== '') ? parseFloat(item.aantal) : null,
+          (item.verwacht_gewicht !== undefined && item.verwacht_gewicht !== '') ? parseFloat(item.verwacht_gewicht) : null,
           (item.prijs_totaal !== undefined && item.prijs_totaal !== '') ? parseFloat(item.prijs_totaal) : null,
           item.notities || null
         );
