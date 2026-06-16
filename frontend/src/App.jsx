@@ -13,7 +13,7 @@ const NAV = [
   { to: '/',              icon: '⬛', label: 'Dashboard' },
   { to: '/jobs',          icon: '🖨',  label: 'Jobs' },
   { to: '/klanten',       icon: '👤', label: 'Klanten' },
-  { to: '/filament',      icon: '🧵', label: 'Filament' },
+  { to: '/filament',      icon: '🧵', label: 'Artikelen' },
   { to: '/offertes',      icon: '📄', label: 'Offertes' },
   { to: '/statistieken',  icon: '📊', label: 'Statistieken' },
   { to: '/instellingen',  icon: '⚙',  label: 'Instellingen' },
