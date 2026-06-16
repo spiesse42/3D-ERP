@@ -38,6 +38,18 @@ function kleurHex(naam, hex) {
   return KLEUR_GROEPEN[lower] || '#555';
 }
 
+function eenheidSuffix(eenheid) {
+  if (eenheid === 'stuk') return ' stuk';
+  if (eenheid === 'ml') return ' ml';
+  return 'g';
+}
+
+function eenheidPrijsLabel(eenheid) {
+  if (eenheid === 'stuk') return 'stuk';
+  if (eenheid === 'ml') return 'ml';
+  return 'kg';
+}
+
 function KleurDot({ kleur, hex, size = 12 }) {
   return (
     <span style={{
@@ -197,6 +209,8 @@ function RolModal({ types, rol, onClose, onSaved }) {
   const gekozenType  = types.find(t => t.id === parseInt(form.filament_type_id));
   const eenheid      = gekozenType?.eenheid || 'gram';
   const eenheidLabel = eenheid === 'stuk' ? 'stuk' : eenheid === 'ml' ? 'ml' : 'kg';
+  const isFilamentCat = (gekozenType?.categorie || 'filament') === 'filament';
+  const [kleurToggle, setKleurToggle] = useState(isFilamentCat || !!(form.kleur || form.kleur_hex));
 
   // Bij wisselen van artikeltype (enkel bij nieuwe voorraad) velden resetten naar een logische start
   function onTypeChange(id) {
@@ -278,28 +292,40 @@ function RolModal({ types, rol, onClose, onSaved }) {
           </select>
         </div>
 
+        {/* Kleur instellen — bij niet-filament via vinkje */}
+        {!isFilamentCat && (
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontWeight: 400 }}>
+              <input type="checkbox" checked={kleurToggle} onChange={e => setKleurToggle(e.target.checked)} />
+              Kleur instellen voor dit artikel
+            </label>
+          </div>
+        )}
+
         {/* Kleur */}
-        <div className="form-group">
-          <label>Kleur <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 11 }}>optioneel</span></label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <span style={{ width: 24, height: 24, borderRadius: '50%', background: kleurHex(form.kleur, form.kleur_hex), border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
-            <input value={form.kleur} onChange={e => set('kleur', e.target.value)} placeholder="bv. Robijnrood, Lavendel..." />
+        {(isFilamentCat || kleurToggle) && (
+          <div className="form-group">
+            <label>Kleur <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 11 }}>optioneel</span></label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{ width: 24, height: 24, borderRadius: '50%', background: kleurHex(form.kleur, form.kleur_hex), border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
+              <input value={form.kleur} onChange={e => set('kleur', e.target.value)} placeholder="bv. Robijnrood, Lavendel..." />
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {KLEUREN.map(k => (
+                <button key={k.naam} onClick={() => set('kleur_hex', k.hex)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20,
+                    border: form.kleur_hex === k.hex ? '2px solid var(--accent)' : '1px solid var(--border)',
+                    background: form.kleur_hex === k.hex ? 'var(--bg3)' : 'transparent',
+                    cursor: 'pointer', fontSize: 11, color: 'var(--text)'
+                  }}>
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: k.hex, border: '1px solid rgba(255,255,255,0.2)' }} />
+                  {k.naam}
+                </button>
+              ))}
+            </div>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {KLEUREN.map(k => (
-              <button key={k.naam} onClick={() => set('kleur_hex', k.hex)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20,
-                  border: form.kleur_hex === k.hex ? '2px solid var(--accent)' : '1px solid var(--border)',
-                  background: form.kleur_hex === k.hex ? 'var(--bg3)' : 'transparent',
-                  cursor: 'pointer', fontSize: 11, color: 'var(--text)'
-                }}>
-                <span style={{ width: 10, height: 10, borderRadius: '50%', background: k.hex, border: '1px solid rgba(255,255,255,0.2)' }} />
-                {k.naam}
-              </button>
-            ))}
-          </div>
-        </div>
+        )}
 
         {/* Standaard rolgewicht — enkel relevant voor filament (gram) */}
         {eenheid === 'gram' && (
@@ -472,8 +498,8 @@ export default function Filament() {
                     <th>Type</th>
                     <th>Kleur</th>
                     <th>Lot</th>
-                    <th>Gewicht</th>
-                    <th>Prijs/kg</th>
+                    <th>Voorraad</th>
+                    <th>Prijs</th>
                     <th>Restwaarde</th>
                     <th>Locatie</th>
                     <th>Status</th>
@@ -495,14 +521,14 @@ export default function Filament() {
                       <td style={{ fontSize: 11, color: 'var(--muted)' }}>{r.lotnummer || '—'}</td>
                       <td style={{ minWidth: 160 }}>
                         <div style={{ marginBottom: 4 }}>
-                          {parseFloat(r.gewicht_gram_huidig).toFixed(0)}g
-                          <span style={{ color: 'var(--muted)', fontSize: 11 }}> / {parseFloat(r.gewicht_gram_start).toFixed(0)}g</span>
+                          {parseFloat(r.gewicht_gram_huidig).toFixed(0)}{eenheidSuffix(r.eenheid)}
+                          <span style={{ color: 'var(--muted)', fontSize: 11 }}> / {parseFloat(r.gewicht_gram_start).toFixed(0)}{eenheidSuffix(r.eenheid)}</span>
                         </div>
                         <VoorraadBalk huidig={r.gewicht_gram_huidig} start={r.gewicht_gram_start} />
                       </td>
                       <td style={{ fontSize: 12 }}>
                         <div style={{ color: r.aankoopprijs_eur ? 'var(--accent2)' : 'var(--muted)' }}>
-                          €{parseFloat(r.prijs_per_kg_effectief || r.inkoop_prijs_per_kg).toFixed(2)}/kg
+                          €{parseFloat(r.prijs_per_kg_effectief || r.inkoop_prijs_per_kg).toFixed(2)}/{eenheidPrijsLabel(r.eenheid)}
                         </div>
                         {r.aankoopprijs_eur && (
                           <div style={{ fontSize: 10, color: 'var(--muted)' }}>rol: €{parseFloat(r.aankoopprijs_eur).toFixed(2)}</div>
