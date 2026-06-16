@@ -51,6 +51,92 @@ function eenheidPrijsLabel(eenheid) {
   return 'kg';
 }
 
+function groepSleutel(filamentTypeId, kleur) {
+  return `${filamentTypeId}::${kleur || ''}`;
+}
+
+function VoorraadBalk({ huidig, start }) {
+  const pct = Math.min(100, Math.round((huidig / (start || 1000)) * 100));
+  const kleur = pct > 50 ? '#22c55e' : pct > 20 ? '#f59e0b' : '#ef4444';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ flex: 1, height: 4, background: 'var(--bg3)', borderRadius: 2 }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: kleur, borderRadius: 2, transition: 'width .3s' }} />
+      </div>
+      <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: 30 }}>{pct}%</span>
+    </div>
+  );
+}
+
+// ─── GroepDetailModal — alle individuele rollen van 1 type+kleur ──────────
+function GroepDetailModal({ groep, rollen, onClose, onEditRol, onNieuweRol, onToggleActief, onDeleteRol }) {
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 720 }}>
+        <div className="modal-header">
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <KleurDot kleur={groep.kleur} hex={groep.kleur_hex} size={16} />
+            {groep.merk} {groep.materiaal}{groep.kleur ? ` — ${groep.kleur}` : ''}
+          </h2>
+          <button className="btn" onClick={onClose}>✕</button>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <button className="btn primary" onClick={onNieuweRol}>+ Rol toevoegen</button>
+        </div>
+
+        {rollen.length === 0
+          ? <div className="empty">Geen rollen meer in deze groep</div>
+          : <div className="card" style={{ padding: 0 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Lot</th><th>Voorraad</th><th>Prijs</th><th>Restwaarde</th><th>Locatie</th><th>Status</th><th>Acties</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rollen.map(r => (
+                    <tr key={r.id} style={{ opacity: r.actief ? 1 : 0.5, cursor: 'pointer' }} onClick={() => onEditRol(r)}>
+                      <td style={{ fontSize: 11, color: 'var(--muted)' }}>{r.lotnummer || '—'}</td>
+                      <td style={{ minWidth: 140 }}>
+                        <div style={{ marginBottom: 4 }}>
+                          {parseFloat(r.gewicht_gram_huidig).toFixed(0)}{eenheidSuffix(r.eenheid)}
+                          <span style={{ color: 'var(--muted)', fontSize: 11 }}> / {parseFloat(r.gewicht_gram_start).toFixed(0)}{eenheidSuffix(r.eenheid)}</span>
+                        </div>
+                        <VoorraadBalk huidig={r.gewicht_gram_huidig} start={r.gewicht_gram_start} />
+                      </td>
+                      <td style={{ fontSize: 12 }}>
+                        €{parseFloat(r.prijs_per_kg_effectief || r.inkoop_prijs_per_kg).toFixed(2)}/{eenheidPrijsLabel(r.eenheid)}
+                      </td>
+                      <td style={{ color: 'var(--accent2)' }}>€{r.restwaarde_eur}</td>
+                      <td style={{ color: 'var(--muted)' }}>{r.locatie || '—'}</td>
+                      <td>
+                        <span className={`badge ${r.actief ? 'bezig' : 'geannuleerd'}`}>{r.actief ? 'actief' : 'leeg'}</span>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
+                          <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => onEditRol(r)}>✏</button>
+                          <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => onToggleActief(r)}>
+                            {r.actief ? 'Leeg' : 'Heractiveer'}
+                          </button>
+                          <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => onDeleteRol(r)}>✕</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+        }
+
+        <div className="modal-footer">
+          <button className="btn" onClick={onClose}>Sluiten</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function KleurDot({ kleur, hex, size = 12 }) {
   return (
     <span style={{
@@ -175,6 +261,8 @@ function TypeModal({ type, onClose, onSaved }) {
 // ─── RolModal ────────────────────────────────────────────────────────────────
 function RolModal({ types, rol, onClose, onSaved }) {
   const isEdit = !!rol?.id;
+  const initieelTypeId = rol?.filament_type_id || types[0]?.id || '';
+  const initieelEenheid = types.find(t => t.id === parseInt(initieelTypeId))?.eenheid || 'gram';
 
   const [form, setForm] = useState(rol?.id ? {
     filament_type_id: rol.filament_type_id,
@@ -188,11 +276,11 @@ function RolModal({ types, rol, onClose, onSaved }) {
     aankoopprijs_eur:   rol.aankoopprijs_eur ?? '',
     lotnummer:          rol.lotnummer || '',
     } : {
-    filament_type_id:   types[0]?.id || '',
-    kleur:              '',
-    kleur_hex:          '',
-    gewicht_gram_start: 1000,
-    gewicht_gram_huidig: 1000,
+    filament_type_id:   initieelTypeId,
+    kleur:              rol?.kleur || '',
+    kleur_hex:          rol?.kleur_hex || '',
+    gewicht_gram_start: initieelEenheid === 'gram' ? 1000 : '',
+    gewicht_gram_huidig: initieelEenheid === 'gram' ? 1000 : '',
     locatie:            '',
     gekocht_op:         new Date().toISOString().split('T')[0],
     actief:             1,
@@ -417,6 +505,7 @@ export default function Filament() {
   const [tab,       setTab]       = useState('rollen');
   const [typeModal, setTypeModal] = useState(null);
   const [rolModal,  setRolModal]  = useState(null);
+  const [groepModal, setGroepModal] = useState(null);
 
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get('highlight') ? parseInt(searchParams.get('highlight')) : null;
@@ -432,6 +521,44 @@ export default function Filament() {
     if (highlightRef.current) {
       highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
+  }, [highlightId, rollen]);
+
+  // Rollen groeperen per (type, kleur) — 1 rij per combinatie i.p.v. 1 rij per rol
+  const groepen = Object.values(
+    rollen.reduce((acc, r) => {
+      const key = groepSleutel(r.filament_type_id, r.kleur);
+      if (!acc[key]) {
+        acc[key] = {
+          key, filament_type_id: r.filament_type_id, merk: r.merk, materiaal: r.materiaal,
+          kleur: r.kleur, kleur_hex: r.kleur_hex, eenheid: r.eenheid,
+          rollen: [], aantalActief: 0, aantalTotaal: 0,
+          huidigTotaal: 0, startTotaal: 0, restwaardeTotaal: 0,
+        };
+      }
+      const g = acc[key];
+      g.rollen.push(r);
+      g.aantalTotaal += 1;
+      g.restwaardeTotaal += parseFloat(r.restwaarde_eur) || 0;
+      if (r.actief) {
+        g.aantalActief += 1;
+        g.huidigTotaal += parseFloat(r.gewicht_gram_huidig) || 0;
+        g.startTotaal += parseFloat(r.gewicht_gram_start) || 0;
+      }
+      return acc;
+    }, {})
+  ).sort((a, b) => (b.aantalActief > 0) - (a.aantalActief > 0) || a.merk.localeCompare(b.merk));
+
+  // Bij binnenkomst via een highlight-link (vanuit Dashboard) automatisch de juiste groep openen
+  useEffect(() => {
+    if (highlightId && rollen.length > 0 && !groepModal) {
+      const rolGevonden = rollen.find(r => r.id === highlightId);
+      if (rolGevonden) {
+        const key = groepSleutel(rolGevonden.filament_type_id, rolGevonden.kleur);
+        const groep = groepen.find(g => g.key === key);
+        if (groep) setGroepModal(groep);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightId, rollen]);
 
   async function toggleRol(rol) {
@@ -457,19 +584,6 @@ export default function Filament() {
     } catch (e) { alert(e.message); }
   }
 
-  function VoorraadBalk({ huidig, start }) {
-    const pct = Math.min(100, Math.round((huidig / (start || 1000)) * 100));
-    const kleur = pct > 50 ? '#22c55e' : pct > 20 ? '#f59e0b' : '#ef4444';
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ flex: 1, height: 4, background: 'var(--bg3)', borderRadius: 2 }}>
-          <div style={{ width: `${pct}%`, height: '100%', background: kleur, borderRadius: 2, transition: 'width .3s' }} />
-        </div>
-        <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: 30 }}>{pct}%</span>
-      </div>
-    );
-  }
-
   return (
     <div>
       <div className="page-header">
@@ -490,9 +604,9 @@ export default function Filament() {
 
       {tab === 'bestellingen' && <Bestellingen />}
 
-      {/* ── Rollen tabel ── */}
+      {/* ── Gegroepeerde voorraad-tabel (1 rij per type + kleur) ── */}
       {tab === 'rollen' && (
-        rollen.length === 0
+        groepen.length === 0
           ? <div className="empty">Geen rollen geregistreerd</div>
           : <div className="card" style={{ padding: 0 }}>
               <table>
@@ -500,61 +614,54 @@ export default function Filament() {
                   <tr>
                     <th>Type</th>
                     <th>Kleur</th>
-                    <th>Lot</th>
+                    <th>Rollen</th>
                     <th>Voorraad</th>
-                    <th>Prijs</th>
                     <th>Restwaarde</th>
-                    <th>Locatie</th>
                     <th>Status</th>
-                    <th>Acties</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rollen.map(r => (
-                    <tr key={r.id} ref={r.id === highlightId ? highlightRef : null} style={{ opacity: r.actief ? 1 : 0.5, cursor:'pointer', outline: r.id === highlightId ? '2px solid var(--accent)' : undefined, background: r.id === highlightId ? 'var(--bg3)' : undefined }} onClick={() => setRolModal(r)}>
-                      <td>
-                        <div style={{ fontWeight: 500 }}>{r.merk} {r.materiaal}</div>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                          <KleurDot kleur={r.kleur} hex={r.kleur_hex} size={14} />
-                          <span>{r.kleur || <span style={{ color: 'var(--muted)' }}>—</span>}</span>
-                        </div>
-                      </td>
-                      <td style={{ fontSize: 11, color: 'var(--muted)' }}>{r.lotnummer || '—'}</td>
-                      <td style={{ minWidth: 160 }}>
-                        <div style={{ marginBottom: 4 }}>
-                          {parseFloat(r.gewicht_gram_huidig).toFixed(0)}{eenheidSuffix(r.eenheid)}
-                          <span style={{ color: 'var(--muted)', fontSize: 11 }}> / {parseFloat(r.gewicht_gram_start).toFixed(0)}{eenheidSuffix(r.eenheid)}</span>
-                        </div>
-                        <VoorraadBalk huidig={r.gewicht_gram_huidig} start={r.gewicht_gram_start} />
-                      </td>
-                      <td style={{ fontSize: 12 }}>
-                        <div style={{ color: r.aankoopprijs_eur ? 'var(--accent2)' : 'var(--muted)' }}>
-                          €{parseFloat(r.prijs_per_kg_effectief || r.inkoop_prijs_per_kg).toFixed(2)}/{eenheidPrijsLabel(r.eenheid)}
-                        </div>
-                        {r.aankoopprijs_eur && (
-                          <div style={{ fontSize: 10, color: 'var(--muted)' }}>rol: €{parseFloat(r.aankoopprijs_eur).toFixed(2)}</div>
-                        )}
-                      </td>
-                      <td style={{ color: 'var(--accent2)' }}>€{r.restwaarde_eur}</td>
-                      <td style={{ color: 'var(--muted)' }}>{r.locatie || '—'}</td>
-                      <td>
-                        <span className={`badge ${r.actief ? 'bezig' : 'geannuleerd'}`}>
-                          {r.actief ? 'actief' : 'leeg'}
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
-                          <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => setRolModal(r)}>✏</button>
-                          <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => toggleRol(r)}>
-                            {r.actief ? 'Leeg' : 'Heractiveer'}
-                          </button>
-                          <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => deleteRol(r)}>✕</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {groepen.map(g => {
+                    const isHighlighted = g.rollen.some(r => r.id === highlightId);
+                    return (
+                      <tr key={g.key} ref={isHighlighted ? highlightRef : null}
+                        style={{
+                          opacity: g.aantalActief > 0 ? 1 : 0.5, cursor: 'pointer',
+                          outline: isHighlighted ? '2px solid var(--accent)' : undefined,
+                          background: isHighlighted ? 'var(--bg3)' : undefined,
+                        }}
+                        onClick={() => setGroepModal(g)}>
+                        <td>
+                          <div style={{ fontWeight: 500 }}>{g.merk} {g.materiaal}</div>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <KleurDot kleur={g.kleur} hex={g.kleur_hex} size={14} />
+                            <span>{g.kleur || <span style={{ color: 'var(--muted)' }}>—</span>}</span>
+                          </div>
+                        </td>
+                        <td style={{ fontSize: 12 }}>
+                          {g.aantalTotaal} rol{g.aantalTotaal > 1 ? 'len' : ''}
+                          {g.aantalActief !== g.aantalTotaal && (
+                            <div style={{ color: 'var(--muted)', fontSize: 11 }}>{g.aantalActief} actief</div>
+                          )}
+                        </td>
+                        <td style={{ minWidth: 160 }}>
+                          <div style={{ marginBottom: 4 }}>
+                            {g.huidigTotaal.toFixed(0)}{eenheidSuffix(g.eenheid)}
+                            <span style={{ color: 'var(--muted)', fontSize: 11 }}> / {g.startTotaal.toFixed(0)}{eenheidSuffix(g.eenheid)}</span>
+                          </div>
+                          <VoorraadBalk huidig={g.huidigTotaal} start={g.startTotaal} />
+                        </td>
+                        <td style={{ color: 'var(--accent2)' }}>€{g.restwaardeTotaal.toFixed(2)}</td>
+                        <td>
+                          {g.aantalActief > 0
+                            ? <span className="badge bezig">actief</span>
+                            : <span className="badge geannuleerd">leeg</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -603,9 +710,20 @@ export default function Filament() {
       {rolModal !== null && (
         <RolModal
           types={types}
-          rol={rolModal?.id ? rolModal : null}
+          rol={rolModal}
           onClose={() => setRolModal(null)}
           onSaved={() => { setRolModal(null); load(); }}
+        />
+      )}
+      {groepModal !== null && (
+        <GroepDetailModal
+          groep={groepModal}
+          rollen={rollen.filter(r => groepSleutel(r.filament_type_id, r.kleur) === groepModal.key)}
+          onClose={() => setGroepModal(null)}
+          onEditRol={r => setRolModal(r)}
+          onNieuweRol={() => setRolModal({ filament_type_id: groepModal.filament_type_id, kleur: groepModal.kleur, kleur_hex: groepModal.kleur_hex })}
+          onToggleActief={toggleRol}
+          onDeleteRol={deleteRol}
         />
       )}
     </div>
