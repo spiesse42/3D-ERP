@@ -88,44 +88,35 @@ function GroepDetailModal({ groep, rollen, onClose, onEditRol, onNieuweRol, onTo
         {rollen.length === 0
           ? <div className="empty">Geen rollen meer in deze groep</div>
           : <div className="card" style={{ padding: 0 }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Lot</th><th>Voorraad</th><th>Prijs</th><th>Locatie</th><th>Status</th><th>Acties</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rollen.map(r => (
-                    <tr key={r.id} style={{ opacity: r.actief ? 1 : 0.5, cursor: 'pointer' }} onClick={() => onEditRol(r)}>
-                      <td style={{ fontSize: 11, color: 'var(--muted)' }}>{r.lotnummer || '—'}</td>
-                      <td style={{ minWidth: 140 }}>
-                        <div style={{ marginBottom: 4 }}>
-                          {parseFloat(r.gewicht_gram_huidig).toFixed(0)}{eenheidSuffix(r.eenheid)}
-                          <span style={{ color: 'var(--muted)', fontSize: 11 }}> / {parseFloat(r.gewicht_gram_start).toFixed(0)}{eenheidSuffix(r.eenheid)}</span>
-                        </div>
-                        <VoorraadBalk huidig={r.gewicht_gram_huidig} start={r.gewicht_gram_start} />
-                      </td>
-                      <td style={{ fontSize: 12 }}>
-                        <div>€{parseFloat(r.prijs_per_kg_effectief || r.inkoop_prijs_per_kg).toFixed(2)}/{eenheidPrijsLabel(r.eenheid)}</div>
-                        <div style={{ fontSize: 10, color: 'var(--accent2)' }}>rest: €{r.restwaarde_eur}</div>
-                      </td>
-                      <td style={{ color: 'var(--muted)' }}>{r.locatie || '—'}</td>
-                      <td>
-                        <span className={`badge ${r.actief ? 'bezig' : 'geannuleerd'}`}>{r.actief ? 'actief' : 'leeg'}</span>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
-                          <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => onEditRol(r)}>✏</button>
-                          <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => onToggleActief(r)}>
-                            {r.actief ? 'Leeg' : 'Heractiveer'}
-                          </button>
-                          <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => onDeleteRol(r)}>✕</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {rollen.map(r => (
+                <div key={r.id} onClick={() => onEditRol(r)}
+                  style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', cursor: 'pointer', opacity: r.actief ? 1 : 0.5 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>{r.lotnummer || '—'}</span>
+                    <span className={`badge ${r.actief ? 'bezig' : 'geannuleerd'}`}>{r.actief ? 'actief' : 'leeg'}</span>
+                  </div>
+
+                  <div style={{ marginBottom: 4 }}>
+                    {parseFloat(r.gewicht_gram_huidig).toFixed(0)}{eenheidSuffix(r.eenheid)}
+                    <span style={{ color: 'var(--muted)', fontSize: 11 }}> / {parseFloat(r.gewicht_gram_start).toFixed(0)}{eenheidSuffix(r.eenheid)}</span>
+                  </div>
+                  <VoorraadBalk huidig={r.gewicht_gram_huidig} start={r.gewicht_gram_start} />
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 8, fontSize: 12 }}>
+                    <span>€{parseFloat(r.prijs_per_kg_effectief || r.inkoop_prijs_per_kg).toFixed(2)}/{eenheidPrijsLabel(r.eenheid)}</span>
+                    <span style={{ color: 'var(--accent2)' }}>rest: €{r.restwaarde_eur}</span>
+                    {r.locatie && <span style={{ color: 'var(--muted)' }}>{r.locatie}</span>}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 4, marginTop: 8 }} onClick={e => e.stopPropagation()}>
+                    <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => onEditRol(r)}>✏</button>
+                    <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => onToggleActief(r)}>
+                      {r.actief ? 'Leeg' : 'Heractiveer'}
+                    </button>
+                    <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => onDeleteRol(r)}>✕</button>
+                  </div>
+                </div>
+              ))}
             </div>
         }
 
