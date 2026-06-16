@@ -60,28 +60,64 @@ function LeverancierModal({ leverancier, onClose, onSaved }) {
   );
 }
 
-// ─── BestelModal — leverancier kiezen + items bevestigen ──────────────────
-function BestelModal({ items, leveranciers, onClose, onSaved, onNieuweLeverancier }) {
-  const [leverancierId, setLeverancierId] = useState(leveranciers[0]?.id || '');
+// ─── BestelModal — leverancier kiezen/aanmaken + artikelen vrij samenstellen ──
+function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLeveranciersChanged }) {
+  const [regels, setRegels] = useState(items.map(it => ({
+    filament_type_id: it.filament_type_id, merk: it.merk, materiaal: it.materiaal, eenheid: it.eenheid,
+  })));
+  const [extraTypeId, setExtraTypeId] = useState('');
+  const [leverancierId, setLeverancierId] = useState('');
+  const [nieuweLeverancierNaam, setNieuweLeverancierNaam] = useState('');
   const [referentie, setReferentie] = useState('');
   const [aantallen, setAantallen] = useState({});
   const [notities, setNotities] = useState('');
 
+  // Eerste leverancier als default zodra de lijst beschikbaar/bijgewerkt is
+  useEffect(() => {
+    if (!leverancierId && leveranciers.length > 0) setLeverancierId(String(leveranciers[0].id));
+  }, [leveranciers]);
+
+  function voegArtikelToe() {
+    if (!extraTypeId) return;
+    const t = alleTypes.find(x => String(x.id) === String(extraTypeId));
+    if (!t || regels.some(r => String(r.filament_type_id) === String(extraTypeId))) { setExtraTypeId(''); return; }
+    setRegels(rs => [...rs, { filament_type_id: t.id, merk: t.merk, materiaal: t.materiaal, eenheid: t.eenheid }]);
+    setExtraTypeId('');
+  }
+
+  function verwijderRegel(filament_type_id) {
+    setRegels(rs => rs.filter(r => r.filament_type_id !== filament_type_id));
+  }
+
   async function bestel() {
-    if (!leverancierId) { alert('Kies of maak eerst een leverancier'); return; }
+    if (regels.length === 0) { alert('Voeg minstens 1 artikel toe aan de bestelling'); return; }
+
+    let gekozenLeverancierId = leverancierId;
+    if (leverancierId === '__nieuw__') {
+      if (!nieuweLeverancierNaam.trim()) { alert('Vul een naam in voor de nieuwe leverancier'); return; }
+      try {
+        const res = await api.post('/bestellingen/leveranciers', { naam: nieuweLeverancierNaam.trim() });
+        gekozenLeverancierId = res.id;
+        onLeveranciersChanged?.();
+      } catch (e) { alert(e.message); return; }
+    }
+    if (!gekozenLeverancierId) { alert('Kies of maak eerst een leverancier'); return; }
+
     try {
       await api.post('/bestellingen', {
-        leverancier_id: leverancierId,
+        leverancier_id: gekozenLeverancierId,
         referentie: referentie || null,
         notities: notities || null,
-        items: items.map(it => ({
-          filament_type_id: it.filament_type_id,
-          aantal: aantallen[it.filament_type_id] || null,
+        items: regels.map(r => ({
+          filament_type_id: r.filament_type_id,
+          aantal: aantallen[r.filament_type_id] || null,
         })),
       });
       onSaved();
     } catch (e) { alert(e.message); }
   }
+
+  const beschikbareTypes = alleTypes.filter(t => !regels.some(r => String(r.filament_type_id) === String(t.id)));
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -93,13 +129,16 @@ function BestelModal({ items, leveranciers, onClose, onSaved, onNieuweLeverancie
 
         <div className="form-group">
           <label>Leverancier *</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <select style={{ flex: 1 }} value={leverancierId} onChange={e => setLeverancierId(e.target.value)}>
-              {leveranciers.length === 0 && <option value="">Geen leveranciers — maak er eerst één aan</option>}
-              {leveranciers.map(l => <option key={l.id} value={l.id}>{l.naam}</option>)}
-            </select>
-            <button className="btn" onClick={onNieuweLeverancier}>+ Nieuw</button>
-          </div>
+          <select value={leverancierId} onChange={e => setLeverancierId(e.target.value)}>
+            <option value="">Kies een leverancier...</option>
+            {leveranciers.map(l => <option key={l.id} value={l.id}>{l.naam}</option>)}
+            <option value="__nieuw__">+ Nieuwe leverancier...</option>
+          </select>
+          {leverancierId === '__nieuw__' && (
+            <input style={{ marginTop: 6 }} value={nieuweLeverancierNaam}
+              onChange={e => setNieuweLeverancierNaam(e.target.value)}
+              placeholder="Naam nieuwe leverancier" autoFocus />
+          )}
         </div>
 
         <div className="form-group">
@@ -109,18 +148,33 @@ function BestelModal({ items, leveranciers, onClose, onSaved, onNieuweLeverancie
 
         <div className="form-group">
           <label>Items in deze bestelling</label>
-          <div className="card" style={{ padding: 8 }}>
-            {items.map(it => (
-              <div key={it.filament_type_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+          <div className="card" style={{ padding: 8, marginBottom: 8 }}>
+            {regels.length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', padding: '4px 0' }}>Nog geen artikelen toegevoegd</div>
+            )}
+            {regels.map(it => (
+              <div key={it.filament_type_id} style={{ display: 'flex', alignItems: 'flex-end', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ flex: 1 }}>{it.merk} {it.materiaal}</div>
-                <input
-                  style={{ width: 110 }}
-                  placeholder={`aantal (${eenheidLabel(it.eenheid)})`}
-                  value={aantallen[it.filament_type_id] || ''}
-                  onChange={e => setAantallen(a => ({ ...a, [it.filament_type_id]: e.target.value }))}
-                />
+                <div>
+                  <label style={{ fontSize: 10, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>
+                    Aantal ({eenheidLabel(it.eenheid)})
+                  </label>
+                  <input
+                    style={{ width: 100 }}
+                    value={aantallen[it.filament_type_id] || ''}
+                    onChange={e => setAantallen(a => ({ ...a, [it.filament_type_id]: e.target.value }))}
+                  />
+                </div>
+                <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => verwijderRegel(it.filament_type_id)}>✕</button>
               </div>
             ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <select style={{ flex: 1 }} value={extraTypeId} onChange={e => setExtraTypeId(e.target.value)}>
+              <option value="">+ Artikel toevoegen aan deze bestelling...</option>
+              {beschikbareTypes.map(t => <option key={t.id} value={t.id}>{t.merk} {t.materiaal}</option>)}
+            </select>
+            <button className="btn" onClick={voegArtikelToe} disabled={!extraTypeId}>Toevoegen</button>
           </div>
         </div>
 
@@ -396,13 +450,13 @@ export default function Bestellingen() {
               </div>
           }
 
-          {geselecteerd.size > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <button className="btn primary" onClick={() => setBestelModal(true)}>
-                Bestelling aanmaken ({geselecteerd.size} item{geselecteerd.size > 1 ? 's' : ''})
-              </button>
-            </div>
-          )}
+          <div style={{ marginTop: 16 }}>
+            <button className="btn primary" onClick={() => setBestelModal(true)}>
+              {geselecteerd.size > 0
+                ? `Bestelling aanmaken (${geselecteerd.size} item${geselecteerd.size > 1 ? 's' : ''})`
+                : '+ Nieuwe bestelling'}
+            </button>
+          </div>
         </>
       )}
 
@@ -464,9 +518,10 @@ export default function Bestellingen() {
       {bestelModal && (
         <BestelModal
           items={geselecteerdeItems}
+          alleTypes={alleTypes}
           leveranciers={leveranciers}
           onClose={() => setBestelModal(false)}
-          onNieuweLeverancier={() => setLeverancierModal({})}
+          onLeveranciersChanged={load}
           onSaved={() => { setBestelModal(false); setGeselecteerd(new Set()); load(); }}
         />
       )}
