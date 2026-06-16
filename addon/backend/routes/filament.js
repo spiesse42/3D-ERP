@@ -3,7 +3,7 @@ import { getDb } from '../db.js';
 const r = Router();
 
 // Genereer automatisch lotnummer: MERK-MAT-001
-function nextLotnummer(db, filament_type_id) {
+export function nextLotnummer(db, filament_type_id) {
   const type = db.prepare('SELECT merk, materiaal FROM filament_types WHERE id = ?').get(filament_type_id);
   if (!type) return null;
 

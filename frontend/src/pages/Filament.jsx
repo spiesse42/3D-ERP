@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
+import Bestellingen from './Bestellingen.jsx';
 
 const KLEUREN = [
   { naam: 'Wit',         hex: '#f5f5f5' },
@@ -480,12 +481,14 @@ export default function Filament() {
       </div>
 
       <div style={{ display: 'flex', gap: 4, marginBottom: '1.25rem' }}>
-        {['rollen', 'types'].map(t => (
+        {['rollen', 'types', 'bestellingen'].map(t => (
           <button key={t} className={`btn${tab === t ? ' primary' : ''}`} onClick={() => setTab(t)}>
-            {t === 'rollen' ? 'Voorraad' : 'Artikeltypes'}
+            {t === 'rollen' ? 'Voorraad' : t === 'types' ? 'Artikeltypes' : 'Bestellingen'}
           </button>
         ))}
       </div>
+
+      {tab === 'bestellingen' && <Bestellingen />}
 
       {/* ── Rollen tabel ── */}
       {tab === 'rollen' && (
