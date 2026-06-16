@@ -89,13 +89,19 @@ r.get('/rollen', (req, res) => {
   try {
     const rows = getDb().prepare(`
       SELECT r.*,
-        ft.merk, ft.materiaal, ft.inkoop_prijs_per_kg,
+        ft.merk, ft.materiaal, ft.inkoop_prijs_per_kg, ft.eenheid,
         ROUND(
-          r.gewicht_gram_huidig / 1000.0 *
-          COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start / 1000.0, 0), ft.inkoop_prijs_per_kg),
+          r.gewicht_gram_huidig *
+          COALESCE(
+            r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start, 0),
+            ft.inkoop_prijs_per_kg / (CASE WHEN ft.eenheid = 'gram' THEN 1000.0 ELSE 1.0 END)
+          ),
           2
         ) as restwaarde_eur,
-        COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start / 1000.0, 0), ft.inkoop_prijs_per_kg) as prijs_per_kg_effectief
+        COALESCE(
+          r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start, 0) * (CASE WHEN ft.eenheid = 'gram' THEN 1000.0 ELSE 1.0 END),
+          ft.inkoop_prijs_per_kg
+        ) as prijs_per_kg_effectief
       FROM filament_rollen r
       JOIN filament_types ft ON ft.id = r.filament_type_id
       ORDER BY r.actief DESC, ft.merk
@@ -111,8 +117,11 @@ r.get('/rollen/by-type/:type_id', (req, res) => {
   try {
     const rows = getDb().prepare(`
       SELECT r.*,
-        ft.merk, ft.materiaal, ft.inkoop_prijs_per_kg,
-        COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start / 1000.0, 0), ft.inkoop_prijs_per_kg) as prijs_per_kg_effectief
+        ft.merk, ft.materiaal, ft.inkoop_prijs_per_kg, ft.eenheid,
+        COALESCE(
+          r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start, 0) * (CASE WHEN ft.eenheid = 'gram' THEN 1000.0 ELSE 1.0 END),
+          ft.inkoop_prijs_per_kg
+        ) as prijs_per_kg_effectief
       FROM filament_rollen r
       JOIN filament_types ft ON ft.id = r.filament_type_id
       WHERE r.filament_type_id = ? AND r.actief = 1
@@ -139,9 +148,10 @@ r.post('/rollen', (req, res) => {
   try {
     const { filament_type_id, kleur, kleur_hex, gewicht_gram_start, locatie, gekocht_op, aankoopprijs_eur, lotnummer } = req.body;
     if (!filament_type_id) return res.status(400).json({ error: 'filament_type_id is verplicht' });
-    const gram  = parseFloat(gewicht_gram_start) || 1000;
+    const gram = parseFloat(gewicht_gram_start);
+    if (!gram || isNaN(gram) || gram <= 0) return res.status(400).json({ error: 'Aantal/gewicht is verplicht en moet groter zijn dan 0' });
     const huidigGram = (req.body.gewicht_gram_huidig !== undefined && req.body.gewicht_gram_huidig !== '')
-      ? parseFloat(req.body.gewicht_gram_huidig) || gram
+      ? (parseFloat(req.body.gewicht_gram_huidig) || gram)
       : gram;
     const prijs = (aankoopprijs_eur !== undefined && aankoopprijs_eur !== '') ? parseFloat(aankoopprijs_eur) : null;
     if (!prijs || isNaN(prijs) || prijs <= 0) return res.status(400).json({ error: 'Aankoopprijs is verplicht en moet groter zijn dan 0' });
@@ -163,7 +173,8 @@ r.put('/rollen/:id', (req, res) => {
   const db = getDb();
   try {
     const { filament_type_id, gewicht_gram_start, gewicht_gram_huidig, kleur, kleur_hex, locatie, actief, aankoopprijs_eur, lotnummer, gekocht_op } = req.body;
-    const startG  = parseFloat(gewicht_gram_start) || 1000;
+    const startG = parseFloat(gewicht_gram_start);
+    if (!startG || isNaN(startG) || startG <= 0) return res.status(400).json({ error: 'Aantal/gewicht is verplicht en moet groter zijn dan 0' });
     const huidigG = parseFloat(gewicht_gram_huidig) || startG;
     const prijs   = (aankoopprijs_eur !== undefined && aankoopprijs_eur !== '') ? parseFloat(aankoopprijs_eur) : null;
     if (!prijs || isNaN(prijs) || prijs <= 0) return res.status(400).json({ error: 'Aankoopprijs is verplicht en moet groter zijn dan 0' });
@@ -206,7 +217,10 @@ r.get('/te-bestellen', (req, res) => {
     const rows = db.prepare(`
       SELECT r.*,
         ft.merk, ft.materiaal, ft.categorie, ft.eenheid, ft.min_voorraad,
-        COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start / 1000.0, 0), ft.inkoop_prijs_per_kg) as prijs_per_kg_effectief
+        COALESCE(
+          r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start, 0) * (CASE WHEN ft.eenheid = 'gram' THEN 1000.0 ELSE 1.0 END),
+          ft.inkoop_prijs_per_kg
+        ) as prijs_per_kg_effectief
       FROM filament_rollen r
       JOIN filament_types ft ON ft.id = r.filament_type_id
       WHERE r.actief = 1
