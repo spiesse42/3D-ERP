@@ -194,6 +194,26 @@ function RolModal({ types, rol, onClose, onSaved }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  const gekozenType  = types.find(t => t.id === parseInt(form.filament_type_id));
+  const eenheid      = gekozenType?.eenheid || 'gram';
+  const eenheidLabel = eenheid === 'stuk' ? 'stuk' : eenheid === 'ml' ? 'ml' : 'kg';
+
+  // Bij wisselen van artikeltype (enkel bij nieuwe voorraad) velden resetten naar een logische start
+  function onTypeChange(id) {
+    set('filament_type_id', id);
+    if (!isEdit) {
+      const t = types.find(x => x.id === parseInt(id));
+      const nieuweEenheid = t?.eenheid || 'gram';
+      if (nieuweEenheid === 'gram') {
+        setStartStr('1000'); set('gewicht_gram_start', 1000);
+        setHuidigStr('1000'); set('gewicht_gram_huidig', 1000);
+      } else {
+        setStartStr(''); set('gewicht_gram_start', '');
+        setHuidigStr(''); set('gewicht_gram_huidig', '');
+      }
+    }
+  }
+
   function setStandaard(gram) {
     setStartStr(String(gram));
     set('gewicht_gram_start', gram);
@@ -203,23 +223,28 @@ function RolModal({ types, rol, onClose, onSaved }) {
     }
   }
 
-  // Effectieve prijs/kg berekenen voor weergave
-  const gekozenType = types.find(t => t.id === parseInt(form.filament_type_id));
-  const aankoopNum  = parseFloat(prijsStr.replace(',', '.'));
-  const startNum    = parseFloat(startStr) || 1000;
-  const prijsPerKg  = (!isNaN(aankoopNum) && aankoopNum > 0)
-    ? aankoopNum / (startNum / 1000)
-    : gekozenType?.inkoop_prijs_per_kg;
+  // Effectieve prijs per eenheid berekenen voor weergave
+  const aankoopNum = parseFloat(prijsStr.replace(',', '.'));
+  const startNum   = parseFloat(startStr) || 0;
+  const prijsPerEenheid = (!isNaN(aankoopNum) && aankoopNum > 0 && startNum > 0)
+    ? (eenheid === 'gram' ? aankoopNum / (startNum / 1000) : aankoopNum / startNum)
+    : (gekozenType?.inkoop_prijs_per_kg || 0);
+
+  const typeprijsTotaal = gekozenType
+    ? (eenheid === 'gram'
+        ? (gekozenType.inkoop_prijs_per_kg || 0) * startNum / 1000
+        : (gekozenType.inkoop_prijs_per_kg || 0) * startNum)
+    : 0;
 
   const prijsInfo = gekozenType ? (() => {
-    if (!isNaN(aankoopNum) && aankoopNum > 0) {
-      return `Aankoopprijs €${aankoopNum.toFixed(2)} = €${prijsPerKg.toFixed(2)}/kg (typeprijs: €${gekozenType.inkoop_prijs_per_kg.toFixed(2)}/kg)`;
+    if (!isNaN(aankoopNum) && aankoopNum > 0 && startNum > 0) {
+      return `Aankoopprijs €${aankoopNum.toFixed(2)} = €${prijsPerEenheid.toFixed(2)}/${eenheidLabel} (typeprijs: €${(gekozenType.inkoop_prijs_per_kg || 0).toFixed(2)}/${eenheidLabel})`;
     }
-    return `Typeprijs: €${gekozenType.inkoop_prijs_per_kg.toFixed(2)}/kg (geen rolprijs ingevuld)`;
+    return `Typeprijs: €${(gekozenType.inkoop_prijs_per_kg || 0).toFixed(2)}/${eenheidLabel} (geen voorraadprijs ingevuld)`;
   })() : null;
 
   async function save() {
-    const startG  = parseFloat(startStr)  || 1000;
+    const startG  = parseFloat(startStr)  || 0;
     const huidigG = parseFloat(huidigStr) || startG;
     const aankoopVal = prijsStr !== '' ? parseFloat(prijsStr.replace(',', '.')) : null;
 
@@ -241,21 +266,21 @@ function RolModal({ types, rol, onClose, onSaved }) {
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-header">
-          <h2>{isEdit ? 'Rol bewerken' : 'Nieuwe rol toevoegen'}</h2>
+          <h2>{isEdit ? 'Voorraad bewerken' : 'Nieuwe voorraad toevoegen'}</h2>
           <button className="btn" onClick={onClose}>✕</button>
         </div>
 
-        {/* Filamenttype — altijd aanpasbaar */}
+        {/* Artikeltype — altijd aanpasbaar */}
         <div className="form-group">
-          <label>Filamenttype *</label>
-          <select value={form.filament_type_id} onChange={e => set('filament_type_id', e.target.value)}>
+          <label>Artikeltype *</label>
+          <select value={form.filament_type_id} onChange={e => onTypeChange(e.target.value)}>
             {types.map(t => <option key={t.id} value={t.id}>{t.merk} {t.materiaal}</option>)}
           </select>
         </div>
 
         {/* Kleur */}
         <div className="form-group">
-          <label>Kleur</label>
+          <label>Kleur <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 11 }}>optioneel</span></label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <span style={{ width: 24, height: 24, borderRadius: '50%', background: kleurHex(form.kleur, form.kleur_hex), border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
             <input value={form.kleur} onChange={e => set('kleur', e.target.value)} placeholder="bv. Robijnrood, Lavendel..." />
@@ -276,26 +301,29 @@ function RolModal({ types, rol, onClose, onSaved }) {
           </div>
         </div>
 
-        {/* Standaard gewicht knoppen */}
-        <div className="form-group">
-          <label>Standaard rolgewicht</label>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-            {[1000, 200].map(g => (
-              <button key={g} className={`btn${parseFloat(startStr) === g ? ' primary' : ''}`}
-                style={{ flex: 1 }} onClick={() => setStandaard(g)}>
-                {g}g {g === 200 ? '(mini rol)' : '(standaard)'}
-              </button>
-            ))}
+        {/* Standaard rolgewicht — enkel relevant voor filament (gram) */}
+        {eenheid === 'gram' && (
+          <div className="form-group">
+            <label>Standaard rolgewicht</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+              {[1000, 200].map(g => (
+                <button key={g} className={`btn${parseFloat(startStr) === g ? ' primary' : ''}`}
+                  style={{ flex: 1 }} onClick={() => setStandaard(g)}>
+                  {g}g {g === 200 ? '(mini rol)' : '(standaard)'}
+                </button>
+              ))}
+            </div>
           </div>
-          {prijsInfo && (
-            <div style={{ fontSize: 11, color: 'var(--accent2)', marginBottom: 4 }}>💰 {prijsInfo}</div>
-          )}
-        </div>
+        )}
 
-        {/* Gewichten */}
+        {prijsInfo && (
+          <div style={{ fontSize: 11, color: 'var(--accent2)', marginBottom: 12 }}>💰 {prijsInfo}</div>
+        )}
+
+        {/* Aantal / gewicht / volume */}
         <div className="form-row">
           <div className="form-group">
-            <label>Startgewicht (g)</label>
+            <label>{eenheid === 'gram' ? 'Startgewicht (g)' : eenheid === 'ml' ? 'Startvolume (ml)' : 'Aantal bij aankoop'}</label>
             <input type="number" value={startStr}
               onChange={e => {
                 setStartStr(e.target.value);
@@ -307,7 +335,7 @@ function RolModal({ types, rol, onClose, onSaved }) {
               }} />
           </div>
           <div className="form-group">
-            <label>Huidig gewicht (g) {isEdit && <span style={{ color: 'var(--accent)', fontSize: 11 }}>← pas dit aan</span>}</label>
+            <label>{eenheid === 'gram' ? 'Huidig gewicht (g)' : eenheid === 'ml' ? 'Huidig volume (ml)' : 'Huidig aantal'} {isEdit && <span style={{ color: 'var(--accent)', fontSize: 11 }}>← pas dit aan</span>}</label>
             <input type="number" value={huidigStr}
               onChange={e => {
                 setHuidigStr(e.target.value);
@@ -320,11 +348,11 @@ function RolModal({ types, rol, onClose, onSaved }) {
         {/* Aankoopprijs + lotnummer */}
         <div className="form-row">
           <div className="form-group">
-            <label>Aankoopprijs rol (€) <span style={{ color: 'var(--muted)', fontWeight: 400 }}>optioneel</span></label>
+            <label>Aankoopprijs (€) <span style={{ color: 'var(--muted)', fontWeight: 400 }}>optioneel</span></label>
             <input
               type="number" step="0.01" min="0"
               value={prijsStr}
-              placeholder={gekozenType ? `typeprijs: €${(gekozenType.inkoop_prijs_per_kg * startNum / 1000).toFixed(2)}` : ''}
+              placeholder={gekozenType ? `typeprijs: €${typeprijsTotaal.toFixed(2)}` : ''}
               onChange={e => setPrijsStr(e.target.value)}
             />
           </div>
