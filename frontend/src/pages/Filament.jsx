@@ -91,7 +91,7 @@ function GroepDetailModal({ groep, rollen, onClose, onEditRol, onNieuweRol, onTo
               <table>
                 <thead>
                   <tr>
-                    <th>Lot</th><th>Voorraad</th><th>Prijs</th><th>Restwaarde</th><th>Locatie</th><th>Status</th><th>Acties</th>
+                    <th>Lot</th><th>Voorraad</th><th>Prijs</th><th>Locatie</th><th>Status</th><th>Acties</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -106,9 +106,9 @@ function GroepDetailModal({ groep, rollen, onClose, onEditRol, onNieuweRol, onTo
                         <VoorraadBalk huidig={r.gewicht_gram_huidig} start={r.gewicht_gram_start} />
                       </td>
                       <td style={{ fontSize: 12 }}>
-                        €{parseFloat(r.prijs_per_kg_effectief || r.inkoop_prijs_per_kg).toFixed(2)}/{eenheidPrijsLabel(r.eenheid)}
+                        <div>€{parseFloat(r.prijs_per_kg_effectief || r.inkoop_prijs_per_kg).toFixed(2)}/{eenheidPrijsLabel(r.eenheid)}</div>
+                        <div style={{ fontSize: 10, color: 'var(--accent2)' }}>rest: €{r.restwaarde_eur}</div>
                       </td>
-                      <td style={{ color: 'var(--accent2)' }}>€{r.restwaarde_eur}</td>
                       <td style={{ color: 'var(--muted)' }}>{r.locatie || '—'}</td>
                       <td>
                         <span className={`badge ${r.actief ? 'bezig' : 'geannuleerd'}`}>{r.actief ? 'actief' : 'leeg'}</span>
@@ -720,8 +720,8 @@ export default function Filament() {
           groep={groepModal}
           rollen={rollen.filter(r => groepSleutel(r.filament_type_id, r.kleur) === groepModal.key)}
           onClose={() => setGroepModal(null)}
-          onEditRol={r => setRolModal(r)}
-          onNieuweRol={() => setRolModal({ filament_type_id: groepModal.filament_type_id, kleur: groepModal.kleur, kleur_hex: groepModal.kleur_hex })}
+          onEditRol={r => { setGroepModal(null); setRolModal(r); }}
+          onNieuweRol={() => { setGroepModal(null); setRolModal({ filament_type_id: groepModal.filament_type_id, kleur: groepModal.kleur, kleur_hex: groepModal.kleur_hex }); }}
           onToggleActief={toggleRol}
           onDeleteRol={deleteRol}
         />
