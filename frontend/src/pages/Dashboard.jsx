@@ -291,6 +291,57 @@ function OperationeelWidget({ icon, titel, items, renderRij, leegTekst }) {
   );
 }
 
+function TeBestellenWidget({ rollen, navigate }) {
+  const PER_PAGINA = 10;
+  const [pagina, setPagina] = React.useState(0);
+
+  const drempel = (r) => (r.gewicht_gram_start || 1000) <= 200 ? 50 : 100;
+  const laag = rollen.filter(r => r.gewicht_gram_huidig < drempel(r));
+
+  const totaalPaginas = Math.ceil(laag.length / PER_PAGINA);
+  const zichtbaar = laag.slice(pagina * PER_PAGINA, (pagina + 1) * PER_PAGINA);
+
+  return (
+    <div className="card" style={{ flex:1, minWidth:220, border: laag.length > 0 ? '1px solid rgba(239,68,68,0.3)' : undefined }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.75rem' }}>
+        <h2 style={{ fontSize:14, fontWeight:600, margin:0 }}>
+          ⚠️ Te bestellen
+          <span style={{ fontSize:12, color: laag.length > 0 ? '#ef4444' : 'var(--muted)', fontWeight:600, marginLeft:6 }}>({laag.length})</span>
+        </h2>
+        {totaalPaginas > 1 && (
+          <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:11, color:'var(--muted)' }}>
+            <button onClick={() => setPagina(p => Math.max(0, p-1))} disabled={pagina === 0}
+              style={{ background:'none', border:'none', cursor:'pointer', color: pagina === 0 ? 'var(--border)' : 'var(--text)', fontSize:14, padding:'0 2px' }}>←</button>
+            <span>{pagina + 1}/{totaalPaginas}</span>
+            <button onClick={() => setPagina(p => Math.min(totaalPaginas-1, p+1))} disabled={pagina === totaalPaginas-1}
+              style={{ background:'none', border:'none', cursor:'pointer', color: pagina === totaalPaginas-1 ? 'var(--border)' : 'var(--text)', fontSize:14, padding:'0 2px' }}>→</button>
+          </div>
+        )}
+      </div>
+      {laag.length === 0
+        ? <p style={{ color:'var(--muted)', fontSize:12 }}>Niets onder de drempel</p>
+        : <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(100px, 1fr))', gap:'0.4rem' }}>
+            {zichtbaar.map(r => (
+              <div key={r.id}
+                onClick={() => navigate(`/filament?highlight=${r.id}`)}
+                style={{ padding:'6px 8px', background:'rgba(239,68,68,0.1)', borderRadius:6, cursor:'pointer', border:'1px solid rgba(239,68,68,0.25)' }}
+                onMouseEnter={e => e.currentTarget.style.background='rgba(239,68,68,0.18)'}
+                onMouseLeave={e => e.currentTarget.style.background='rgba(239,68,68,0.1)'}>
+                <div style={{ display:'flex', alignItems:'center', gap:4, marginBottom:1 }}>
+                  <KleurDot kleur={r.kleur} hex={r.kleur_hex} size={8} />
+                  <span style={{ fontSize:11, color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.kleur}</span>
+                </div>
+                <div style={{ fontSize:10, color:'var(--muted)', marginBottom:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.merk} {r.materiaal}</div>
+                <div style={{ fontSize:12, fontWeight:700, color:'#ef4444', marginBottom:2 }}>{Math.ceil(r.gewicht_gram_huidig)}g</div>
+                <div style={{ fontSize:9, color:'var(--muted)' }}>drempel: {drempel(r)}g</div>
+              </div>
+            ))}
+          </div>
+      }
+    </div>
+  );
+}
+
 function FilamentStockWidget({ rollen, navigate }) {
   const PER_PAGINA = 10;
   const [pagina, setPagina] = React.useState(0);
@@ -415,6 +466,7 @@ export default function Dashboard() {
         ))}
 
         <FilamentStockWidget rollen={activeRollen} navigate={navigate} />
+        <TeBestellenWidget rollen={activeRollen} navigate={navigate} />
       </div>
 
       {/* Rij 2: Operationele secties */}

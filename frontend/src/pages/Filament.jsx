@@ -1,5 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import { api } from '../lib/api.js';
 
 const KLEUREN = [
@@ -49,19 +48,43 @@ function KleurDot({ kleur, hex, size = 12 }) {
 }
 
 // ─── TypeModal ───────────────────────────────────────────────────────────────
+const CATEGORIEEN = [
+  { waarde: 'filament',           label: '🧵 Filament' },
+  { waarde: 'onderdeel',          label: '🔧 Onderdeel (sleutelhangers, ringetjes...)' },
+  { waarde: 'verbruiksmateriaal', label: '🧪 Verbruiksmateriaal (lijm, schroeven...)' },
+  { waarde: 'overig',             label: '📦 Overig' },
+];
+const EENHEDEN = [
+  { waarde: 'gram', label: 'gram (g)' },
+  { waarde: 'stuk', label: 'stuk(s)' },
+  { waarde: 'ml',   label: 'milliliter (ml)' },
+];
+
 function TypeModal({ type, onClose, onSaved }) {
   const [form, setForm] = useState(type?.id ? { ...type } : {
-    merk: '', materiaal: 'PLA+', inkoop_prijs_per_kg: '', dichtheid_g_per_cm3: 1.24, leverancier: ''
+    merk: '', materiaal: 'PLA+', inkoop_prijs_per_kg: '', dichtheid_g_per_cm3: 1.24, leverancier: '',
+    categorie: 'filament', eenheid: 'gram', marge_pct: '', min_voorraad: ''
   });
+  // Lokale strings zodat je ononderbroken kan typen
   const [prijsStr, setPrijsStr] = useState(String(form.inkoop_prijs_per_kg ?? ''));
+  const [margeStr, setMargeStr] = useState(String(form.marge_pct ?? ''));
+  const [minVoorraadStr, setMinVoorraadStr] = useState(String(form.min_voorraad ?? ''));
 
+  const isFilament = form.categorie === 'filament';
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  async function save() {
-    if (!form.merk || !form.materiaal) { alert('Merk en materiaal zijn verplicht'); return; }
+ async function save() {
+    if (!form.merk || !form.materiaal) { alert('Merk/naam en materiaal/omschrijving zijn verplicht'); return; }
     const prijs = parseFloat(prijsStr.replace(',', '.'));
+    const marge = margeStr !== '' ? parseFloat(margeStr.replace(',', '.')) : null;
+    const minVoorraad = minVoorraadStr !== '' ? parseFloat(minVoorraadStr.replace(',', '.')) : null;
     try {
-      const payload = { ...form, inkoop_prijs_per_kg: (!isNaN(prijs) && prijs > 0) ? prijs : 0 };
+      const payload = {
+        ...form,
+        inkoop_prijs_per_kg: (!isNaN(prijs) && prijs > 0) ? prijs : 0,
+        marge_pct: (marge != null && !isNaN(marge)) ? marge : null,
+        min_voorraad: (minVoorraad != null && !isNaN(minVoorraad)) ? minVoorraad : null,
+      };
       if (type?.id) await api.put(`/filament/types/${type.id}`, payload);
       else await api.post('/filament/types', payload);
       onSaved();
@@ -72,24 +95,56 @@ function TypeModal({ type, onClose, onSaved }) {
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-header">
-          <h2>{type?.id ? 'Filamenttype bewerken' : 'Nieuw filamenttype'}</h2>
+          <h2>{type?.id ? 'Artikeltype bewerken' : 'Nieuw artikeltype'}</h2>
           <button className="btn" onClick={onClose}>✕</button>
         </div>
+
+        <div className="form-group">
+          <label>Categorie *</label>
+          <select value={form.categorie} onChange={e => set('categorie', e.target.value)}>
+            {CATEGORIEEN.map(c => <option key={c.waarde} value={c.waarde}>{c.label}</option>)}
+          </select>
+        </div>
+
         <div className="form-row">
           <div className="form-group">
-            <label>Merk *</label>
-            <input value={form.merk} onChange={e => set('merk', e.target.value)} placeholder="bv. Elegoo" />
+            <label>{isFilament ? 'Merk *' : 'Merk/Leverancier *'}</label>
+            <input value={form.merk} onChange={e => set('merk', e.target.value)} placeholder={isFilament ? 'bv. Elegoo' : 'bv. AliExpress'} />
           </div>
           <div className="form-group">
-            <label>Materiaal *</label>
-            <input value={form.materiaal} onChange={e => set('materiaal', e.target.value)} placeholder="bv. PLA+" />
+            <label>{isFilament ? 'Materiaal *' : 'Omschrijving *'}</label>
+            <input value={form.materiaal} onChange={e => set('materiaal', e.target.value)} placeholder={isFilament ? 'bv. PLA+' : 'bv. Sleutelhanger rond 30mm'} />
           </div>
         </div>
-        <div className="form-group">
-          <label>Dichtheid (g/cm³)</label>
-          <input type="number" step="0.01" value={form.dichtheid_g_per_cm3}
-            onChange={e => set('dichtheid_g_per_cm3', e.target.value)} />
+
+        <div className="form-row">
+          <div className="form-group">
+            <label>Eenheid *</label>
+            <select value={form.eenheid} onChange={e => set('eenheid', e.target.value)}>
+              {EENHEDEN.map(e => <option key={e.waarde} value={e.waarde}>{e.label}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label>Marge (%) <span style={{ color:'var(--muted)', fontWeight:400, fontSize:11 }}>leeg = globale marge</span></label>
+            <input value={margeStr} onChange={e => setMargeStr(e.target.value)} placeholder="bv. 30" />
+          </div>
         </div>
+
+        {isFilament && (
+          <div className="form-group">
+            <label>Dichtheid (g/cm³)</label>
+            <input type="number" step="0.01" value={form.dichtheid_g_per_cm3}
+              onChange={e => set('dichtheid_g_per_cm3', e.target.value)} />
+          </div>
+        )}
+
+        <div className="form-group">
+          <label>Minimum voorraad <span style={{ color:'var(--muted)', fontWeight:400, fontSize:11 }}>
+            {isFilament ? 'leeg = automatisch 50g (≤200g rol) / 100g (≥1000g rol)' : 'drempel voor "Te bestellen"'}
+          </span></label>
+          <input value={minVoorraadStr} onChange={e => setMinVoorraadStr(e.target.value)} placeholder={isFilament ? 'optioneel' : 'bv. 10'} />
+        </div>
+
         <div className="form-group">
           <label>Leverancier</label>
           <input value={form.leverancier || ''} onChange={e => set('leverancier', e.target.value)} />
@@ -131,6 +186,7 @@ function RolModal({ types, rol, onClose, onSaved }) {
     lotnummer:          '',
   });
 
+  // Lokale strings voor numerieke velden — cursor springt niet weg
   const [startStr,  setStartStr]  = useState(String(form.gewicht_gram_start));
   const [huidigStr, setHuidigStr] = useState(String(form.gewicht_gram_huidig));
   const [prijsStr,  setPrijsStr]  = useState(String(form.aankoopprijs_eur ?? ''));
@@ -146,6 +202,7 @@ function RolModal({ types, rol, onClose, onSaved }) {
     }
   }
 
+  // Effectieve prijs/kg berekenen voor weergave
   const gekozenType = types.find(t => t.id === parseInt(form.filament_type_id));
   const aankoopNum  = parseFloat(prijsStr.replace(',', '.'));
   const startNum    = parseFloat(startStr) || 1000;
@@ -305,17 +362,6 @@ export default function Filament() {
   const [typeModal, setTypeModal] = useState(null);
   const [rolModal,  setRolModal]  = useState(null);
 
-  // Highlight via URL parameter (bv. vanuit Dashboard filamentstock widget)
-  const [searchParams] = useSearchParams();
-  const highlightId = searchParams.get('highlight') ? parseInt(searchParams.get('highlight')) : null;
-  const highlightRef = useRef(null);
-
-  useEffect(() => {
-    if (highlightRef.current) {
-      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, [highlightId, rollen]);
-
   const load = () => {
     api.get('/filament/types').then(setTypes);
     api.get('/filament/rollen').then(setRollen);
@@ -361,17 +407,17 @@ export default function Filament() {
   return (
     <div>
       <div className="page-header">
-        <h1>Filament</h1>
+        <h1>Artikelen</h1>
         <div style={{ display: 'flex', gap: 8 }}>
           {tab === 'types'  && <button className="btn primary" onClick={() => setTypeModal({})}>+ Nieuw type</button>}
-          {tab === 'rollen' && <button className="btn primary" onClick={() => setRolModal({})}>+ Nieuwe rol</button>}
+          {tab === 'rollen' && <button className="btn primary" onClick={() => setRolModal({})}>+ Nieuwe voorraad</button>}
         </div>
       </div>
 
       <div style={{ display: 'flex', gap: 4, marginBottom: '1.25rem' }}>
         {['rollen', 'types'].map(t => (
           <button key={t} className={`btn${tab === t ? ' primary' : ''}`} onClick={() => setTab(t)}>
-            {t === 'rollen' ? 'Rollen op voorraad' : 'Filamenttypes'}
+            {t === 'rollen' ? 'Voorraad' : 'Artikeltypes'}
           </button>
         ))}
       </div>
@@ -397,15 +443,7 @@ export default function Filament() {
                 </thead>
                 <tbody>
                   {rollen.map(r => (
-                    <tr key={r.id}
-                      ref={r.id === highlightId ? highlightRef : null}
-                      style={{
-                        opacity: r.actief ? 1 : 0.5,
-                        cursor: 'pointer',
-                        outline: r.id === highlightId ? '2px solid var(--accent)' : undefined,
-                        background: r.id === highlightId ? 'var(--bg3)' : undefined,
-                      }}
-                      onClick={() => setRolModal(r)}>
+                    <tr key={r.id} ref={r.id === highlightId ? highlightRef : null} style={{ opacity: r.actief ? 1 : 0.5, cursor:'pointer', outline: r.id === highlightId ? '2px solid var(--accent)' : undefined, background: r.id === highlightId ? 'var(--bg3)' : undefined }} onClick={() => setRolModal(r)}>
                       <td>
                         <div style={{ fontWeight: 500 }}>{r.merk} {r.materiaal}</div>
                       </td>
@@ -457,18 +495,21 @@ export default function Filament() {
       {/* ── Types tabel ── */}
       {tab === 'types' && (
         types.length === 0
-          ? <div className="empty">Geen filamenttypes</div>
+          ? <div className="empty">Geen artikeltypes</div>
           : <div className="card" style={{ padding: 0 }}>
               <table>
-                <thead>
-                  <tr><th>Merk</th><th>Materiaal</th><th>Dichtheid</th><th>Leverancier</th><th>Acties</th></tr>
-                </thead>
+                <thead><tr><th>Categorie</th><th>Merk/Leverancier</th><th>Materiaal/Omschrijving</th><th>Eenheid</th><th>Marge</th><th>Leverancier</th><th>Acties</th></tr>
+		</thead>
                 <tbody>
-                  {types.map(t => (
-                    <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setTypeModal(t)}>
+                  {types.map(t => {
+                    const cat = CATEGORIEEN.find(c => c.waarde === (t.categorie || 'filament'));
+                    return (
+                    <tr key={t.id} style={{ cursor:'pointer' }} onClick={() => setTypeModal(t)}>
+                      <td style={{ fontSize: 12 }}>{cat?.label || t.categorie}</td>
                       <td style={{ fontWeight: 500 }}>{t.merk}</td>
                       <td>{t.materiaal}</td>
-                      <td style={{ color: 'var(--muted)' }}>{t.dichtheid_g_per_cm3} g/cm³</td>
+                      <td style={{ color: 'var(--muted)' }}>{t.eenheid || 'gram'}</td>
+                      <td style={{ color: 'var(--muted)' }}>{t.marge_pct != null ? `${t.marge_pct}%` : <span style={{ fontStyle:'italic' }}>globaal</span>}</td>
                       <td style={{ color: 'var(--muted)' }}>{t.leverancier || '—'}</td>
                       <td>
                         <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
@@ -477,7 +518,8 @@ export default function Filament() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

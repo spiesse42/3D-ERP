@@ -35,25 +35,34 @@ r.get('/types', (req, res) => {
 
 r.post('/types', (req, res) => {
   const db = getDb();
-  const { merk, materiaal, inkoop_prijs_per_kg, dichtheid_g_per_cm3, leverancier, notities } = req.body;
+  const { merk, materiaal, inkoop_prijs_per_kg, dichtheid_g_per_cm3, leverancier, notities,
+          categorie, eenheid, marge_pct, min_voorraad } = req.body;
   if (!merk || !materiaal) return res.status(400).json({ error: 'Merk en materiaal zijn verplicht' });
   const prijs = parseFloat(inkoop_prijs_per_kg);
   // prijs is optioneel — 0 toegestaan
   const result = db.prepare(
-    'INSERT INTO filament_types (merk,materiaal,inkoop_prijs_per_kg,dichtheid_g_per_cm3,leverancier,notities) VALUES (?,?,?,?,?,?)'
-  ).run(merk, materiaal, prijs, parseFloat(dichtheid_g_per_cm3) || 1.24, leverancier || null, notities || null);
+    'INSERT INTO filament_types (merk,materiaal,inkoop_prijs_per_kg,dichtheid_g_per_cm3,leverancier,notities,categorie,eenheid,marge_pct,min_voorraad) VALUES (?,?,?,?,?,?,?,?,?,?)'
+  ).run(merk, materiaal, prijs, parseFloat(dichtheid_g_per_cm3) || 1.24, leverancier || null, notities || null,
+        categorie || 'filament', eenheid || 'gram',
+        (marge_pct !== undefined && marge_pct !== '') ? parseFloat(marge_pct) : null,
+        (min_voorraad !== undefined && min_voorraad !== '') ? parseFloat(min_voorraad) : null);
   res.status(201).json({ id: result.lastInsertRowid });
 });
 
 r.put('/types/:id', (req, res) => {
   const db = getDb();
-  const { merk, materiaal, inkoop_prijs_per_kg, dichtheid_g_per_cm3, leverancier, notities } = req.body;
+  const { merk, materiaal, inkoop_prijs_per_kg, dichtheid_g_per_cm3, leverancier, notities,
+          categorie, eenheid, marge_pct, min_voorraad } = req.body;
   if (!merk || !materiaal) return res.status(400).json({ error: 'Merk en materiaal zijn verplicht' });
   const prijs = parseFloat(inkoop_prijs_per_kg);
   if (isNaN(prijs) || prijs <= 0) return res.status(400).json({ error: 'Prijs moet een positief getal zijn' });
   db.prepare(
-    'UPDATE filament_types SET merk=?,materiaal=?,inkoop_prijs_per_kg=?,dichtheid_g_per_cm3=?,leverancier=?,notities=? WHERE id=?'
-  ).run(merk, materiaal, prijs, parseFloat(dichtheid_g_per_cm3) || 1.24, leverancier || null, notities || null, req.params.id);
+    'UPDATE filament_types SET merk=?,materiaal=?,inkoop_prijs_per_kg=?,dichtheid_g_per_cm3=?,leverancier=?,notities=?,categorie=?,eenheid=?,marge_pct=?,min_voorraad=? WHERE id=?'
+  ).run(merk, materiaal, prijs, parseFloat(dichtheid_g_per_cm3) || 1.24, leverancier || null, notities || null,
+        categorie || 'filament', eenheid || 'gram',
+        (marge_pct !== undefined && marge_pct !== '') ? parseFloat(marge_pct) : null,
+        (min_voorraad !== undefined && min_voorraad !== '') ? parseFloat(min_voorraad) : null,
+        req.params.id);
   res.json({ ok: true });
 });
 
@@ -185,6 +194,29 @@ r.delete('/rollen/:id', (req, res) => {
     const info = db.prepare('DELETE FROM filament_rollen WHERE id = ?').run(req.params.id);
     if (info.changes === 0) return res.status(404).json({ error: 'Rol niet gevonden' });
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET artikelen onder minimum voorraad — voor 'Te bestellen' sectie
+r.get('/te-bestellen', (req, res) => {
+  try {
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT r.*,
+        ft.merk, ft.materiaal, ft.categorie, ft.eenheid, ft.min_voorraad,
+        COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start / 1000.0, 0), ft.inkoop_prijs_per_kg) as prijs_per_kg_effectief
+      FROM filament_rollen r
+      JOIN filament_types ft ON ft.id = r.filament_type_id
+      WHERE r.actief = 1
+        AND r.gewicht_gram_huidig < COALESCE(
+          ft.min_voorraad,
+          CASE WHEN r.gewicht_gram_start <= 200 THEN 50 ELSE 100 END
+        )
+      ORDER BY r.gewicht_gram_huidig ASC
+    `).all();
+    res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
