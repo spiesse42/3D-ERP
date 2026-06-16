@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
 
 const KLEUREN = [
@@ -362,11 +363,21 @@ export default function Filament() {
   const [typeModal, setTypeModal] = useState(null);
   const [rolModal,  setRolModal]  = useState(null);
 
+  const [searchParams] = useSearchParams();
+  const highlightId = searchParams.get('highlight') ? parseInt(searchParams.get('highlight')) : null;
+  const highlightRef = useRef(null);
+
   const load = () => {
     api.get('/filament/types').then(setTypes);
     api.get('/filament/rollen').then(setRollen);
   };
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [highlightId, rollen]);
 
   async function toggleRol(rol) {
     try {
