@@ -426,7 +426,7 @@ export default function Filament() {
     api.get('/filament/types').then(setTypes);
     api.get('/filament/rollen').then(setRollen);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [tab]);
 
   useEffect(() => {
     if (highlightRef.current) {
