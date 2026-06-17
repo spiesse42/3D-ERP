@@ -57,6 +57,11 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
   const [rollen,       setRollen]       = useState([]);
   const [saving,       setSaving]       = useState(false);
   const [gewichtGeschat, setGewichtGeschat] = useState('');
+  const [rolFilter,    setRolFilter]    = useState('');
+
+  const gefilterdeRollen = rollen
+    .filter(r => (r.categorie || 'filament') === 'filament')
+    .filter(r => !rolFilter || `${r.lotnummer||''} ${r.merk} ${r.materiaal} ${r.kleur||''}`.toLowerCase().includes(rolFilter.toLowerCase()));
 
   function openForm() {
     setJobNaam(defaultNaam);
@@ -65,6 +70,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
     setAantalKleuren(2);
     setRolIds(['']);
     setGewichtGeschat('');
+    setRolFilter('');
     api.get('/filament/rollen').then(r => setRollen(r.filter(x => x.actief))).catch(() => {});
     setShowJobForm(true);
   }
@@ -207,6 +213,10 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
               )}
             </div>
           )}
+          <div className="form-group" style={{ marginBottom:8 }}>
+            <input type="text" placeholder="🔍 Filter op kleur/merk/materiaal..." value={rolFilter}
+              onChange={e => setRolFilter(e.target.value)} style={{ fontSize:12 }} />
+          </div>
           {isMulticolor === true ? (
             Array.from({ length: aantalKleuren }, (_, i) => (
               <div className="form-group" style={{ marginBottom:8 }} key={i}>
@@ -217,7 +227,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
                   setRolIds(nieuw);
                 }}>
                   <option value="">— geen rol koppelen —</option>
-                  {rollen.filter(r => (r.categorie || 'filament') === 'filament').map(r => (
+                  {gefilterdeRollen.map(r => (
                     <option key={r.id} value={r.id}>
                       {r.lotnummer || `Rol #${r.id}`} — {r.merk} {r.materiaal} — {r.kleur || '?'} ({r.gewicht_gram_huidig}g)
                     </option>
@@ -230,7 +240,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
               <label>Filamentrol (optioneel)</label>
               <select value={rolIds[0] || ''} onChange={e => setRolIds([e.target.value])}>
                 <option value="">— geen rol koppelen —</option>
-                {rollen.filter(r => (r.categorie || 'filament') === 'filament').map(r => (
+                {gefilterdeRollen.map(r => (
                   <option key={r.id} value={r.id}>
                     {r.lotnummer || `Rol #${r.id}`} — {r.merk} {r.materiaal} — {r.kleur || '?'} ({r.gewicht_gram_huidig}g)
                   </option>
