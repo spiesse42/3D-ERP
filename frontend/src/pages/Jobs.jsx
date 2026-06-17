@@ -274,7 +274,9 @@ const [form, setForm] = useState(job ? {
     } catch(e) { alert(e.message); }
   }
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onClick={e => {
+      if (e.target === e.currentTarget && confirm('Venster sluiten? Niet-opgeslagen wijzigingen kunnen verloren gaan.')) onClose();
+    }}>
       <div className="modal">
         <div className="modal-header">
           <h2>{job?.id ? 'Job bewerken' : 'Nieuwe job'}</h2>

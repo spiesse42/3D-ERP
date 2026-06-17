@@ -3,6 +3,15 @@ import { api } from '../lib/api.js';
 
 const BASE = window.__API_BASE__ || '/api';
 
+// Op module-niveau gedefinieerd — anders krijgt React bij elke render een nieuwe
+// functie-identiteit en breekt/herbouwt het de input erin, met focusverlies als gevolg.
+const Field = ({ label, children }) => (
+  <div className="form-group" style={{ marginBottom:0 }}>
+    <label style={{ fontSize:11 }}>{label}</label>
+    {children}
+  </div>
+);
+
 export default function KostenModal({ job, printerLiveData, klanten, onClose, onJobUpdated }) {
   const [rollen,          setRollen]          = useState([]);
   const [tarieven,        setTarieven]        = useState({});
@@ -300,13 +309,6 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     acc[key].gram_totaal += parseFloat(m.gram_gebruikt);
     return acc;
   }, {});
-
-  const Field = ({ label, children }) => (
-    <div className="form-group" style={{ marginBottom:0 }}>
-      <label style={{ fontSize:11 }}>{label}</label>
-      {children}
-    </div>
-  );
 
   return (
     <div className="modal-overlay" onClick={e => {
