@@ -620,7 +620,13 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
           <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'1rem', marginBottom:'0.75rem' }}>
             <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>📊 Werkbon kostprijsoverzicht</p>
             {[
-              { label:'Materiaal', val: result.materiaal_kost, sub: `${Math.ceil(Object.values(matGroepen).reduce((s, m) => s + m.gram_totaal, 0))}g` },
+              ...((result.filament_kost > 0 || result.artikel_kost > 0)
+                ? [
+                    ...(result.filament_kost > 0 ? [{ label:'Materiaal — filament', val: result.filament_kost, sub: `${Math.ceil(Object.values(matGroepen).reduce((s, m) => s + m.gram_totaal, 0))}g` }] : []),
+                    ...(result.artikel_kost > 0 ? [{ label:'Materiaal — artikelen', val: result.artikel_kost }] : []),
+                  ]
+                : [{ label:'Materiaal', val: result.materiaal_kost, sub: `${Math.ceil(Object.values(matGroepen).reduce((s, m) => s + m.gram_totaal, 0))}g` }]
+              ),
               { label:'Energie',   val: result.energie_kost,   sub: `${result.kwh_verbruikt} kWh` },
               ...(result.machine_kost > 0 ? [{ label:`Machine (${(parseInt(printUren) + parseInt(printMin)/60).toFixed(1)}u)`, val: result.machine_kost }] : []),
               ...(totVoorb > 0   ? [{ label:`Voorbereiding (${totVoorb} min)`,              val: (totVoorb / 60) * arbTarief }] : []),
