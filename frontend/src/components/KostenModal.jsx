@@ -75,16 +75,35 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
       }).catch(() => {});
     }
     api.get('/filament/rollen').then(r => setRollen(r.filter(x => x.actief)));
-    api.get('/tarieven').then(rows => {
+
+    Promise.all([
+      api.get('/tarieven'),
+      api.get(`/jobs/${job.id}`).catch(() => null),
+    ]).then(([rows, d]) => {
       const t = Object.fromEntries(rows.map(r => [r.sleutel, r.waarde]));
       setTarieven(t);
-      setVoorbMin(t.voorbereiding_min || 15);
-      setNabMin(t.nabewerking_min || 10);
-      setOntwerpTarief(t.ontwerp_tarief || 15);
-      setNabewerkingExtraTarief(t.nabewerking_tarief || 15);
+      const k = d?.kosten;
+
+      // Arbeid-tarieven: job-specifieke waarde indien aanwezig, anders globale default
+      setVoorbMin(k?.voorbereiding_min ?? (t.voorbereiding_min || 15));
+      setNabMin(k?.nabewerking_min ?? (t.nabewerking_min || 10));
+      setOntwerpTarief(k?.ontwerp_tarief ?? (t.ontwerp_tarief || 15));
+      setNabewerkingExtraTarief(k?.nabewerking_extra_tarief ?? (t.nabewerking_tarief || 15));
+
+      if (k) {
+        if (k.ontwerp_min != null) setOntwerpMin(k.ontwerp_min);
+        if (k.nabewerking_extra_min != null) setNabewerkingExtraMin(k.nabewerking_extra_min);
+        if (k.aantal != null) setAantal(k.aantal);
+        if (k.extra_per_stuk != null) setExtraPerStuk(k.extra_per_stuk);
+        if (k.extra_eenmalig != null) setExtraEenmalig(k.extra_eenmalig);
+        if (k.extra_omschrijving) setExtraOmschrijving(k.extra_omschrijving);
+        if ((k.aantal || 1) > 1 || (k.extra_per_stuk || 0) > 0 || (k.extra_eenmalig || 0) > 0 || k.extra_omschrijving) {
+          setToonExtraKosten(true);
+        }
+      }
       setTarievenGeladen(true);
-    });
-    api.get(`/jobs/${job.id}`).then(d => {
+
+      if (!d) return;
       if (d.materialen?.length) {
         // Laad prijs_per_kg_effectief via filament/rollen
         api.get('/filament/rollen').then(rollen => {
@@ -97,7 +116,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
       }
       if (d.kosten) setResult(d.kosten);
       if (d.notities) setOpmerking(d.notities);
-    }).catch(() => {});
+    });
   }, [job.id]);
 
   // Auto-update kWh bij eerste beschikbaarheid
@@ -207,6 +226,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     nabewerking_extra_tarief: nabewerkingExtraTarief,
     extra_per_stuk: parseFloat(extraPerStuk) || 0,
     extra_eenmalig: parseFloat(extraEenmalig) || 0,
+    extra_omschrijving: extraOmschrijving,
     aantal: parseInt(aantal) || 1,
     opmerking,
     print_uren: parseInt(printUren) + parseInt(printMin) / 60,

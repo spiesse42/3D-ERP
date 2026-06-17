@@ -120,6 +120,7 @@ r.post('/bereken/:jobId', (req, res) => {
     nabewerking_extra_tarief = t.nabewerking_tarief || 15,
     extra_per_stuk = 0,
     extra_eenmalig = 0,
+    extra_omschrijving = '',
     aantal = 1,
     opmerking = '',
     print_uren = null,
@@ -178,25 +179,40 @@ r.post('/bereken/:jobId', (req, res) => {
     arbeid_nabewerking: ro(arbeid_nabewerking), arbeid_ontwerp: ro(arbeid_ontwerp),
     extra_totaal: ro(extra_totaal), faalfactor_pct, winstmarge_pct: marge_pct,
     totaal_kost: ro(subtotaal), verkoopprijs: Math.round(verkoopprijs * 100) / 100,
-    kwh_verbruikt: parseFloat(kwh_verbruikt), aantal: parseInt(aantal),
+    kwh_verbruikt: parseFloat(kwh_verbruikt), aantal: parseInt(aantal) || 1,
+    extra_per_stuk: parseFloat(extra_per_stuk) || 0, extra_eenmalig: parseFloat(extra_eenmalig) || 0,
+    extra_omschrijving, voorbereiding_min: totale_voorb_min, nabewerking_min: parseFloat(nabewerking_min) || 0,
+    ontwerp_min: parseFloat(ontwerp_min) || 0, ontwerp_tarief: parseFloat(ontwerp_tarief) || 15,
+    nabewerking_extra_min: parseFloat(nabewerking_extra_min) || 0, nabewerking_extra_tarief: parseFloat(nabewerking_extra_tarief) || 15,
     opmerking, printer_naam: job.printer_naam, job_naam: job.naam,
   };
 
   db.prepare(`
     INSERT INTO job_kosten
       (job_id,materiaal_kost,energie_kost,machine_kost,arbeid_kost,bmcu_slijtage,
-       faalfactor_pct,winstmarge_pct,totaal_kost,verkoopprijs,kwh_verbruikt,berekend_op)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+       faalfactor_pct,winstmarge_pct,totaal_kost,verkoopprijs,kwh_verbruikt,
+       aantal,extra_per_stuk,extra_eenmalig,extra_omschrijving,
+       voorbereiding_min,nabewerking_min,ontwerp_min,ontwerp_tarief,
+       nabewerking_extra_min,nabewerking_extra_tarief,berekend_op)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
     ON CONFLICT(job_id) DO UPDATE SET
       materiaal_kost=excluded.materiaal_kost,energie_kost=excluded.energie_kost,
       machine_kost=excluded.machine_kost,arbeid_kost=excluded.arbeid_kost,
       bmcu_slijtage=excluded.bmcu_slijtage,faalfactor_pct=excluded.faalfactor_pct,
       winstmarge_pct=excluded.winstmarge_pct,totaal_kost=excluded.totaal_kost,
       verkoopprijs=excluded.verkoopprijs,kwh_verbruikt=excluded.kwh_verbruikt,
+      aantal=excluded.aantal,extra_per_stuk=excluded.extra_per_stuk,
+      extra_eenmalig=excluded.extra_eenmalig,extra_omschrijving=excluded.extra_omschrijving,
+      voorbereiding_min=excluded.voorbereiding_min,nabewerking_min=excluded.nabewerking_min,
+      ontwerp_min=excluded.ontwerp_min,ontwerp_tarief=excluded.ontwerp_tarief,
+      nabewerking_extra_min=excluded.nabewerking_extra_min,nabewerking_extra_tarief=excluded.nabewerking_extra_tarief,
       berekend_op=datetime('now')
   `).run(kosten.job_id, kosten.materiaal_kost, kosten.energie_kost, kosten.machine_kost,
          kosten.arbeid_kost, kosten.bmcu_slijtage, kosten.faalfactor_pct, kosten.winstmarge_pct,
-         kosten.totaal_kost, kosten.verkoopprijs, kosten.kwh_verbruikt);
+         kosten.totaal_kost, kosten.verkoopprijs, kosten.kwh_verbruikt,
+         kosten.aantal, kosten.extra_per_stuk, kosten.extra_eenmalig, kosten.extra_omschrijving,
+         kosten.voorbereiding_min, kosten.nabewerking_min, kosten.ontwerp_min, kosten.ontwerp_tarief,
+         kosten.nabewerking_extra_min, kosten.nabewerking_extra_tarief);
 
   if (opmerking) db.prepare('UPDATE jobs SET notities = ? WHERE id = ?').run(opmerking, req.params.jobId);
 

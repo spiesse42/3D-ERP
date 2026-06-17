@@ -151,7 +151,7 @@ rapportage.get('/dashboard', (req, res) => {
     SELECT ft.materiaal, ROUND(SUM(r.gewicht_gram_huidig),0) as gram_totaal,
       ROUND(SUM(r.gewicht_gram_huidig/1000*ft.inkoop_prijs_per_kg),2) as waarde_eur
     FROM filament_rollen r JOIN filament_types ft ON ft.id = r.filament_type_id
-    WHERE r.actief = 1 GROUP BY ft.materiaal
+    WHERE r.actief = 1 AND (ft.categorie IS NULL OR ft.categorie = 'filament') GROUP BY ft.materiaal
   `).all();
 
   const openstaand = db.prepare(`
@@ -176,6 +176,7 @@ rapportage.get('/stats/filament', (req, res) => {
     FROM job_materialen jm
     JOIN filament_rollen fr ON fr.id = jm.filament_rol_id
     JOIN filament_types ft ON ft.id = fr.filament_type_id
+    WHERE (ft.categorie IS NULL OR ft.categorie = 'filament')
     GROUP BY ft.id, fr.kleur
     ORDER BY gram_totaal DESC
     LIMIT 10

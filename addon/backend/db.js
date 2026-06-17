@@ -18,6 +18,7 @@ import { migrateDbV14 } from './db_migration_v14.js';
 import { migrateDbV15 } from './db_migration_v15.js';
 import { migrateDbV16 } from './db_migration_v16.js';
 import { migrateDbV17 } from './db_migration_v17.js';
+import { migrateDbV18 } from './db_migration_v18.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'erp.db');
@@ -189,6 +190,7 @@ migrateDbV10(db);
   migrateDbV15(db);
   migrateDbV16(db);
   migrateDbV17(db);
+  migrateDbV18(db);
 
   const printerCount = db.prepare('SELECT COUNT(*) as c FROM printers').get().c;
   if (printerCount === 0) {
