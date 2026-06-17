@@ -557,12 +557,11 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             </label>
           </div>
 
-          <Field label="Aantal stuks">
-            <input type="number" min="1" value={aantal} onChange={e => setAantal(parseInt(e.target.value) || 1)} />
-          </Field>
-
           {toonExtraKosten && (
             <>
+              <Field label="Aantal stuks">
+                <input type="number" min="1" value={aantal} onChange={e => setAantal(parseInt(e.target.value) || 1)} />
+              </Field>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginTop:8, marginBottom:6 }}>
                 <Field label="Extra/stuk (€) × aantal">
                   <input type="number" min="0" step="0.01" value={extraPerStuk} onChange={e => setExtraPerStuk(e.target.value)} />
