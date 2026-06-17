@@ -43,6 +43,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const [btw,             setBtw]             = useState(false);
   const [autoSaveTimer,   setAutoSaveTimer]   = useState(null);
   const [autoSaveMsg,     setAutoSaveMsg]     = useState('');
+  const [toonExtraKosten, setToonExtraKosten] = useState(false);
   const isReadOnly = ['gecontroleerd','gefactureerd','betaald'].includes(job.status);
 
   const live     = printerLiveData;
@@ -548,21 +549,33 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
 
         {/* EXTRA */}
         <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
-          <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>➕ Extra kosten</p>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginBottom:6 }}>
-            <Field label="Aantal stuks">
-              <input type="number" min="1" value={aantal} onChange={e => setAantal(parseInt(e.target.value) || 1)} />
-            </Field>
-            <Field label="Extra/stuk (€) × aantal">
-              <input type="number" min="0" step="0.01" value={extraPerStuk} onChange={e => setExtraPerStuk(e.target.value)} />
-            </Field>
-            <Field label="Extra eenmalig (€)">
-              <input type="number" min="0" step="0.01" value={extraEenmalig} onChange={e => setExtraEenmalig(e.target.value)} />
-            </Field>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+            <p style={{ fontSize:12, fontWeight:600, margin:0 }}>➕ Extra kosten <span style={{ color:'var(--muted)', fontWeight:400 }}>(niet uit voorraad)</span></p>
+            <label style={{ display:'flex', alignItems:'center', gap:5, fontSize:12, cursor:'pointer' }}>
+              <input type="checkbox" checked={toonExtraKosten} onChange={e => setToonExtraKosten(e.target.checked)} />
+              Extra aanrekenen
+            </label>
           </div>
-          <Field label="Omschrijving extra">
-            <input value={extraOmschrijving} onChange={e => setExtraOmschrijving(e.target.value)} placeholder="bv. 20 ringetjes + 1 nozzle 0.2mm" />
+
+          <Field label="Aantal stuks">
+            <input type="number" min="1" value={aantal} onChange={e => setAantal(parseInt(e.target.value) || 1)} />
           </Field>
+
+          {toonExtraKosten && (
+            <>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginTop:8, marginBottom:6 }}>
+                <Field label="Extra/stuk (€) × aantal">
+                  <input type="number" min="0" step="0.01" value={extraPerStuk} onChange={e => setExtraPerStuk(e.target.value)} />
+                </Field>
+                <Field label="Extra eenmalig (€)">
+                  <input type="number" min="0" step="0.01" value={extraEenmalig} onChange={e => setExtraEenmalig(e.target.value)} />
+                </Field>
+              </div>
+              <Field label="Omschrijving extra">
+                <input value={extraOmschrijving} onChange={e => setExtraOmschrijving(e.target.value)} placeholder="bv. 20 ringetjes + 1 nozzle 0.2mm" />
+              </Field>
+            </>
+          )}
         </div>
 
         {/* OPMERKING */}
