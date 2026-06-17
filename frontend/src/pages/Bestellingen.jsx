@@ -102,7 +102,9 @@ function LeverancierModal({ leverancier, onClose, onSaved }) {
   }
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onClick={e => {
+      if (e.target === e.currentTarget && confirm('Venster sluiten? Niet-opgeslagen wijzigingen kunnen verloren gaan.')) onClose();
+    }}>
       <div className="modal">
         <div className="modal-header">
           <h2>{leverancier?.id ? 'Leverancier bewerken' : 'Nieuwe leverancier'}</h2>
@@ -229,7 +231,9 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
   }
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onClick={e => {
+      if (e.target === e.currentTarget && confirm('Venster sluiten? Niet-opgeslagen wijzigingen kunnen verloren gaan.')) onClose();
+    }}>
       <div className="modal">
         <div className="modal-header">
           <h2>Bestelling aanmaken</h2>
@@ -377,7 +381,9 @@ function OntvangstModal({ item, onClose, onSaved }) {
   }
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onClick={e => {
+      if (e.target === e.currentTarget && confirm('Venster sluiten? Niet-opgeslagen wijzigingen kunnen verloren gaan.')) onClose();
+    }}>
       <div className="modal">
         <div className="modal-header">
           <h2>Ontvangen — {item.merk} {item.materiaal}{item.kleur ? ` (${item.kleur})` : ''}</h2>

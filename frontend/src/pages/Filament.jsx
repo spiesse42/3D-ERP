@@ -183,7 +183,9 @@ function TypeModal({ type, onClose, onSaved }) {
   }
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onClick={e => {
+      if (e.target === e.currentTarget && confirm('Venster sluiten? Niet-opgeslagen wijzigingen kunnen verloren gaan.')) onClose();
+    }}>
       <div className="modal">
         <div className="modal-header">
           <h2>{type?.id ? 'Artikeltype bewerken' : 'Nieuw artikeltype'}</h2>
@@ -357,7 +359,9 @@ function RolModal({ types, rol, onClose, onSaved }) {
   }
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onClick={e => {
+      if (e.target === e.currentTarget && confirm('Venster sluiten? Niet-opgeslagen wijzigingen kunnen verloren gaan.')) onClose();
+    }}>
       <div className="modal">
         <div className="modal-header">
           <h2>{isEdit ? 'Voorraad bewerken' : 'Nieuwe voorraad toevoegen'}</h2>

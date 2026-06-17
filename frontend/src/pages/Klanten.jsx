@@ -21,7 +21,9 @@ function KlantModal({ klant, onClose, onSaved }) {
   }
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onClick={e => {
+      if (e.target === e.currentTarget && confirm('Venster sluiten? Niet-opgeslagen wijzigingen kunnen verloren gaan.')) onClose();
+    }}>
       <div className="modal" style={{ width:540 }}>
         <div className="modal-header">
           <h2>{klant?.id ? 'Klant bewerken' : 'Nieuwe klant'}</h2>
