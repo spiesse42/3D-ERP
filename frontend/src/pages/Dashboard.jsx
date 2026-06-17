@@ -217,9 +217,9 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
                   setRolIds(nieuw);
                 }}>
                   <option value="">— geen rol koppelen —</option>
-                  {rollen.map(r => (
+                  {rollen.filter(r => (r.categorie || 'filament') === 'filament').map(r => (
                     <option key={r.id} value={r.id}>
-                      {r.merk} {r.materiaal} — {r.kleur || '?'} ({r.gewicht_gram_huidig}g)
+                      {r.lotnummer || `Rol #${r.id}`} — {r.merk} {r.materiaal} — {r.kleur || '?'} ({r.gewicht_gram_huidig}g)
                     </option>
                   ))}
                 </select>
@@ -230,9 +230,9 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
               <label>Filamentrol (optioneel)</label>
               <select value={rolIds[0] || ''} onChange={e => setRolIds([e.target.value])}>
                 <option value="">— geen rol koppelen —</option>
-                {rollen.map(r => (
+                {rollen.filter(r => (r.categorie || 'filament') === 'filament').map(r => (
                   <option key={r.id} value={r.id}>
-                    {r.merk} {r.materiaal} — {r.kleur || '?'} ({r.gewicht_gram_huidig}g)
+                    {r.lotnummer || `Rol #${r.id}`} — {r.merk} {r.materiaal} — {r.kleur || '?'} ({r.gewicht_gram_huidig}g)
                   </option>
                 ))}
               </select>

@@ -8,6 +8,8 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const [tarieven,        setTarieven]        = useState({});
   const [selectedRol,     setSelectedRol]     = useState('');
   const [gram,            setGram]            = useState('');
+  const [selectedArtikel, setSelectedArtikel] = useState('');
+  const [artikelAantal,   setArtikelAantal]   = useState('');
   const [materialen,      setMaterialen]      = useState([]);
   const [result,          setResult]          = useState(null);
   const [saving,          setSaving]          = useState(false);
@@ -45,9 +47,14 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
 
   const live     = printerLiveData;
   const kwhDelta = live?.kwh_delta ?? (job.kwh_start > 0 ? job.kwh_start : null);
+  const filamentMaterialen = materialen.filter(m => (m.categorie || 'filament') === 'filament');
+  const artikelMaterialen  = materialen.filter(m => (m.categorie || 'filament') !== 'filament');
+  const filamentRollenLijst = rollen.filter(r => (r.categorie || 'filament') === 'filament');
+  const artikelRollenLijst  = rollen.filter(r => (r.categorie || 'filament') !== 'filament');
+  const eenheidLabel = e => e === 'stuk' ? 'stuk(s)' : e === 'ml' ? 'ml' : 'g';
   // liveGram: voor Ender herbereken op basis van gekoppeld materiaaltype
   const liveGramRaw = live?.filament_g || 0;
-  const eersteMateriaal = materialen[0]?.materiaal?.toLowerCase() || '';
+  const eersteMateriaal = filamentMaterialen[0]?.materiaal?.toLowerCase() || '';
   const autoFactor = eersteMateriaal.includes('petg') ? 3.20 : 2.98;
   const liveGram = live?.type === 'ender' && autoFactor !== 2.98
     ? liveGramRaw / 2.98 * autoFactor
@@ -113,8 +120,8 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     }
 
     // Filament: enkel bij 1 kleur (niet multicolor)
-    if (!isMulticolor && liveGram > 0 && materialen.length === 1) {
-      const m = materialen[0];
+    if (!isMulticolor && liveGram > 0 && filamentMaterialen.length === 1) {
+      const m = filamentMaterialen[0];
       const nieuwGram = parseFloat(liveGram.toFixed(1));
       if (nieuwGram !== m.gram_gebruikt) {
         api.put(`/jobs/${job.id}/materialen/${m.id}`, { gram_gebruikt: nieuwGram })
@@ -158,6 +165,19 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
       });
       setMaterialen(prev => [...prev, { ...rol, id: res.id, filament_rol_id: parseInt(selectedRol), gram_gebruikt: parseFloat(gram) }]);
       setSelectedRol(''); setGram('');
+    } catch(e) { alert(e.message); }
+  }
+
+  async function voegArtikelToe() {
+    if (!selectedArtikel || !artikelAantal) return alert('Selecteer een artikel en geef een aantal op');
+    try {
+      const rol = rollen.find(r => r.id === parseInt(selectedArtikel));
+      const res = await api.post(`/jobs/${job.id}/materialen`, {
+        filament_rol_id: parseInt(selectedArtikel),
+        gram_gebruikt: parseFloat(artikelAantal),
+      });
+      setMaterialen(prev => [...prev, { ...rol, id: res.id, filament_rol_id: parseInt(selectedArtikel), gram_gebruikt: parseFloat(artikelAantal) }]);
+      setSelectedArtikel(''); setArtikelAantal('');
     } catch(e) { alert(e.message); }
   }
 
@@ -238,11 +258,11 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
       ? job.gewicht_geschat
       : (!isMulticolor && live?.filament_g > 0)
         ? live.filament_g
-        : materialen.reduce((s, m) => s + m.gram_gebruikt, 0);
-    const prijsPerKg = materialen[0]?.prijs_per_kg_effectief || materialen[0]?.inkoop_prijs_per_kg || 0;
+        : filamentMaterialen.reduce((s, m) => s + m.gram_gebruikt, 0);
+    const prijsPerKg = filamentMaterialen[0]?.prijs_per_kg_effectief || filamentMaterialen[0]?.inkoop_prijs_per_kg || 0;
     const matKost = prijsPerKg > 0
       ? (gramBasis / 1000) * prijsPerKg * (1 + (t.faalfactor_pct || 10) / 100)
-      : materialen.reduce((s, m) => s + (m.gram_gebruikt / 1000) * (m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0), 0) * (1 + (t.faalfactor_pct || 10) / 100);
+      : filamentMaterialen.reduce((s, m) => s + (m.gram_gebruikt / 1000) * (m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0), 0) * (1 + (t.faalfactor_pct || 10) / 100);
     const energieKost = (kwhGeschat || 0) * (t.kwh_prijs || 0.35);
     const machineKost = totaleUrenGeschat * (t.machine_kost_per_uur || 0);
     const bmcu = isMulticolor ? (t.bmcu_per_job || 0.10) : 0;
@@ -252,7 +272,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     return sub * (1 + marge / 100);
   })();
 
-  const matGroepen = materialen.reduce((acc, m) => {
+  const matGroepen = filamentMaterialen.reduce((acc, m) => {
     const key = `${m.merk || ''} ${m.materiaal || ''} ${m.kleur || ''}`.trim();
     if (!acc[key]) acc[key] = { items:[], gram_totaal:0, prijs: m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0, naam: key };
     acc[key].items.push(m);
@@ -353,7 +373,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
           <div style={{ display:'grid', gridTemplateColumns:'1fr 90px auto auto', gap:6, alignItems:'end', marginBottom:8 }}>
             <select value={selectedRol} onChange={e => setSelectedRol(e.target.value)} style={{ fontSize:12 }}>
               <option value="">— selecteer rol —</option>
-              {rollen.map(r => (
+              {filamentRollenLijst.map(r => (
                 <option key={r.id} value={r.id}>
                   {r.lotnummer || `Rol #${r.id}`} — {r.merk} {r.materiaal} {r.kleur} — {r.gewicht_gram_huidig}g — €{(r.prijs_per_kg_effectief||0).toFixed(2)}/kg
                 </option>
@@ -370,7 +390,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             <button className="btn primary" style={{ fontSize:11 }} onClick={voegMateriaaltoe}>+ Voeg toe</button>
           </div>
 
-          {materialen.map(m => (
+          {filamentMaterialen.map(m => (
             <div key={m.id} style={{ background:'var(--bg2)', borderRadius:6, padding:'6px 10px', marginBottom:4, fontSize:12 }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
                 <span style={{ fontWeight:500, flex:1 }}>{m.merk} {m.materiaal} {m.kleur}</span>
@@ -401,6 +421,60 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
               💡 Tip: Bambu geeft 1 totaalgewicht ({liveGram.toFixed(1)}g). Verdeel dit over de rollen hierboven.
             </div>
           )}
+        </div>
+
+        {/* ARTIKELEN */}
+        <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
+          <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>📦 Artikelen</p>
+
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 90px auto', gap:6, alignItems:'end', marginBottom:8 }}>
+            <select value={selectedArtikel} onChange={e => setSelectedArtikel(e.target.value)} style={{ fontSize:12 }}>
+              <option value="">— selecteer artikel —</option>
+              {artikelRollenLijst.map(r => (
+                <option key={r.id} value={r.id}>
+                  {r.lotnummer || `Item #${r.id}`} — {r.merk} {r.materiaal}{r.kleur ? ` — ${r.kleur}` : ''} — {r.gewicht_gram_huidig}{eenheidLabel(r.eenheid)} — €{(r.prijs_per_kg_effectief||0).toFixed(2)}/{eenheidLabel(r.eenheid).replace('(s)','')}
+                </option>
+              ))}
+            </select>
+            <input type="number" placeholder={artikelRollenLijst.find(r => r.id === parseInt(selectedArtikel))?.eenheid === 'gram' ? 'gram' : 'aantal'}
+              value={artikelAantal} onChange={e => setArtikelAantal(e.target.value)} style={{ fontSize:12 }} />
+            <button className="btn primary" style={{ fontSize:11 }} onClick={voegArtikelToe}>+ Voeg toe</button>
+          </div>
+
+          {artikelMaterialen.length === 0 && artikelRollenLijst.length === 0 && (
+            <div style={{ fontSize:11, color:'var(--muted)' }}>
+              Geen artikelen in voorraad — voeg eerst types/voorraad toe via de Artikelen-tab.
+            </div>
+          )}
+
+          {artikelMaterialen.map(m => {
+            const deler = m.eenheid === 'gram' ? 1000 : 1;
+            return (
+              <div key={m.id} style={{ background:'var(--bg2)', borderRadius:6, padding:'6px 10px', marginBottom:4, fontSize:12 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                  <span style={{ fontWeight:500, flex:1 }}>{m.merk} {m.materiaal}{m.kleur ? ` ${m.kleur}` : ''}</span>
+                  <input
+                    type="number" min="0.1" step="0.1"
+                    value={m.eenheid === 'stuk' ? Math.round(m.gram_gebruikt) : m.gram_gebruikt}
+                    style={{ width:70, fontSize:12, MozAppearance:'textfield', appearance:'textfield' }}
+                    onChange={async e => {
+                      const nieuwAantal = parseFloat(e.target.value);
+                      if (isNaN(nieuwAantal) || nieuwAantal <= 0) return;
+                      try {
+                        await api.put(`/jobs/${job.id}/materialen/${m.id}`, { gram_gebruikt: nieuwAantal });
+                        setMaterialen(prev => prev.map(x => x.id === m.id ? { ...x, gram_gebruikt: nieuwAantal } : x));
+                      } catch(e) { alert(e.message); }
+                    }}
+                  />
+                  <span style={{ color:'var(--muted)', minWidth:90, fontSize:11 }}>
+                    {eenheidLabel(m.eenheid)} · €{((m.gram_gebruikt / deler) * (m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0)).toFixed(3)}
+                  </span>
+                  <button onClick={() => verwijderMateriaal(m.id)}
+                    style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer', fontSize:12 }}>✕</button>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* ENERGIE */}
