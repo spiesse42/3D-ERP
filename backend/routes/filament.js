@@ -103,7 +103,7 @@ r.get('/rollen', (req, res) => {
   try {
     const rows = getDb().prepare(`
       SELECT r.*,
-        ft.merk, ft.materiaal, ft.inkoop_prijs_per_kg, ft.eenheid,
+        ft.merk, ft.materiaal, ft.inkoop_prijs_per_kg, ft.eenheid, ft.categorie, ft.marge_pct,
         ROUND(
           r.gewicht_gram_huidig *
           COALESCE(

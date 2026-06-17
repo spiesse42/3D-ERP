@@ -96,11 +96,13 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
         gewicht_geschat:    parseFloat(gewichtGeschat) || null,
       });
 
-      for (const rid of rolIds.filter(r => r)) {
-        await api.post(`/jobs/${jobId.id}/materialen`, {
-          filament_rol_id: parseInt(rid),
-          gram_gebruikt: 1,
-        }).catch(() => {});
+      if (jobId?.id) {
+        for (const rid of rolIds.filter(r => r)) {
+          await api.post(`/jobs/${jobId.id}/materialen`, {
+            filament_rol_id: parseInt(rid),
+            gram_gebruikt: 1,
+          }).catch(() => {});
+        }
       }
 
       setShowJobForm(false);

@@ -18,9 +18,12 @@ function buildPdfHtml(kosten, klant, extraInfo = {}) {
   const btwBedrag = btw ? (kosten.verkoopprijs||0) * 0.21 : 0;
   const totaalInclBtw = (kosten.verkoopprijs||0) + btwBedrag;
 
-  const matRijen = matDetails.map(m =>
-    `<tr><td>Materiaal — ${m.naam}</td><td>${m.gram.toFixed(1)}g</td><td>${toon((m.gram/1000)*m.prijs)}</td></tr>`
-  ).join('');
+  const eenheidLabel = e => e === 'stuk' ? 'stuks' : e === 'ml' ? 'ml' : 'g';
+  const matRijen = matDetails.map(m => {
+    const deler = m.eenheid === 'gram' ? 1000 : 1;
+    const aantalTxt = m.eenheid === 'stuk' ? Math.round(m.gram) : m.gram.toFixed(1);
+    return `<tr><td>Materiaal — ${m.naam}</td><td>${aantalTxt} ${eenheidLabel(m.eenheid)}</td><td>${toon((m.gram/deler)*m.prijs)}</td></tr>`;
+  }).join('');
 
   return `<!DOCTYPE html>
 <html lang="nl"><head><meta charset="UTF-8">
@@ -129,16 +132,25 @@ r.post('/bereken/:jobId', (req, res) => {
   }
 
   const materialen = db.prepare(`
-    SELECT jm.gram_gebruikt, ft.merk, ft.materiaal, r.kleur, r.id as rol_id,
-      COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start / 1000.0, 0), ft.inkoop_prijs_per_kg) as prijs_per_kg_effectief
+    SELECT jm.gram_gebruikt, ft.merk, ft.materiaal, ft.categorie, ft.eenheid, r.kleur, r.id as rol_id,
+      COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start, 0) * (CASE WHEN ft.eenheid = 'gram' THEN 1000.0 ELSE 1.0 END), ft.inkoop_prijs_per_kg) as prijs_per_kg_effectief
     FROM job_materialen jm
     JOIN filament_rollen r ON r.id = jm.filament_rol_id
     JOIN filament_types ft ON ft.id = r.filament_type_id
     WHERE jm.job_id = ?
   `).all(req.params.jobId);
 
-  const materiaal_kost = materialen.reduce((sum, m) =>
-    sum + (m.gram_gebruikt / 1000) * m.prijs_per_kg_effectief, 0) * (1 + faalfactor_pct / 100);
+  const kostPerRegel = m => (m.gram_gebruikt / (m.eenheid === 'gram' ? 1000 : 1)) * m.prijs_per_kg_effectief;
+
+  const filament_kost = materialen
+    .filter(m => m.categorie === 'filament')
+    .reduce((sum, m) => sum + kostPerRegel(m), 0) * (1 + faalfactor_pct / 100);
+
+  const artikel_kost = materialen
+    .filter(m => m.categorie !== 'filament')
+    .reduce((sum, m) => sum + kostPerRegel(m), 0);
+
+  const materiaal_kost = filament_kost + artikel_kost;
 
   const energie_kost = parseFloat(kwh_verbruikt) * kwh_prijs;
   const machine_kost = uren * job.machine_kost_per_uur;
@@ -228,7 +240,8 @@ r.get('/pdf/:jobId', (req, res) => {
     aantal: parseInt(req.query.aantal)||1,
     btw,
     matDetails: db.prepare(`
-      SELECT jm.gram_gebruikt as gram, ft.inkoop_prijs_per_kg as prijs,
+      SELECT jm.gram_gebruikt as gram, ft.eenheid,
+        COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start, 0) * (CASE WHEN ft.eenheid = 'gram' THEN 1000.0 ELSE 1.0 END), ft.inkoop_prijs_per_kg) as prijs,
         ft.merk || ' ' || ft.materiaal || COALESCE(' ' || r.kleur, '') as naam
       FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id
       JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?
@@ -266,7 +279,7 @@ r.post('/email/:jobId', async (req, res) => {
     extraTotaal: extra_velden.extra_totaal||0, extraOmschrijving: extra_velden.extra_omschrijving||'',
     aantal: extra_velden.aantal||1,
     btw: btwEmail,
-    matDetails: db.prepare(`SELECT jm.gram_gebruikt as gram, ft.inkoop_prijs_per_kg as prijs, ft.merk || ' ' || ft.materiaal || COALESCE(' ' || r.kleur, '') as naam FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?`).all(req.params.jobId),
+    matDetails: db.prepare(`SELECT jm.gram_gebruikt as gram, ft.eenheid, COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start, 0) * (CASE WHEN ft.eenheid = 'gram' THEN 1000.0 ELSE 1.0 END), ft.inkoop_prijs_per_kg) as prijs, ft.merk || ' ' || ft.materiaal || COALESCE(' ' || r.kleur, '') as naam FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?`).all(req.params.jobId),
   };
   const pdfHtml = buildPdfHtml(volledigeKosten, klant, extraInfo);
   try {
