@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { api } from '../lib/api.js';
+import { api, BASE } from '../lib/api.js';
 
-const BASE = window.__API_BASE__ || '/api';
 const STATUSSEN = ['concept','verstuurd','goedgekeurd','geannuleerd'];
 const BTW_OPTIES = [0, 6, 21];
 

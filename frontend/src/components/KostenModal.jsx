@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '../lib/api.js';
-
-const BASE = window.__API_BASE__ || '/api';
+import { api, BASE } from '../lib/api.js';
 
 // Op module-niveau gedefinieerd — anders krijgt React bij elke render een nieuwe
 // functie-identiteit en breekt/herbouwt het de input erin, met focusverlies als gevolg.

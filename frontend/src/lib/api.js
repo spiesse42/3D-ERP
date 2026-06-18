@@ -19,7 +19,7 @@ function getBase() {
   return '/api';
 }
 
-const BASE = getBase();
+export const BASE = getBase();
 console.log('API base:', BASE);
 
 async function req(method, path, body) {
