@@ -245,16 +245,16 @@ r.get('/pdf/:jobId', (req, res) => {
   const btwParam = req.query.btw;
   const btw = btwParam != null ? btwParam === '1' || btwParam === 'true' : klantType === 'zakelijk';
   const extraInfo = {
-    voorbMin: parseFloat(req.query.voorb_min) || (t.voorbereiding_min||15),
-    nabMin: parseFloat(req.query.nab_min) || (t.nabewerking_min||10),
+    voorbMin: kosten.voorbereiding_min ?? (t.voorbereiding_min||15),
+    nabMin: kosten.nabewerking_min ?? (t.nabewerking_min||10),
     arbTarief: t.arbeid_per_uur||15,
-    ontwerpMin: parseFloat(req.query.ontwerp_min)||0,
-    ontwerpTarief: t.ontwerp_tarief||15,
-    nabExtraMin: parseFloat(req.query.nab_extra_min)||0,
-    nabExtraTarief: t.nabewerking_tarief||15,
-    extraTotaal: parseFloat(req.query.extra_totaal)||0,
-    extraOmschrijving: decodeURIComponent(req.query.extra_omschrijving||''),
-    aantal: parseInt(req.query.aantal)||1,
+    ontwerpMin: kosten.ontwerp_min || 0,
+    ontwerpTarief: kosten.ontwerp_tarief || t.ontwerp_tarief || 15,
+    nabExtraMin: kosten.nabewerking_extra_min || 0,
+    nabExtraTarief: kosten.nabewerking_extra_tarief || t.nabewerking_tarief || 15,
+    extraTotaal: (parseFloat(kosten.extra_per_stuk)||0) * (parseInt(kosten.aantal)||1) + (parseFloat(kosten.extra_eenmalig)||0),
+    extraOmschrijving: kosten.extra_omschrijving || '',
+    aantal: parseInt(req.query.aantal) || kosten.aantal || 1,
     btw,
     matDetails: db.prepare(`
       SELECT jm.gram_gebruikt as gram, ft.eenheid,
@@ -289,12 +289,16 @@ r.post('/email/:jobId', async (req, res) => {
   const btwEmail = extra_velden.btw != null ? !!extra_velden.btw : klantTypeEmail === 'zakelijk';
   const btwBedragEmail = btwEmail ? (kosten.verkoopprijs||0) * 0.21 : 0;
   const extraInfo = {
-    voorbMin: (t.voorbereiding_min||15) + (extra_velden.extra_voorb_min||0),
-    nabMin: t.nabewerking_min||10, arbTarief: t.arbeid_per_uur||15,
-    ontwerpMin: extra_velden.ontwerp_min||0, ontwerpTarief: t.ontwerp_tarief||15,
-    nabExtraMin: extra_velden.nab_extra_min||0, nabExtraTarief: t.nabewerking_tarief||15,
-    extraTotaal: extra_velden.extra_totaal||0, extraOmschrijving: extra_velden.extra_omschrijving||'',
-    aantal: extra_velden.aantal||1,
+    voorbMin: kosten.voorbereiding_min ?? (t.voorbereiding_min||15),
+    nabMin: kosten.nabewerking_min ?? (t.nabewerking_min||10),
+    arbTarief: t.arbeid_per_uur||15,
+    ontwerpMin: kosten.ontwerp_min || 0,
+    ontwerpTarief: kosten.ontwerp_tarief || t.ontwerp_tarief || 15,
+    nabExtraMin: kosten.nabewerking_extra_min || 0,
+    nabExtraTarief: kosten.nabewerking_extra_tarief || t.nabewerking_tarief || 15,
+    extraTotaal: (parseFloat(kosten.extra_per_stuk)||0) * (parseInt(extra_velden.aantal || kosten.aantal)||1) + (parseFloat(kosten.extra_eenmalig)||0),
+    extraOmschrijving: kosten.extra_omschrijving || '',
+    aantal: extra_velden.aantal || kosten.aantal || 1,
     btw: btwEmail,
     matDetails: db.prepare(`SELECT jm.gram_gebruikt as gram, ft.eenheid, COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start, 0) * (CASE WHEN ft.eenheid = 'gram' THEN 1000.0 ELSE 1.0 END), ft.inkoop_prijs_per_kg) as prijs, ft.merk || ' ' || ft.materiaal || COALESCE(' ' || r.kleur, '') as naam FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?`).all(req.params.jobId),
   };
