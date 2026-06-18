@@ -18,11 +18,12 @@ function buildPdfHtml(kosten, klant, extraInfo = {}) {
   const btwBedrag = btw ? (kosten.verkoopprijs||0) * 0.21 : 0;
   const totaalInclBtw = (kosten.verkoopprijs||0) + btwBedrag;
 
+  const margeFactor = 1 + (kosten.winstmarge_pct || 0) / 100;
   const eenheidLabel = e => e === 'stuk' ? 'stuks' : e === 'ml' ? 'ml' : 'g';
   const matRijen = matDetails.map(m => {
     const deler = m.eenheid === 'gram' ? 1000 : 1;
     const aantalTxt = m.eenheid === 'stuk' ? Math.round(m.gram) : m.gram.toFixed(1);
-    return `<tr><td>Materiaal — ${m.naam}</td><td>${aantalTxt} ${eenheidLabel(m.eenheid)}</td><td>${toon((m.gram/deler)*m.prijs)}</td></tr>`;
+    return `<tr><td>Materiaal — ${m.naam}</td><td>${aantalTxt} ${eenheidLabel(m.eenheid)}</td><td>${toon((m.gram/deler)*m.prijs*margeFactor)}</td></tr>`;
   }).join('');
 
   return `<!DOCTYPE html>
@@ -60,15 +61,15 @@ ${klant ? `<div class="klant"><h3>Klant</h3>
 <table>
   <thead><tr><th>Post</th><th>Detail</th><th>Bedrag</th></tr></thead>
   <tbody>
-    ${matRijen || `<tr><td>Materiaal</td><td>—</td><td>${toon(kosten.materiaal_kost)}</td></tr>`}
-    <tr><td>Energie</td><td>${kosten.kwh_verbruikt} kWh</td><td>${toon(kosten.energie_kost)}</td></tr>
-    ${voorbMin > 0 ? `<tr><td>Voorbereiding</td><td>${voorbMin} min</td><td>${toon((voorbMin/60)*arbTarief)}</td></tr>` : ''}
-    ${nabMin > 0 ? `<tr><td>Nabewerking</td><td>${nabMin} min</td><td>${toon((nabMin/60)*arbTarief)}</td></tr>` : ''}
-    ${ontwerpMin > 0 ? `<tr><td>Ontwerp regie</td><td>${ontwerpMin} min</td><td>${toon((ontwerpMin/60)*ontwerpTarief)}</td></tr>` : ''}
-    ${nabExtraMin > 0 ? `<tr><td>Nabewerking extra</td><td>${nabExtraMin} min</td><td>${toon((nabExtraMin/60)*nabExtraTarief)}</td></tr>` : ''}
-    ${extraTotaal > 0 ? `<tr><td>Extra${extraOmschrijving ? ' — '+extraOmschrijving : ''}</td><td>—</td><td>${toon(extraTotaal)}</td></tr>` : ''}
-    <tr style="font-weight:600"><td colspan="2">Subtotaal</td><td>${toon(kosten.totaal_kost)}</td></tr>
-    <tr><td colspan="2">Winstmarge (${kosten.winstmarge_pct}%)</td><td>${toon((kosten.verkoopprijs||0)-(kosten.totaal_kost||0))}</td></tr>
+    ${matRijen || `<tr><td>Materiaal</td><td>—</td><td>${toon(kosten.materiaal_kost*margeFactor)}</td></tr>`}
+    <tr><td>Energie</td><td>${kosten.kwh_verbruikt} kWh</td><td>${toon(kosten.energie_kost*margeFactor)}</td></tr>
+    ${kosten.machine_kost > 0 ? `<tr><td>Machine</td><td>—</td><td>${toon(kosten.machine_kost*margeFactor)}</td></tr>` : ''}
+    ${voorbMin > 0 ? `<tr><td>Voorbereiding</td><td>${voorbMin} min</td><td>${toon((voorbMin/60)*arbTarief*margeFactor)}</td></tr>` : ''}
+    ${nabMin > 0 ? `<tr><td>Nabewerking</td><td>${nabMin} min</td><td>${toon((nabMin/60)*arbTarief*margeFactor)}</td></tr>` : ''}
+    ${ontwerpMin > 0 ? `<tr><td>Ontwerp regie</td><td>${ontwerpMin} min</td><td>${toon((ontwerpMin/60)*ontwerpTarief*margeFactor)}</td></tr>` : ''}
+    ${nabExtraMin > 0 ? `<tr><td>Nabewerking extra</td><td>${nabExtraMin} min</td><td>${toon((nabExtraMin/60)*nabExtraTarief*margeFactor)}</td></tr>` : ''}
+    ${kosten.bmcu_slijtage > 0 ? `<tr><td>Multicolor (BMCU)</td><td>—</td><td>${toon(kosten.bmcu_slijtage*margeFactor)}</td></tr>` : ''}
+    ${extraTotaal > 0 ? `<tr><td>Extra${extraOmschrijving ? ' — '+extraOmschrijving : ''}</td><td>—</td><td>${toon(extraTotaal*margeFactor)}</td></tr>` : ''}
   </tbody>
 </table>
 <div class="totaal">

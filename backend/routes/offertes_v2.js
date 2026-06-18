@@ -72,6 +72,7 @@ function berekenOfferte(data, t) {
 function buildOfferteHtml(offerte, klant, berekening, filamentType, printer) {
   const nu = new Date().toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const totaleUren = (offerte.geschatte_tijd_u || 0) + (offerte.geschatte_tijd_min || 0) / 60;
+  const margeFactor = 1 + (berekening.marge_pct || 0) / 100;
 
   return `<!DOCTYPE html>
 <html lang="nl">
@@ -148,15 +149,14 @@ function buildOfferteHtml(offerte, klant, berekening, filamentType, printer) {
 <table>
   <thead><tr><th>Post</th><th>Detail</th><th>Bedrag</th></tr></thead>
   <tbody>
-    <tr><td>Materiaal <span class="schatting">(incl. faalfactor)</span></td><td>${offerte.geschat_gewicht_g}g × ${offerte.aantal}x</td><td>€${berekening.materiaal_kost.toFixed(2)}</td></tr>
-    <tr><td>Energie <span class="schatting">(schatting)</span></td><td>${totaleUren.toFixed(2)}u × ${offerte.aantal}x</td><td>€${berekening.energie_kost_schat.toFixed(2)}</td></tr>
-    <tr><td>Voorbereiding</td><td>${offerte.voorbereiding_min} min</td><td>€${((offerte.voorbereiding_min / 60) * (berekening.arbeid_per_uur || 15)).toFixed(2)}</td></tr>
-    <tr><td>Nabewerking</td><td>${offerte.nabewerking_min} min</td><td>€${((offerte.nabewerking_min / 60) * (berekening.arbeid_per_uur || 15)).toFixed(2)}</td></tr>
-    ${offerte.ontwerp_min > 0 ? `<tr><td>Ontwerp regie</td><td>${offerte.ontwerp_min} min</td><td>€${((offerte.ontwerp_min / 60) * offerte.ontwerp_tarief).toFixed(2)}</td></tr>` : ''}
-    ${offerte.nabewerking_extra_min > 0 ? `<tr><td>Nabewerking extra</td><td>${offerte.nabewerking_extra_min} min</td><td>€${((offerte.nabewerking_extra_min / 60) * offerte.nabewerking_extra_tarief).toFixed(2)}</td></tr>` : ''}
-    ${berekening.extra_totaal > 0 ? `<tr><td>Extra${offerte.extra_omschrijving ? ' — ' + offerte.extra_omschrijving : ''}</td><td>—</td><td>€${berekening.extra_totaal.toFixed(2)}</td></tr>` : ''}
-    <tr style="font-weight:600"><td colspan="2">Subtotaal</td><td>€${berekening.subtotaal.toFixed(2)}</td></tr>
-    <tr><td colspan="2">Winstmarge (${berekening.marge_pct}%)</td><td>€${(berekening.verkoopprijs - berekening.subtotaal).toFixed(2)}</td></tr>
+    <tr><td>Materiaal <span class="schatting">(incl. faalfactor)</span></td><td>${offerte.geschat_gewicht_g}g × ${offerte.aantal}x</td><td>€${(berekening.materiaal_kost*margeFactor).toFixed(2)}</td></tr>
+    <tr><td>Energie <span class="schatting">(schatting)</span></td><td>${totaleUren.toFixed(2)}u × ${offerte.aantal}x</td><td>€${(berekening.energie_kost_schat*margeFactor).toFixed(2)}</td></tr>
+    ${berekening.machine_kost > 0 ? `<tr><td>Machine</td><td>—</td><td>€${(berekening.machine_kost*margeFactor).toFixed(2)}</td></tr>` : ''}
+    <tr><td>Voorbereiding</td><td>${offerte.voorbereiding_min} min</td><td>€${((offerte.voorbereiding_min / 60) * (berekening.arbeid_per_uur || 15) * margeFactor).toFixed(2)}</td></tr>
+    <tr><td>Nabewerking</td><td>${offerte.nabewerking_min} min</td><td>€${((offerte.nabewerking_min / 60) * (berekening.arbeid_per_uur || 15) * margeFactor).toFixed(2)}</td></tr>
+    ${offerte.ontwerp_min > 0 ? `<tr><td>Ontwerp regie</td><td>${offerte.ontwerp_min} min</td><td>€${((offerte.ontwerp_min / 60) * offerte.ontwerp_tarief * margeFactor).toFixed(2)}</td></tr>` : ''}
+    ${offerte.nabewerking_extra_min > 0 ? `<tr><td>Nabewerking extra</td><td>${offerte.nabewerking_extra_min} min</td><td>€${((offerte.nabewerking_extra_min / 60) * offerte.nabewerking_extra_tarief * margeFactor).toFixed(2)}</td></tr>` : ''}
+    ${berekening.extra_totaal > 0 ? `<tr><td>Extra${offerte.extra_omschrijving ? ' — ' + offerte.extra_omschrijving : ''}</td><td>—</td><td>€${(berekening.extra_totaal*margeFactor).toFixed(2)}</td></tr>` : ''}
   </tbody>
 </table>
 
