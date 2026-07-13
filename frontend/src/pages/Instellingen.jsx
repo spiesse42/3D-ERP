@@ -211,6 +211,16 @@ export default function Instellingen() {
                 </div>
               </div>
 
+              <div className="form-group">
+                <label>Gemiddeld verbruik (Watt)</label>
+                <input type="number" step="1" value={p.gem_verbruik_watt ?? ''}
+                  onChange={e => setPrinter(p.id, 'gem_verbruik_watt', e.target.value === '' ? null : parseFloat(e.target.value))}
+                  placeholder="bv. 300" />
+                <p style={{ fontSize:10, color:'var(--muted)', marginTop:4 }}>
+                  Gebruikt als schatting voor energiekost wanneer er geen live kWh-meting is (bv. cloud-only printers).
+                </p>
+              </div>
+
               <button className="btn primary" style={{ width:'100%' }} onClick={() => savePrinter(p)}>
                 Opslaan
               </button>

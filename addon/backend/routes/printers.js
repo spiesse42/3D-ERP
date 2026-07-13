@@ -60,6 +60,7 @@ r.get('/config', (req, res) => {
       ha_entity_prefix:    prefix,
       entities,
       kwh_prijs,
+      gem_verbruik_watt:   p.gem_verbruik_watt,
     };
   });
 
@@ -68,11 +69,13 @@ r.get('/config', (req, res) => {
 
 r.put('/:id', (req, res) => {
   const db = getDb();
-  const { naam, type, ha_entity_prefix, kwh_entity, machine_kost_per_uur, heeft_bmcu, actief } = req.body;
+  const { naam, type, ha_entity_prefix, kwh_entity, machine_kost_per_uur, heeft_bmcu, actief, gem_verbruik_watt } = req.body;
   db.prepare(`UPDATE printers SET naam=?,type=?,ha_entity_prefix=?,kwh_entity=?,
-    machine_kost_per_uur=?,heeft_bmcu=?,actief=? WHERE id=?`)
+    machine_kost_per_uur=?,heeft_bmcu=?,actief=?,gem_verbruik_watt=? WHERE id=?`)
     .run(naam, type, ha_entity_prefix||null, kwh_entity||null,
-      machine_kost_per_uur, heeft_bmcu?1:0, actief?1:0, req.params.id);
+      machine_kost_per_uur, heeft_bmcu?1:0, actief?1:0,
+      (gem_verbruik_watt !== undefined && gem_verbruik_watt !== '') ? parseFloat(gem_verbruik_watt) : null,
+      req.params.id);
   res.json({ ok: true });
 });
 

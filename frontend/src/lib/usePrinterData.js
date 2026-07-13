@@ -38,6 +38,7 @@ export function usePrinterData() {
           result[p.id] = {
             naam: p.naam, type: p.type, heeft_bmcu: p.heeft_bmcu,
             kwh_prijs: p.kwh_prijs, status: 'unavailable',
+            gem_verbruik_watt: p.gem_verbruik_watt,
           };
           continue;
         }
@@ -170,6 +171,7 @@ export function usePrinterData() {
 	  watt:        watt,
           heeft_bmcu:  p.heeft_bmcu,
           kwh_prijs:   p.kwh_prijs,
+          gem_verbruik_watt: p.gem_verbruik_watt,
           status:      s.status  || 'unavailable',
           progress:    parseFloat(s.progress) || 0,
           filename:    s.filename,

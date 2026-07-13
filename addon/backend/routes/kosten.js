@@ -174,7 +174,7 @@ r.post('/bereken/:jobId', (req, res) => {
   const ro = v => Math.round(v * 1000) / 1000;
   const kosten = {
     job_id: parseInt(req.params.jobId),
-    materiaal_kost: ro(materiaal_kost), energie_kost: ro(energie_kost),
+    materiaal_kost: ro(materiaal_kost), filament_kost: ro(filament_kost), artikel_kost: ro(artikel_kost), energie_kost: ro(energie_kost),
     machine_kost: ro(machine_kost), bmcu_slijtage: ro(bmcu_slijtage),
     arbeid_kost: ro(arbeid_totaal), arbeid_voorbereiding: ro(arbeid_voorbereiding),
     arbeid_nabewerking: ro(arbeid_nabewerking), arbeid_ontwerp: ro(arbeid_ontwerp),

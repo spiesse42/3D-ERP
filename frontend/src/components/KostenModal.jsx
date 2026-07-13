@@ -131,6 +131,18 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     if (kwhDelta != null && kwhDelta > 0 && !kwh) setKwh(kwhDelta.toFixed(3));
   }, [kwhDelta]);
 
+  // Cloud-only printers zonder live kWh-meting (bv. AnyCubic Kobra): gebruik het
+  // ingestelde gemiddeld verbruik (Watt) × printtijd als geschatte kWh, herrekend
+  // zodra de printtijd wijzigt. Live meting (kwhDelta) heeft altijd voorrang.
+  useEffect(() => {
+    if (!autoCalc || kwhDelta != null) return;
+    const gemWatt = live?.gem_verbruik_watt;
+    if (!gemWatt || gemWatt <= 0) return;
+    const uren = parseInt(printUren) + parseInt(printMin) / 60;
+    if (!uren || uren <= 0) return;
+    setKwh(((gemWatt / 1000) * uren).toFixed(3));
+  }, [autoCalc, kwhDelta, live, printUren, printMin]);
+
   // Continue auto-update van tijd, energie en filament (1 kleur) als Auto aan
   useEffect(() => {
     if (!autoCalc || !live) return;
