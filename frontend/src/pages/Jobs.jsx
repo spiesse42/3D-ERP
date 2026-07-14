@@ -65,11 +65,6 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
     setShowJobForm(true);
   }
 
-  // Check of er al een actieve job is voor deze printer
-  const heeftActieveJob = bestaandeJobs?.some(
-    j => j.printer_id === printerId && ['bezig','gepland'].includes(j.status)
-  );
-
   async function maakJob() {
     if (saving) return;
     setSaving(true);
@@ -166,11 +161,6 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
 
       {showJobForm && (
         <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid var(--border)' }}>
-          {heeftActieveJob && (
-            <div style={{ fontSize:11, color:'var(--warn)', marginBottom:8, padding:'4px 8px', background:'rgba(245,158,11,0.1)', borderRadius:4 }}>
-              ⚠ Er is al een actieve job voor deze printer
-            </div>
-          )}
           <div className="form-group" style={{ marginBottom:8 }}>
             <label>Jobnaam</label>
             <input value={jobNaam} onChange={e => setJobNaam(e.target.value)} placeholder="Naam van de job" />
@@ -249,8 +239,8 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
             </div>
           )}
           <button className="btn primary" style={{ width:'100%' }} onClick={maakJob}
-            disabled={saving || heeftActieveJob}>
-            {saving ? 'Bezig...' : heeftActieveJob ? '⚠ Al een actieve job' : '✓ Job aanmaken'}
+            disabled={saving}>
+            {saving ? 'Bezig...' : '✓ Job aanmaken'}
           </button>
         </div>
       )}

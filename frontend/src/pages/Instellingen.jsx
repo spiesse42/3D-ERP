@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { api } from '../lib/api.js';
+import { api, BASE } from '../lib/api.js';
 
 const GROEPEN = [
   { titel: 'Kosten & energie', sleutels: ['kwh_prijs'] },
@@ -17,6 +17,28 @@ export default function Instellingen() {
   const [tokenZichtbaar, setTokenZichtbaar] = useState(false);
   const [saved, setSaved]             = useState('');
   const [haTestStatus, setHaTestStatus] = useState('');
+  const [resetConfirm, setResetConfirm] = useState('');
+  const [resetBusy,    setResetBusy]    = useState(false);
+  const [resetResult,  setResetResult]  = useState(null);
+  const [resetError,   setResetError]   = useState('');
+
+  async function startNieuwJaar() {
+    if (resetConfirm !== 'RESET') return;
+    if (!confirm('Dit archiveert de volledige database en maakt daarna jobs, offertes, bestellingen en de volledige stock (filament + artikelen) definitief leeg. Klanten, leveranciers en instellingen blijven behouden.\n\nWeet je het zeker?')) return;
+    setResetBusy(true);
+    setResetError('');
+    setResetResult(null);
+    try {
+      const r = await api.post('/reset/nieuw-jaar', { bevestiging: resetConfirm });
+      setResetResult(r);
+      setResetConfirm('');
+      window.open(`${BASE}/reset/download/${r.archiefBestand}`, '_blank');
+    } catch (e) {
+      setResetError(e.message);
+    } finally {
+      setResetBusy(false);
+    }
+  }
 
   useEffect(() => {
     api.get('/tarieven').then(rows => {
@@ -230,6 +252,34 @@ export default function Instellingen() {
           <div className="card">
             <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'1rem' }}>Data export</h2>
             <a className="btn" href="/api/rapportage/csv/jobs" download>↓ Jobs exporteren (CSV)</a>
+          </div>
+
+          <div className="card" style={{ border:'1px solid var(--danger)' }}>
+            <h2 style={{ fontSize:14, fontWeight:600, marginBottom:8, color:'var(--danger)' }}>🗓 Nieuw jaar starten</h2>
+            <p style={{ fontSize:11, color:'var(--muted)', marginBottom:8 }}>
+              Archiveert de volledige database naar een apart bestand (en download het meteen),
+              en maakt daarna <b>jobs, offertes, bestellingen en de volledige stock</b> (filament + artikelen) leeg.
+            </p>
+            <p style={{ fontSize:11, color:'var(--muted)', marginBottom:12 }}>
+              <b>Klanten, leveranciers, printers, tarieven en instellingen blijven behouden.</b> Deze actie kan niet ongedaan gemaakt worden — enkel het archiefbestand bevat de oude data nog.
+            </p>
+            <div className="form-group" style={{ marginBottom:8 }}>
+              <label>Typ "RESET" om te bevestigen</label>
+              <input value={resetConfirm} onChange={e => setResetConfirm(e.target.value)} placeholder="RESET" />
+            </div>
+            <button className="btn" style={{ width:'100%', background:'var(--danger)', color:'#fff' }}
+              disabled={resetConfirm !== 'RESET' || resetBusy}
+              onClick={startNieuwJaar}>
+              {resetBusy ? 'Bezig met archiveren en leegmaken...' : '🗓 Archiveren + nieuw jaar starten'}
+            </button>
+            {resetResult && (
+              <div style={{ fontSize:11, color:'var(--accent2)', marginTop:8 }}>
+                ✓ Klaar. Archief: {resetResult.archiefBestand} (download gestart — staat ook op de server in /data/archief/)
+              </div>
+            )}
+            {resetError && (
+              <div style={{ fontSize:11, color:'var(--danger)', marginTop:8 }}>✗ {resetError}</div>
+            )}
           </div>
         </div>
 

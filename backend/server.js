@@ -14,6 +14,7 @@ import offertes2 from './routes/offertes_v2.js';
 import tarieven from './routes/tarieven.js';
 import ha from './routes/ha.js';
 import rapportage from './routes/rapportage.js';
+import reset from './routes/reset.js';
 import { betalingen, instellingen } from './routes/_combined.js';
 import { startSampler, energie } from './sampler.js';
 
@@ -42,6 +43,7 @@ app.use('/api/instellingen', instellingen);
 app.use('/api/energie', energie);
 app.use('/api/ha',           ha);
 app.use('/api/rapportage',   rapportage);
+app.use('/api/reset',        reset);
 const frontendPath = path.join(__dirname, '..', 'frontend', 'dist');
 app.use(express.static(frontendPath));
 app.get('*', (req, res) => {
