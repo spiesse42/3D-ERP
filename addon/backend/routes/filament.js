@@ -83,14 +83,30 @@ r.delete('/types/:id', (req, res) => {
   }
 });
 
-// GET bestaande kleuren voor een type — voor de kleurkiezer bij bestellen
+// GET bestaande kleuren voor een type — voor de kleurkiezer bij bestellen.
+// Voor generieke plaatshouder-types (bv. "Generiek PLA") heeft het type zelf
+// nooit eigen voorraad (die wordt bij ontvangst altijd naar een échte merk/type
+// omgezet) — daarom tonen we dan alle kleuren uit de volledige filament-voorraad,
+// ongeacht merk, als suggestie.
 r.get('/types/:id/kleuren', (req, res) => {
   try {
-    const rows = getDb().prepare(`
-      SELECT DISTINCT kleur, kleur_hex FROM filament_rollen
-      WHERE filament_type_id = ? AND kleur IS NOT NULL AND kleur != ''
-      ORDER BY kleur
-    `).all(req.params.id);
+    const db = getDb();
+    const type = db.prepare('SELECT generiek, categorie FROM filament_types WHERE id = ?').get(req.params.id);
+    if (!type) return res.status(404).json({ error: 'Type niet gevonden' });
+
+    const rows = type.generiek
+      ? db.prepare(`
+          SELECT DISTINCT fr.kleur, fr.kleur_hex FROM filament_rollen fr
+          JOIN filament_types ft ON ft.id = fr.filament_type_id
+          WHERE ft.categorie = ? AND fr.kleur IS NOT NULL AND fr.kleur != ''
+          ORDER BY fr.kleur
+        `).all(type.categorie)
+      : db.prepare(`
+          SELECT DISTINCT kleur, kleur_hex FROM filament_rollen
+          WHERE filament_type_id = ? AND kleur IS NOT NULL AND kleur != ''
+          ORDER BY kleur
+        `).all(req.params.id);
+
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message });

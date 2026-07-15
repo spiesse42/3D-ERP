@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api.js';
+import { kleurHex } from '../lib/kleuren.js';
 
 const STATUS_LABEL = {
   besteld: 'Besteld',
@@ -74,8 +75,21 @@ function KleurKiezer({ filamentTypeId, kleur, onChange }) {
           + Nieuwe kleur
         </button>
       ) : (
-        <div style={{ display: 'flex', gap: 6 }}>
-          <input style={{ flex: 1 }} value={kleur || ''} onChange={e => onChange(e.target.value, '')} placeholder="bv. Lavendel" autoFocus />
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <span style={{
+            width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
+            border: '1px solid rgba(255,255,255,0.2)',
+            background: (bestaande.find(b => b.kleur?.toLowerCase() === (kleur || '').toLowerCase())?.kleur_hex) || kleurHex(kleur, ''),
+          }} />
+          <input style={{ flex: 1 }} value={kleur || ''} onChange={e => {
+            const getypt = e.target.value;
+            // Live matchen tegen bestaande kleuren (ongeacht merk) — zo wordt bv.
+            // "appelblauwzeegroen" automatisch gekoppeld aan de kleurcode die al
+            // in voorraad gebruikt wordt voor die naam. Geen match? Dan valt het
+            // gedeelde kleurenpalet (met synoniemen) in als redelijke gok.
+            const match = bestaande.find(b => b.kleur?.toLowerCase() === getypt.toLowerCase());
+            onChange(getypt, match ? match.kleur_hex : kleurHex(getypt, ''));
+          }} placeholder="bv. Lavendel" autoFocus />
           {bestaande.length > 0 && (
             <button type="button" className="btn" style={{ fontSize: 11, padding: '3px 8px' }} onClick={() => { setNieuw(false); onChange('', ''); }}>
               Annuleer
