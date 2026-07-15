@@ -158,7 +158,7 @@ r.get('/:id', (req, res) => {
     `).get(req.params.id);
     if (!bestelling) return res.status(404).json({ error: 'Bestelling niet gevonden' });
     const items = db.prepare(`
-      SELECT bi.*, ft.merk, ft.materiaal, ft.categorie, ft.eenheid
+      SELECT bi.*, ft.merk, ft.materiaal, ft.categorie, ft.eenheid, ft.generiek
       FROM bestelling_items bi
       JOIN filament_types ft ON ft.id = bi.filament_type_id
       WHERE bi.bestelling_id = ?
@@ -257,7 +257,22 @@ r.post('/bestelling-items/:id/ontvangen', (req, res) => {
     const {
       aantal_deze_keer, gewicht_gram_start, gewicht_gram_huidig,
       aankoopprijs_eur, kleur, kleur_hex, locatie, gekocht_op, lotnummer,
+      filament_type_id,
     } = req.body;
+
+    // Generieke plaatshouder-types (bv. "Generiek PLA") moeten bij ontvangst
+    // omgezet worden naar het effectieve merk/type — verplicht als het bestelde
+    // item generiek is.
+    let rolTypeId = item.filament_type_id;
+    if (filament_type_id) {
+      const nieuwType = db.prepare('SELECT id, generiek FROM filament_types WHERE id = ?').get(filament_type_id);
+      if (!nieuwType) return res.status(400).json({ error: 'Gekozen filament-type bestaat niet' });
+      if (nieuwType.generiek) return res.status(400).json({ error: 'Kies een specifiek merk/type, geen generieke plaatshouder' });
+      rolTypeId = nieuwType.id;
+    } else {
+      const huidigType = db.prepare('SELECT generiek FROM filament_types WHERE id = ?').get(item.filament_type_id);
+      if (huidigType?.generiek) return res.status(400).json({ error: 'Dit is een generieke bestelling — kies eerst het effectieve merk/type' });
+    }
 
     const aantalDezeKeer = parseInt(aantal_deze_keer) || 1;
     if (aantalDezeKeer <= 0) return res.status(400).json({ error: 'Aantal moet groter zijn dan 0' });
@@ -277,15 +292,15 @@ r.post('/bestelling-items/:id/ontvangen', (req, res) => {
 
       for (let i = 0; i < aantalDezeKeer; i++) {
         const lot = aantalDezeKeer > 1
-          ? (lotnummer ? `${lotnummer}-${i + 1}` : nextLotnummer(db, item.filament_type_id))
-          : (lotnummer || nextLotnummer(db, item.filament_type_id));
+          ? (lotnummer ? `${lotnummer}-${i + 1}` : nextLotnummer(db, rolTypeId))
+          : (lotnummer || nextLotnummer(db, rolTypeId));
 
         const rolResult = db.prepare(`
           INSERT INTO filament_rollen
             (filament_type_id,kleur,kleur_hex,gewicht_gram_start,gewicht_gram_huidig,locatie,gekocht_op,aankoopprijs_eur,lotnummer,bestelling_item_id)
           VALUES (?,?,?,?,?,?,?,?,?,?)
         `).run(
-          item.filament_type_id, kleur || null, kleur_hex || null, startG, huidigG,
+          rolTypeId, kleur || null, kleur_hex || null, startG, huidigG,
           locatie || null, gekocht_op || vandaag, prijs, lot, item.id
         );
         nieuweRolIds.push(rolResult.lastInsertRowid);

@@ -322,7 +322,7 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
           <div style={{ display: 'flex', gap: 8 }}>
             <select style={{ flex: 1 }} value={extraTypeId} onChange={e => { setExtraTypeId(e.target.value); setExtraKleur(''); setExtraKleurHex(''); setExtraAantal1000(''); setExtraAantal200(''); }}>
               <option value="">+ Artikel toevoegen aan deze bestelling...</option>
-              {alleTypes.map(t => <option key={t.id} value={t.id}>{t.merk} {t.materiaal}</option>)}
+              {alleTypes.map(t => <option key={t.id} value={t.id}>{t.generiek ? '🔹 ' : ''}{t.merk} {t.materiaal}</option>)}
             </select>
           </div>
           {extraTypeId && (
@@ -364,7 +364,7 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
 }
 
 // ─── OntvangstModal — (deel)ontvangst van 1 item, N identieke rollen in 1 keer ──
-function OntvangstModal({ item, onClose, onSaved }) {
+function OntvangstModal({ item, alleTypes, onTypesChanged, onClose, onSaved }) {
   const eenheid = item.eenheid || 'gram';
   const totaalAantal = item.aantal || 1;
   const resterend = item.resterend ?? (totaalAantal - (item.ontvangen_aantal || 0));
@@ -380,6 +380,16 @@ function OntvangstModal({ item, onClose, onSaved }) {
   const [gekochtOp, setGekochtOp] = useState(new Date().toISOString().split('T')[0]);
   const [bezig, setBezig] = useState(false);
 
+  // ── Resolutie van generieke plaatshouders (bv. "Generiek PLA") naar het
+  // effectieve merk/type dat je nu ontvangen hebt ──
+  const [resolveTypeId, setResolveTypeId] = useState('');
+  const [nieuwMerk, setNieuwMerk] = useState('');
+  const [nieuwMateriaal, setNieuwMateriaal] = useState(item.materiaal !== 'Generiek' ? item.materiaal : '');
+  const [nieuwPrijsStr, setNieuwPrijsStr] = useState('');
+  const [nieuwDichtheidStr, setNieuwDichtheidStr] = useState('1.24');
+
+  const kandidaatTypes = (alleTypes || []).filter(t => !t.generiek && t.categorie === item.categorie);
+
   async function ontvang() {
     const aantal = parseInt(aantalDezeKeer) || 0;
     const start = parseFloat(startStr);
@@ -388,8 +398,29 @@ function OntvangstModal({ item, onClose, onSaved }) {
     if (aantal > resterend) { alert(`Er staan nog maar ${resterend} open`); return; }
     if (!start || start <= 0) { alert('Gewicht/aantal per rol is verplicht en moet groter zijn dan 0'); return; }
     if (!prijs || prijs <= 0) { alert('Aankoopprijs per rol is verplicht en moet groter zijn dan 0'); return; }
+
+    let effectiefTypeId = null;
+    if (item.generiek) {
+      if (!resolveTypeId) { alert('Kies eerst het effectieve merk/type dat je ontvangen hebt (of maak een nieuw type aan)'); return; }
+      effectiefTypeId = resolveTypeId;
+    }
+
     setBezig(true);
     try {
+      if (item.generiek && resolveTypeId === '__nieuw__') {
+        if (!nieuwMerk.trim() || !nieuwMateriaal.trim()) { alert('Merk en materiaal zijn verplicht voor het nieuwe type'); setBezig(false); return; }
+        const nieuwType = await api.post('/filament/types', {
+          merk: nieuwMerk.trim(),
+          materiaal: nieuwMateriaal.trim(),
+          inkoop_prijs_per_kg: nieuwPrijsStr || 0,
+          dichtheid_g_per_cm3: nieuwDichtheidStr || 1.24,
+          categorie: item.categorie,
+          eenheid: item.eenheid,
+        });
+        effectiefTypeId = nieuwType.id;
+        onTypesChanged?.();
+      }
+
       await api.post(`/bestellingen/bestelling-items/${item.id}/ontvangen`, {
         aantal_deze_keer: aantal,
         gewicht_gram_start: start,
@@ -400,6 +431,7 @@ function OntvangstModal({ item, onClose, onSaved }) {
         locatie: locatie || null,
         lotnummer: lotnummer || null,
         gekocht_op: gekochtOp,
+        ...(effectiefTypeId ? { filament_type_id: effectiefTypeId } : {}),
       });
       onSaved();
     } catch (e) { alert(e.message); }
@@ -419,6 +451,44 @@ function OntvangstModal({ item, onClose, onSaved }) {
         {totaalAantal > 1 && (
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
             {item.ontvangen_aantal || 0} van de {totaalAantal} al ontvangen — nog <b>{resterend}</b> open
+          </div>
+        )}
+
+        {item.generiek && (
+          <div className="card" style={{ padding: 10, marginBottom: 12, border: '1px solid var(--accent)' }}>
+            <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+              🔹 Dit was een generieke bestelling — kies het effectieve merk/type
+            </p>
+            <select value={resolveTypeId} onChange={e => setResolveTypeId(e.target.value)}>
+              <option value="">Kies het merk/type dat je ontvangen hebt...</option>
+              {kandidaatTypes.map(t => <option key={t.id} value={t.id}>{t.merk} {t.materiaal}</option>)}
+              <option value="__nieuw__">+ Nieuw merk/type aanmaken...</option>
+            </select>
+
+            {resolveTypeId === '__nieuw__' && (
+              <div style={{ marginTop: 8 }}>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Merk *</label>
+                    <input value={nieuwMerk} onChange={e => setNieuwMerk(e.target.value)} placeholder="bv. AnyCubic" autoFocus />
+                  </div>
+                  <div className="form-group">
+                    <label>Materiaal *</label>
+                    <input value={nieuwMateriaal} onChange={e => setNieuwMateriaal(e.target.value)} placeholder="bv. PLA" />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Prijs/kg (€) <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 11 }}>optioneel</span></label>
+                    <input type="number" step="0.01" value={nieuwPrijsStr} onChange={e => setNieuwPrijsStr(e.target.value)} placeholder="0.00" />
+                  </div>
+                  <div className="form-group">
+                    <label>Dichtheid (g/cm³)</label>
+                    <input type="number" step="0.01" value={nieuwDichtheidStr} onChange={e => setNieuwDichtheidStr(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -474,7 +544,7 @@ function OntvangstModal({ item, onClose, onSaved }) {
 }
 
 // ─── BestellingDetailModal ─────────────────────────────────────────────────
-function BestellingDetailModal({ bestellingId, onClose, onChanged }) {
+function BestellingDetailModal({ bestellingId, onClose, onChanged, alleTypes, onTypesChanged }) {
   const [bestelling, setBestelling] = useState(null);
   const [ontvangstItem, setOntvangstItem] = useState(null);
 
@@ -508,6 +578,7 @@ function BestellingDetailModal({ bestellingId, onClose, onChanged }) {
                     <td style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       {it.kleur && <span style={{ width: 10, height: 10, borderRadius: '50%', background: it.kleur_hex || '#555', border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />}
                       {it.merk} {it.materiaal}{it.kleur ? ` — ${it.kleur}` : ''}
+                      {it.generiek && <span className="badge bezig" style={{ fontSize: 9 }}>generiek</span>}
                     </td>
                     <td>{it.verwacht_gewicht ? `${it.aantal || 1}× ${it.verwacht_gewicht}g rol` : (it.aantal != null ? `${it.aantal} ${eenheidLabel(it.eenheid)}` : '—')}</td>
                     <td>
@@ -539,6 +610,8 @@ function BestellingDetailModal({ bestellingId, onClose, onChanged }) {
       {ontvangstItem && (
         <OntvangstModal
           item={ontvangstItem}
+          alleTypes={alleTypes}
+          onTypesChanged={onTypesChanged}
           onClose={() => setOntvangstItem(null)}
           onSaved={() => { setOntvangstItem(null); load(); onChanged(); }}
         />
@@ -630,7 +703,7 @@ export default function Bestellingen() {
               <select style={{ flex: 1 }} value={handmatigType}
                 onChange={e => { setHandmatigType(e.target.value); setHandmatigKleur(''); setHandmatigKleurHex(''); }}>
                 <option value="">+ Artikeltype manueel toevoegen aan "te bestellen"...</option>
-                {alleTypes.map(t => <option key={t.id} value={t.id}>{t.merk} {t.materiaal}</option>)}
+                {alleTypes.map(t => <option key={t.id} value={t.id}>{t.generiek ? '🔹 ' : ''}{t.merk} {t.materiaal}</option>)}
               </select>
               <button className="btn" onClick={voegHandmatigToe} disabled={!handmatigType}>Toevoegen</button>
             </div>
@@ -766,6 +839,8 @@ export default function Bestellingen() {
       {detailId && (
         <BestellingDetailModal
           bestellingId={detailId}
+          alleTypes={alleTypes}
+          onTypesChanged={load}
           onClose={() => setDetailId(null)}
           onChanged={load}
         />
