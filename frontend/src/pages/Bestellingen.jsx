@@ -63,7 +63,7 @@ function KleurKiezer({ filamentTypeId, kleur, onChange }) {
                 background: kleur === k.kleur ? 'var(--bg3)' : 'transparent',
                 cursor: 'pointer', fontSize: 11, color: 'var(--text)'
               }}>
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: k.kleur_hex || '#555', border: '1px solid rgba(255,255,255,0.2)' }} />
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: kleurHex(k.kleur, k.kleur_hex), border: '1px solid rgba(255,255,255,0.2)' }} />
               {k.kleur}
             </button>
           ))}
@@ -286,7 +286,7 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
             {regels.map(it => (
               <div key={it._localId} style={{ display: 'flex', alignItems: 'flex-end', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {it.kleur && <span style={{ width: 10, height: 10, borderRadius: '50%', background: it.kleur_hex || '#555', border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />}
+                  {it.kleur && <span style={{ width: 10, height: 10, borderRadius: '50%', background: kleurHex(it.kleur, it.kleur_hex), border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />}
                   {it.merk} {it.materiaal}{it.kleur ? ` — ${it.kleur}` : ''}
                 </div>
 
@@ -590,7 +590,7 @@ function BestellingDetailModal({ bestellingId, onClose, onChanged, alleTypes, on
                 {bestelling.items.map(it => (
                   <tr key={it.id}>
                     <td style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {it.kleur && <span style={{ width: 10, height: 10, borderRadius: '50%', background: it.kleur_hex || '#555', border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />}
+                      {it.kleur && <span style={{ width: 10, height: 10, borderRadius: '50%', background: kleurHex(it.kleur, it.kleur_hex), border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />}
                       {it.merk} {it.materiaal}{it.kleur ? ` — ${it.kleur}` : ''}
                       {it.generiek && <span className="badge bezig" style={{ fontSize: 9 }}>generiek</span>}
                     </td>
@@ -744,7 +744,7 @@ export default function Bestellingen() {
                             <input type="checkbox" checked={geselecteerd.has(key)} onChange={() => toggleSelectie(key)} />
                           </td>
                           <td style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            {o.kleur && <span style={{ width: 10, height: 10, borderRadius: '50%', background: o.kleur_hex || '#555', border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />}
+                            {o.kleur && <span style={{ width: 10, height: 10, borderRadius: '50%', background: kleurHex(o.kleur, o.kleur_hex), border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />}
                             {o.merk} {o.materiaal}{o.kleur ? ` — ${o.kleur}` : ''}
                           </td>
                           <td style={{ fontSize: 11 }}>

@@ -2,16 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api.js';
 import { useNavigate } from 'react-router-dom';
 import { usePrinterData } from '../lib/usePrinterData.js';
+import { kleurHex } from '../lib/kleuren.js';
 
-const KLEUREN_MAP = {
-  'Wit':'#f5f5f5','Zwart':'#1a1a1a','Grijs':'#808080','Rood':'#ef4444',
-  'Blauw':'#3b82f6','Groen':'#22c55e','Geel':'#eab308','Oranje':'#f97316',
-  'Paars':'#a855f7','Roze':'#ec4899','Bruin':'#92400e','Beige':'#d4b896',
-  'Zilver':'#c0c0c0','Goud':'#d4af37','Transparant':'#e0f2fe',
-};
-function KleurDot({ kleur, size = 12 }) {
-  const hex = KLEUREN_MAP[kleur] || '#555';
-  return <span style={{ display:'inline-block', width:size, height:size, borderRadius:'50%', background:hex, border:'1px solid rgba(255,255,255,0.15)', marginRight:4, verticalAlign:'middle', flexShrink:0 }} />;
+function KleurDot({ kleur, hex, size = 12 }) {
+  return <span style={{ display:'inline-block', width:size, height:size, borderRadius:'50%', background:kleurHex(kleur, hex), border:'1px solid rgba(255,255,255,0.15)', marginRight:4, verticalAlign:'middle', flexShrink:0 }} />;
 }
 
 function StatusDot({ status }) {
