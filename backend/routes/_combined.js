@@ -1,25 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db.js';
 
-// --- BETALINGEN ---
-export const betalingen = Router();
-
-betalingen.post('/', (req, res) => {
-  const db = getDb();
-  const { offerte_id, bedrag, methode, betaald_op, referentie } = req.body;
-  if (!offerte_id || !bedrag) return res.status(400).json({ error: 'offerte_id en bedrag zijn verplicht' });
-  const result = db.prepare(
-    'INSERT INTO betalingen (offerte_id,bedrag,methode,status,betaald_op,referentie) VALUES (?,?,?,?,?,?)'
-  ).run(offerte_id, bedrag, methode||'overschrijving', 'betaald', betaald_op||new Date().toISOString(), referentie||null);
-  const offerte = db.prepare('SELECT * FROM offertes WHERE id = ?').get(offerte_id);
-  const betaald = db.prepare('SELECT COALESCE(SUM(bedrag),0) as s FROM betalingen WHERE offerte_id = ? AND status = ?')
-    .get(offerte_id, 'betaald').s;
-  if (betaald >= offerte.totaal) {
-    db.prepare('UPDATE offertes SET status = ? WHERE id = ?').run('betaald', offerte_id);
-  }
-  res.status(201).json({ id: result.lastInsertRowid });
-});
-
 // --- TARIEVEN ---
 export const tarieven = Router();
 
@@ -155,7 +136,7 @@ rapportage.get('/dashboard', (req, res) => {
   `).all();
 
   const openstaand = db.prepare(`
-    SELECT COUNT(*) as c, ROUND(SUM(totaal),2) as bedrag FROM offertes
+    SELECT COUNT(*) as c, ROUND(SUM(totaal),2) as bedrag FROM offertes_v2
     WHERE status IN ('concept','verstuurd','goedgekeurd')
   `).get();
 

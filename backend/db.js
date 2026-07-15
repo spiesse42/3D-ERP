@@ -24,6 +24,7 @@ import { migrateDbV20 } from './db_migration_v20.js';
 import { migrateDbV21 } from './db_migration_v21.js';
 import { migrateDbV22 } from './db_migration_v22.js';
 import { migrateDbV23 } from './db_migration_v23.js';
+import { migrateDbV24 } from './db_migration_v24.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'erp.db');
@@ -125,43 +126,6 @@ export function initDb() {
       berekend_op TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    CREATE TABLE IF NOT EXISTS offertes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      klant_id INTEGER NOT NULL REFERENCES klanten(id) ON DELETE RESTRICT,
-      nummer TEXT NOT NULL UNIQUE,
-      status TEXT NOT NULL DEFAULT 'concept'
-        CHECK (status IN ('concept','verstuurd','goedgekeurd','gefactureerd','betaald','geannuleerd')),
-      subtotaal REAL NOT NULL DEFAULT 0,
-      btw_pct REAL NOT NULL DEFAULT 21,
-      btw_bedrag REAL NOT NULL DEFAULT 0,
-      totaal REAL NOT NULL DEFAULT 0,
-      geldig_tot TEXT,
-      aangemaakt_op TEXT NOT NULL DEFAULT (datetime('now')),
-      notities TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS offerte_regels (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      offerte_id INTEGER NOT NULL REFERENCES offertes(id) ON DELETE CASCADE,
-      job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
-      omschrijving TEXT NOT NULL,
-      aantal INTEGER NOT NULL DEFAULT 1,
-      eenheidsprijs REAL NOT NULL,
-      regeltotaal REAL NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS betalingen (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      offerte_id INTEGER NOT NULL REFERENCES offertes(id) ON DELETE RESTRICT,
-      bedrag REAL NOT NULL,
-      methode TEXT NOT NULL DEFAULT 'overschrijving'
-        CHECK (methode IN ('overschrijving','cash','payconiq','paypal','andere')),
-      status TEXT NOT NULL DEFAULT 'open'
-        CHECK (status IN ('open','betaald','gedeeltelijk','terugbetaald')),
-      betaald_op TEXT,
-      referentie TEXT
-    );
-
     CREATE TABLE IF NOT EXISTS tarieven (
       sleutel TEXT PRIMARY KEY,
       waarde REAL NOT NULL,
@@ -201,6 +165,7 @@ migrateDbV10(db);
   migrateDbV21(db);
   migrateDbV22(db);
   migrateDbV23(db);
+  migrateDbV24(db);
 
   const printerCount = db.prepare('SELECT COUNT(*) as c FROM printers').get().c;
   if (printerCount === 0) {
