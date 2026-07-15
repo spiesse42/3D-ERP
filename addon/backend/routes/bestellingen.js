@@ -163,7 +163,10 @@ r.get('/:id', (req, res) => {
       JOIN filament_types ft ON ft.id = bi.filament_type_id
       WHERE bi.bestelling_id = ?
       ORDER BY bi.ontvangen ASC, ft.merk
-    `).all(req.params.id);
+    `).all(req.params.id).map(it => ({
+      ...it,
+      resterend: (it.aantal || 1) - (it.ontvangen_aantal || 0),
+    }));
     res.json({ ...bestelling, items });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -235,51 +238,89 @@ r.delete('/:id', (req, res) => {
   }
 });
 
-// ── Ontvangst: item regel-per-regel in voorraad steken ──────────────────────
-// Maakt een nieuwe filament_rollen-rij aan (zoals "Nieuwe voorraad toevoegen") en
-// koppelt die aan het bestelling_item. Werkt de status van de bestelling bij
-// (deels_ontvangen / ontvangen) zodra alle items verwerkt zijn.
+// ── Ontvangst: aantal-gebaseerd, ondersteunt gedeeltelijke ontvangst ────────
+// Maakt aantal_deze_keer nieuwe filament_rollen-rijen aan (elk met eigen
+// lotnummer) en koppelt die via bestelling_item_id. Werkt ontvangen_aantal
+// bij op het item, en de status van de bestelling (besteld / deels_ontvangen /
+// ontvangen) op basis van alle items samen.
 
 r.post('/bestelling-items/:id/ontvangen', (req, res) => {
   const db = getDb();
   try {
     const item = db.prepare('SELECT * FROM bestelling_items WHERE id = ?').get(req.params.id);
     if (!item) return res.status(404).json({ error: 'Item niet gevonden' });
-    if (item.ontvangen) return res.status(409).json({ error: 'Dit item is al ontvangen' });
 
-    const { gewicht_gram_start, gewicht_gram_huidig, aankoopprijs_eur, kleur, kleur_hex, locatie, gekocht_op, lotnummer } = req.body;
+    const totaalAantal = item.aantal || 1;
+    const resterendVoor = totaalAantal - (item.ontvangen_aantal || 0);
+    if (resterendVoor <= 0) return res.status(409).json({ error: 'Dit item is al volledig ontvangen' });
+
+    const {
+      aantal_deze_keer, gewicht_gram_start, gewicht_gram_huidig,
+      aankoopprijs_eur, kleur, kleur_hex, locatie, gekocht_op, lotnummer,
+    } = req.body;
+
+    const aantalDezeKeer = parseInt(aantal_deze_keer) || 1;
+    if (aantalDezeKeer <= 0) return res.status(400).json({ error: 'Aantal moet groter zijn dan 0' });
+    if (aantalDezeKeer > resterendVoor) return res.status(400).json({ error: `Er staan nog maar ${resterendVoor} open — kan niet meer ontvangen dan dat.` });
+
     const startG = parseFloat(gewicht_gram_start);
-    if (!startG || isNaN(startG) || startG <= 0) return res.status(400).json({ error: 'Aantal/gewicht is verplicht en moet groter zijn dan 0' });
+    if (!startG || isNaN(startG) || startG <= 0) return res.status(400).json({ error: 'Aantal/gewicht per rol is verplicht en moet groter zijn dan 0' });
     const huidigG = (gewicht_gram_huidig !== undefined && gewicht_gram_huidig !== '') ? (parseFloat(gewicht_gram_huidig) || startG) : startG;
     const prijs = (aankoopprijs_eur !== undefined && aankoopprijs_eur !== '') ? parseFloat(aankoopprijs_eur) : null;
-    if (!prijs || isNaN(prijs) || prijs <= 0) return res.status(400).json({ error: 'Aankoopprijs is verplicht en moet groter zijn dan 0' });
+    if (!prijs || isNaN(prijs) || prijs <= 0) return res.status(400).json({ error: 'Aankoopprijs per rol is verplicht en moet groter zijn dan 0' });
 
-    const lot = lotnummer || nextLotnummer(db, item.filament_type_id);
     const vandaag = new Date().toISOString().split('T')[0];
 
-    const rolId = db.transaction(() => {
-      const rolResult = db.prepare(
-        'INSERT INTO filament_rollen (filament_type_id,kleur,kleur_hex,gewicht_gram_start,gewicht_gram_huidig,locatie,gekocht_op,aankoopprijs_eur,lotnummer) VALUES (?,?,?,?,?,?,?,?,?)'
-      ).run(
-        item.filament_type_id, kleur || null, kleur_hex || null, startG, huidigG,
-        locatie || null, gekocht_op || vandaag, prijs, lot
+    const result = db.transaction(() => {
+      const nieuweRolIds = [];
+      const nieuweLotnummers = [];
+
+      for (let i = 0; i < aantalDezeKeer; i++) {
+        const lot = aantalDezeKeer > 1
+          ? (lotnummer ? `${lotnummer}-${i + 1}` : nextLotnummer(db, item.filament_type_id))
+          : (lotnummer || nextLotnummer(db, item.filament_type_id));
+
+        const rolResult = db.prepare(`
+          INSERT INTO filament_rollen
+            (filament_type_id,kleur,kleur_hex,gewicht_gram_start,gewicht_gram_huidig,locatie,gekocht_op,aankoopprijs_eur,lotnummer,bestelling_item_id)
+          VALUES (?,?,?,?,?,?,?,?,?,?)
+        `).run(
+          item.filament_type_id, kleur || null, kleur_hex || null, startG, huidigG,
+          locatie || null, gekocht_op || vandaag, prijs, lot, item.id
+        );
+        nieuweRolIds.push(rolResult.lastInsertRowid);
+        nieuweLotnummers.push(lot);
+      }
+
+      const nieuwOntvangenAantal = (item.ontvangen_aantal || 0) + aantalDezeKeer;
+      const volledigDitItem = nieuwOntvangenAantal >= totaalAantal;
+      db.prepare(`
+        UPDATE bestelling_items
+        SET ontvangen_aantal = ?, ontvangen = ?, ontvangen_op = ?, filament_rol_id = ?
+        WHERE id = ?
+      `).run(
+        nieuwOntvangenAantal, volledigDitItem ? 1 : 0,
+        volledigDitItem ? vandaag : item.ontvangen_op,
+        nieuweRolIds[nieuweRolIds.length - 1],
+        item.id
       );
-      const nieuweRolId = rolResult.lastInsertRowid;
 
-      db.prepare('UPDATE bestelling_items SET ontvangen=1, ontvangen_op=?, filament_rol_id=? WHERE id=?')
-        .run(vandaag, nieuweRolId, item.id);
-
-      const telling = db.prepare(
-        'SELECT COUNT(*) as totaal, SUM(ontvangen) as ontvangen FROM bestelling_items WHERE bestelling_id = ?'
-      ).get(item.bestelling_id);
-      const volledigOntvangen = telling.ontvangen === telling.totaal;
+      const alleItems = db.prepare('SELECT aantal, ontvangen_aantal FROM bestelling_items WHERE bestelling_id = ?').all(item.bestelling_id);
+      const volledigOntvangen = alleItems.every(i => (i.ontvangen_aantal || 0) >= (i.aantal || 1));
+      const ietsOntvangen    = alleItems.some(i => (i.ontvangen_aantal || 0) > 0);
+      const status = volledigOntvangen ? 'ontvangen' : ietsOntvangen ? 'deels_ontvangen' : 'besteld';
       db.prepare('UPDATE bestellingen SET status=?, ontvangen_op=? WHERE id=?')
-        .run(volledigOntvangen ? 'ontvangen' : 'deels_ontvangen', volledigOntvangen ? vandaag : null, item.bestelling_id);
+        .run(status, volledigOntvangen ? vandaag : null, item.bestelling_id);
 
-      return nieuweRolId;
+      return { nieuweRolIds, nieuweLotnummers, resterend: totaalAantal - nieuwOntvangenAantal };
     })();
 
-    res.status(201).json({ ok: true, filament_rol_id: rolId, lotnummer: lot });
+    res.status(201).json({
+      ok: true,
+      filament_rol_ids: result.nieuweRolIds,
+      lotnummers: result.nieuweLotnummers,
+      resterend: result.resterend,
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

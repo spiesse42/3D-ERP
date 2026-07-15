@@ -141,6 +141,7 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
     filament_type_id: it.filament_type_id, merk: it.merk, materiaal: it.materiaal, eenheid: it.eenheid,
     kleur: it.kleur || '', kleur_hex: it.kleur_hex || '',
     verwacht_gewicht: (it.eenheid || 'gram') === 'gram' ? 1000 : undefined,
+    aantal: 1,
   })));
   const [extraTypeId, setExtraTypeId] = useState('');
   const [extraKleur, setExtraKleur] = useState('');
@@ -150,7 +151,6 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
   const [leverancierId, setLeverancierId] = useState('');
   const [nieuweLeverancierNaam, setNieuweLeverancierNaam] = useState('');
   const [referentie, setReferentie] = useState('');
-  const [aantallen, setAantallen] = useState({});
   const [notities, setNotities] = useState('');
 
   useEffect(() => {
@@ -168,23 +168,23 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
       const n200 = parseInt(extraAantal200) || 0;
       if (n1000 <= 0 && n200 <= 0) { alert('Geef minstens 1 rol op (1000g en/of 200g)'); return; }
       const nieuwe = [];
-      for (let i = 0; i < n1000; i++) {
+      if (n1000 > 0) {
         nieuwe.push({
           _localId: nextLocalId(), filament_type_id: extraType.id, merk: extraType.merk, materiaal: extraType.materiaal,
-          eenheid: extraEenheid, kleur: extraKleur, kleur_hex: extraKleurHex, verwacht_gewicht: 1000,
+          eenheid: extraEenheid, kleur: extraKleur, kleur_hex: extraKleurHex, verwacht_gewicht: 1000, aantal: n1000,
         });
       }
-      for (let i = 0; i < n200; i++) {
+      if (n200 > 0) {
         nieuwe.push({
           _localId: nextLocalId(), filament_type_id: extraType.id, merk: extraType.merk, materiaal: extraType.materiaal,
-          eenheid: extraEenheid, kleur: extraKleur, kleur_hex: extraKleurHex, verwacht_gewicht: 200,
+          eenheid: extraEenheid, kleur: extraKleur, kleur_hex: extraKleurHex, verwacht_gewicht: 200, aantal: n200,
         });
       }
       setRegels(rs => [...rs, ...nieuwe]);
     } else {
       setRegels(rs => [...rs, {
         _localId: nextLocalId(), filament_type_id: extraType.id, merk: extraType.merk, materiaal: extraType.materiaal,
-        eenheid: extraEenheid, kleur: extraKleur, kleur_hex: extraKleurHex,
+        eenheid: extraEenheid, kleur: extraKleur, kleur_hex: extraKleurHex, aantal: 1,
       }]);
     }
 
@@ -197,6 +197,10 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
 
   function zetRolgewicht(localId, gewicht) {
     setRegels(rs => rs.map(r => r._localId === localId ? { ...r, verwacht_gewicht: gewicht } : r));
+  }
+
+  function zetAantal(localId, aantal) {
+    setRegels(rs => rs.map(r => r._localId === localId ? { ...r, aantal } : r));
   }
 
   async function bestel() {
@@ -223,7 +227,7 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
           kleur: r.kleur || null,
           kleur_hex: r.kleur_hex || null,
           verwacht_gewicht: r.verwacht_gewicht || null,
-          aantal: r.verwacht_gewicht ? 1 : (aantallen[r._localId] || null),
+          aantal: r.aantal || 1,
         })),
       });
       onSaved();
@@ -273,28 +277,40 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
                 </div>
 
                 {it.verwacht_gewicht ? (
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    {[1000, 200].map(g => (
-                      <button key={g} type="button" onClick={() => zetRolgewicht(it._localId, g)}
-                        style={{
-                          fontSize: 10, padding: '3px 7px', borderRadius: 10,
-                          border: it.verwacht_gewicht === g ? '2px solid var(--accent)' : '1px solid var(--border)',
-                          background: it.verwacht_gewicht === g ? 'var(--bg3)' : 'transparent',
-                          color: 'var(--text)', cursor: 'pointer',
-                        }}>
-                        {g}g
-                      </button>
-                    ))}
-                  </div>
+                  <>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {[1000, 200].map(g => (
+                        <button key={g} type="button" onClick={() => zetRolgewicht(it._localId, g)}
+                          style={{
+                            fontSize: 10, padding: '3px 7px', borderRadius: 10,
+                            border: it.verwacht_gewicht === g ? '2px solid var(--accent)' : '1px solid var(--border)',
+                            background: it.verwacht_gewicht === g ? 'var(--bg3)' : 'transparent',
+                            color: 'var(--text)', cursor: 'pointer',
+                          }}>
+                          {g}g
+                        </button>
+                      ))}
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>
+                        Aantal rollen
+                      </label>
+                      <input
+                        type="number" min="1" style={{ width: 70 }}
+                        value={it.aantal ?? 1}
+                        onChange={e => zetAantal(it._localId, parseInt(e.target.value) || 1)}
+                      />
+                    </div>
+                  </>
                 ) : (
                   <div>
                     <label style={{ fontSize: 10, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>
                       Aantal ({eenheidLabel(it.eenheid)})
                     </label>
                     <input
-                      style={{ width: 100 }}
-                      value={aantallen[it._localId] || ''}
-                      onChange={e => setAantallen(a => ({ ...a, [it._localId]: e.target.value }))}
+                      type="number" min="1" style={{ width: 100 }}
+                      value={it.aantal ?? 1}
+                      onChange={e => zetAantal(it._localId, parseInt(e.target.value) || 1)}
                     />
                   </div>
                 )}
@@ -347,26 +363,35 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
   );
 }
 
-// ─── OntvangstModal — 1 item in voorraad steken ───────────────────────────
+// ─── OntvangstModal — (deel)ontvangst van 1 item, N identieke rollen in 1 keer ──
 function OntvangstModal({ item, onClose, onSaved }) {
   const eenheid = item.eenheid || 'gram';
+  const totaalAantal = item.aantal || 1;
+  const resterend = item.resterend ?? (totaalAantal - (item.ontvangen_aantal || 0));
   const defaultStart = item.verwacht_gewicht
     ? String(item.verwacht_gewicht)
-    : (eenheid !== 'gram' && item.aantal ? String(item.aantal) : '');
+    : (eenheid !== 'gram' && item.aantal ? '' : '');
+  const [aantalDezeKeer, setAantalDezeKeer] = useState(String(resterend));
   const [startStr, setStartStr] = useState(defaultStart);
   const [prijsStr, setPrijsStr] = useState(item.prijs_totaal ? String(item.prijs_totaal) : '');
   const [kleur, setKleur] = useState(item.kleur || '');
   const [locatie, setLocatie] = useState('');
   const [lotnummer, setLotnummer] = useState('');
   const [gekochtOp, setGekochtOp] = useState(new Date().toISOString().split('T')[0]);
+  const [bezig, setBezig] = useState(false);
 
   async function ontvang() {
+    const aantal = parseInt(aantalDezeKeer) || 0;
     const start = parseFloat(startStr);
     const prijs = parseFloat(prijsStr);
-    if (!start || start <= 0) { alert('Aantal/gewicht is verplicht en moet groter zijn dan 0'); return; }
-    if (!prijs || prijs <= 0) { alert('Aankoopprijs is verplicht en moet groter zijn dan 0'); return; }
+    if (!aantal || aantal <= 0) { alert('Aantal moet groter zijn dan 0'); return; }
+    if (aantal > resterend) { alert(`Er staan nog maar ${resterend} open`); return; }
+    if (!start || start <= 0) { alert('Gewicht/aantal per rol is verplicht en moet groter zijn dan 0'); return; }
+    if (!prijs || prijs <= 0) { alert('Aankoopprijs per rol is verplicht en moet groter zijn dan 0'); return; }
+    setBezig(true);
     try {
       await api.post(`/bestellingen/bestelling-items/${item.id}/ontvangen`, {
+        aantal_deze_keer: aantal,
         gewicht_gram_start: start,
         gewicht_gram_huidig: start,
         aankoopprijs_eur: prijs,
@@ -378,6 +403,7 @@ function OntvangstModal({ item, onClose, onSaved }) {
       });
       onSaved();
     } catch (e) { alert(e.message); }
+    finally { setBezig(false); }
   }
 
   return (
@@ -390,13 +416,26 @@ function OntvangstModal({ item, onClose, onSaved }) {
           <button className="btn" onClick={onClose}>✕</button>
         </div>
 
+        {totaalAantal > 1 && (
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+            {item.ontvangen_aantal || 0} van de {totaalAantal} al ontvangen — nog <b>{resterend}</b> open
+          </div>
+        )}
+
         <div className="form-row">
+          {resterend > 1 && (
+            <div className="form-group">
+              <label>Aantal nu ontvangen *</label>
+              <input type="number" min="1" max={resterend} value={aantalDezeKeer}
+                onChange={e => setAantalDezeKeer(e.target.value)} />
+            </div>
+          )}
           <div className="form-group">
-            <label>{eenheid === 'gram' ? 'Startgewicht (g) *' : eenheid === 'ml' ? 'Volume (ml) *' : 'Aantal *'}</label>
+            <label>{eenheid === 'gram' ? 'Gewicht per rol (g) *' : eenheid === 'ml' ? 'Volume per stuk (ml) *' : 'Aantal per stuk *'}</label>
             <input type="number" value={startStr} onChange={e => setStartStr(e.target.value)} />
           </div>
           <div className="form-group">
-            <label>Aankoopprijs (€) *</label>
+            <label>Aankoopprijs per rol (€) *</label>
             <input type="number" step="0.01" value={prijsStr} onChange={e => setPrijsStr(e.target.value)} />
           </div>
         </div>
@@ -407,7 +446,7 @@ function OntvangstModal({ item, onClose, onSaved }) {
             <input value={kleur} onChange={e => setKleur(e.target.value)} placeholder="bv. Robijnrood" />
           </div>
           <div className="form-group">
-            <label>Lotnummer <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 11 }}>optioneel — auto indien leeg</span></label>
+            <label>Lotnummer <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 11 }}>optioneel — auto indien leeg{parseInt(aantalDezeKeer) > 1 ? ', bij meerdere rollen krijgt elke rol een volgnummer' : ''}</span></label>
             <input value={lotnummer} onChange={e => setLotnummer(e.target.value)} placeholder="bv. Amazon 2024-06" />
           </div>
         </div>
@@ -425,7 +464,9 @@ function OntvangstModal({ item, onClose, onSaved }) {
 
         <div className="modal-footer">
           <button className="btn" onClick={onClose}>Annuleer</button>
-          <button className="btn primary" onClick={ontvang}>In voorraad steken</button>
+          <button className="btn primary" onClick={ontvang} disabled={bezig}>
+            {bezig ? 'Bezig...' : `In voorraad steken${parseInt(aantalDezeKeer) > 1 ? ` (${aantalDezeKeer}× rol)` : ''}`}
+          </button>
         </div>
       </div>
     </div>
@@ -468,14 +509,16 @@ function BestellingDetailModal({ bestellingId, onClose, onChanged }) {
                       {it.kleur && <span style={{ width: 10, height: 10, borderRadius: '50%', background: it.kleur_hex || '#555', border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />}
                       {it.merk} {it.materiaal}{it.kleur ? ` — ${it.kleur}` : ''}
                     </td>
-                    <td>{it.verwacht_gewicht ? `${it.verwacht_gewicht}g rol` : (it.aantal != null ? `${it.aantal} ${eenheidLabel(it.eenheid)}` : '—')}</td>
+                    <td>{it.verwacht_gewicht ? `${it.aantal || 1}× ${it.verwacht_gewicht}g rol` : (it.aantal != null ? `${it.aantal} ${eenheidLabel(it.eenheid)}` : '—')}</td>
                     <td>
-                      {it.ontvangen
+                      {it.resterend <= 0
                         ? <span className="badge voltooid">Ontvangen</span>
-                        : <span className="badge gepland">Open</span>}
+                        : (it.ontvangen_aantal > 0
+                            ? <span className="badge bezig">{it.ontvangen_aantal}/{it.aantal || 1} ontvangen</span>
+                            : <span className="badge gepland">Open</span>)}
                     </td>
                     <td>
-                      {!it.ontvangen && (
+                      {it.resterend > 0 && (
                         <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => setOntvangstItem(it)}>
                           Ontvangen → in voorraad
                         </button>
