@@ -137,8 +137,6 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_jobs_printer   ON jobs(printer_id);
     CREATE INDEX IF NOT EXISTS idx_jobs_status    ON jobs(status);
     CREATE INDEX IF NOT EXISTS idx_job_mat_job    ON job_materialen(job_id);
-    CREATE INDEX IF NOT EXISTS idx_offerte_regels ON offerte_regels(offerte_id);
-    CREATE INDEX IF NOT EXISTS idx_betalingen     ON betalingen(offerte_id);
   `);
 
   // Migraties
