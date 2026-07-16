@@ -69,8 +69,13 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
     if (saving) return;
     setSaving(true);
     try {
-      const jobStatus  = isDone ? 'voltooid' : isRunning ? 'bezig' : 'gepland';
-      const gestart_op = isRunning ? new Date().toISOString() : null;
+      // Er mag nooit meer dan 1 fysiek "bezig" job per printer zijn — anders raakt
+      // de auto-afsluitlogica in de war over welke job de printer nu net beëindigd
+      // heeft. Staat er al een bezig-job op deze printer? Dan wordt de nieuwe job
+      // altijd "gepland" (in de wachtrij), ongeacht wat de printer nu fysiek doet.
+      const heeftAlBezigJob = bestaandeJobs?.some(j => j.printer_id === printerId && j.status === 'bezig');
+      const jobStatus  = heeftAlBezigJob ? 'gepland' : (isDone ? 'voltooid' : isRunning ? 'bezig' : 'gepland');
+      const gestart_op = (!heeftAlBezigJob && isRunning) ? new Date().toISOString() : null;
       // Geschatte totale tijd = verstreken + resterend
       const totalSec   = (data?.elapsed_sec || 0) + (data?.remaining_sec || 0);
       const urenGeschat = totalSec > 0 ? Math.round(totalSec / 360) / 10 : null;
