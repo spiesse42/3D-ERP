@@ -33,7 +33,7 @@ function ProgressRing({ pct, color, size=80 }) {
   );
 }
 
-function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJobs }) {
+function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJobs, autoJobAanmaken, onConfigChanged }) {
   const name      = naam || data?.naam || '—';
   const status    = data?.status || 'unavailable';
   const isRunning = ['running','printing'].includes(status.toLowerCase());
@@ -52,6 +52,16 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
   const [saving,       setSaving]       = useState(false);
   const [gewichtGeschat, setGewichtGeschat] = useState('');
   const [rolFilter,    setRolFilter]    = useState('');
+  const [autoBusy,     setAutoBusy]     = useState(false);
+
+  async function toggleAutoJob() {
+    setAutoBusy(true);
+    try {
+      await api.patch(`/printers/${printerId}/auto-job`, { auto_job_aanmaken: !autoJobAanmaken });
+      await onConfigChanged?.();
+    } catch (e) { alert(e.message); }
+    finally { setAutoBusy(false); }
+  }
 
   const gefilterdeRollen = rollen
     .filter(r => (r.categorie || 'filament') === 'filament')
@@ -120,6 +130,19 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
           <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
             <StatusDot status={status} />{status}
           </div>
+          <button
+            type="button"
+            onClick={toggleAutoJob}
+            disabled={autoBusy}
+            title={autoJobAanmaken ? 'Automatische jobaanmaak staat aan — klik om te pauzeren' : 'Automatische jobaanmaak staat uit — klik om te activeren'}
+            style={{
+              fontSize: 10, marginTop: 6, padding: '2px 7px', borderRadius: 10, cursor: 'pointer',
+              border: autoJobAanmaken ? '1px solid var(--accent2)' : '1px solid var(--border)',
+              background: autoJobAanmaken ? 'rgba(34,197,94,0.12)' : 'transparent',
+              color: autoJobAanmaken ? 'var(--accent2)' : 'var(--muted)',
+            }}>
+            🤖 Auto-job {autoJobAanmaken ? 'aan' : 'uit'}
+          </button>
           {(data?.bed_temp || data?.nozzle_temp) && (
             <div style={{ fontSize:11, color:'var(--muted)', marginTop:4, display:'flex', gap:10 }}>
               {data.bed_temp    && <span>🛏 {data.bed_temp}°C</span>}
@@ -134,7 +157,7 @@ function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJo
               {pct.toFixed(0)}%
             </div>
           </div>
-          {(isRunning || isDone) && (
+          {status !== 'unavailable' && (
             <button className="btn primary" style={{ fontSize:11, padding:'4px 10px', whiteSpace:'nowrap' }}
               onClick={() => showJobForm ? setShowJobForm(false) : openForm()}>
               {showJobForm ? '✕ Annuleer' : '+ Maak job'}
@@ -402,7 +425,7 @@ export default function Dashboard() {
   const [klanten,      setKlanten]      = useState([]);
   const [operationeel, setOperationeel] = useState({ gepland:[], bezig:[], voltooid:[], controle_facturatie:[] });
   const [loading,      setLoading]      = useState(true);
-  const { printerConfig, printerData }  = usePrinterData();
+  const { printerConfig, printerData, reloadPrinterConfig }  = usePrinterData();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
 
@@ -460,6 +483,8 @@ export default function Dashboard() {
             key={p.id}
             printerId={p.id}
             naam={p.naam}
+            autoJobAanmaken={p.auto_job_aanmaken}
+            onConfigChanged={reloadPrinterConfig}
             data={printerData[p.id]}
             klanten={klanten}
             onJobCreated={() => { loadOperationeel(); loadJobs(); }}

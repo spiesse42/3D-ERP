@@ -19,10 +19,13 @@ export function usePrinterData() {
   const [printerData,   setPrinterData]   = useState({});
   const intervalRef = useRef(null);
   const kwhStartRef  = useRef({});
-  
+
+  function reloadPrinterConfig() {
+    return api.get('/printers/config').then(setPrinterConfig).catch(() => {});
+  }
 
   useEffect(() => {
-    api.get('/printers/config').then(setPrinterConfig).catch(() => {});
+    reloadPrinterConfig();
   }, []);
 
   useEffect(() => {
@@ -153,6 +156,31 @@ export function usePrinterData() {
             if (actief) api.patch(`/jobs/${actief.id}/status`, { status: 'geannuleerd' }).catch(() => {});
           }).catch(() => {});
         }
+
+        // Automatische jobaanmaak bij start van een print — optioneel per printer,
+        // pauzeerbaar via de toggle in de printerkaart (bv. tijdens filament-
+        // kalibratie). Enkel bij een echte overgang náár actief printen, en enkel
+        // als er nog geen bezig/gepland job voor deze printer bestaat (anders zou
+        // dit botsen met de wachtrij-logica).
+        if (p.auto_job_aanmaken && isActief && !['running', 'printing', 'prepare'].includes(wasBusy)) {
+          api.get(`/jobs?printer_id=${p.id}`).then(jobs => {
+            const heeftAlJob = jobs.some(j => ['bezig', 'gepland'].includes(j.status));
+            if (!heeftAlJob) {
+              const totalSec = elapsed + remaining;
+              const urenGeschat = totalSec > 0 ? Math.round(totalSec / 360) / 10 : null;
+              api.post('/jobs', {
+                printer_id: p.id,
+                naam: s.filename || `Auto — ${new Date().toLocaleString('nl-BE')}`,
+                status: 'bezig',
+                gestart_op: new Date().toISOString(),
+                stl_bestandsnaam: s.filename || null,
+                print_uren_geschat: urenGeschat,
+                notities: '🤖 Automatisch aangemaakt bij start van de print — vul klant/materialen aan.',
+              }).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+
         _prevStatus[p.id] = statusLower;
 
         // kwhDelta = huidig kWh - start kWh
@@ -198,5 +226,5 @@ export function usePrinterData() {
     return () => clearInterval(intervalRef.current);
   }, [printerConfig]);
 
-  return { printerConfig, printerData };
+  return { printerConfig, printerData, reloadPrinterConfig };
 }

@@ -61,6 +61,7 @@ r.get('/config', (req, res) => {
       entities,
       kwh_prijs,
       gem_verbruik_watt:   p.gem_verbruik_watt,
+      auto_job_aanmaken:   !!p.auto_job_aanmaken,
     };
   });
 
@@ -76,6 +77,16 @@ r.put('/:id', (req, res) => {
       machine_kost_per_uur, heeft_bmcu?1:0, actief?1:0,
       (gem_verbruik_watt !== undefined && gem_verbruik_watt !== '') ? parseFloat(gem_verbruik_watt) : null,
       req.params.id);
+  res.json({ ok: true });
+});
+
+// Lichte toggle voor auto-job-aanmaak — bedoeld om vanuit de printerkaart zelf
+// snel te pauzeren/hervatten (bv. tijdens filament-kalibratie), zonder de volledige
+// printer-instellingen te moeten opsturen.
+r.patch('/:id/auto-job', (req, res) => {
+  const db = getDb();
+  db.prepare('UPDATE printers SET auto_job_aanmaken = ? WHERE id = ?')
+    .run(req.body.auto_job_aanmaken ? 1 : 0, req.params.id);
   res.json({ ok: true });
 });
 
