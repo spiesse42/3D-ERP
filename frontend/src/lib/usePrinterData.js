@@ -5,6 +5,7 @@ import { api } from './api.js';
 const _kwhAccum = {};       // lopende kWh delta in geheugen
 const _lastPoll  = {};
 const _prevStatus = {};
+const _failedStreak = {};   // aantal opeenvolgende polls met failed/cancelled-status
 const _kwhLoaded = {};      // is delta al uit DB geladen voor deze printer?
 const _kwhLastSave = {};    // timestamp laatste DB save
 
@@ -141,16 +142,26 @@ export function usePrinterData() {
 
         // Finish: zet bezig job op voltooid. Werkt ook bij opstart (wasBusy undefined)
         // omdat we checken op een bestaande bezig-job, niet op de transitie.
+        // Ook zelfherstellend: als een job eerder onterecht op "geannuleerd" werd
+        // gezet door een kortstondige sensor-glitch (bv. AMS-kleurwissel bij
+        // multicolor), corrigeert dit hem alsnog naar "voltooid" zodra de printer
+        // effectief "finish" toont.
         if (isDone) {
-          api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {
-            const actief = jobs.find(j => j.printer_id === p.id);
-            if (actief) api.patch(`/jobs/${actief.id}/status`, { status: 'voltooid' }).catch(() => {});
+          api.get(`/jobs?printer_id=${p.id}`).then(jobs => {
+            const kandidaat = jobs.find(j => j.printer_id === p.id && ['bezig', 'geannuleerd'].includes(j.status));
+            if (kandidaat) api.patch(`/jobs/${kandidaat.id}/status`, { status: 'voltooid' }).catch(() => {});
           }).catch(() => {});
         }
 
-        // Failed: enkel bij echte transitie running→failed (niet bij opstart,
-        // anders zou een oude failed-status een nieuwe job kunnen annuleren)
-        if (isFailed && (wasBusy === 'running' || wasBusy === 'printing')) {
+        // Failed: pas na 2 opeenvolgende polls (~10s) bevestigd — een eenmalige
+        // sensor-glitch (bv. tijdens een AMS-kleurwissel bij multicolor prints)
+        // mag een lopende job niet meteen als mislukt annuleren.
+        if (isFailed) {
+          _failedStreak[p.id] = (_failedStreak[p.id] || 0) + 1;
+        } else {
+          _failedStreak[p.id] = 0;
+        }
+        if (isFailed && _failedStreak[p.id] === 2) {
           api.get(`/jobs?status=bezig&printer_id=${p.id}`).then(jobs => {
             const actief = jobs.find(j => j.printer_id === p.id);
             if (actief) api.patch(`/jobs/${actief.id}/status`, { status: 'geannuleerd' }).catch(() => {});
