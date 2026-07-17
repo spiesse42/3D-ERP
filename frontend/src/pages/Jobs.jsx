@@ -6,6 +6,20 @@ import KostenModal from '../components/KostenModal.jsx';
 
 const STATUSSEN = ['gepland','bezig','voltooid','gecontroleerd','gefactureerd','betaald','gefaald','geannuleerd'];
 
+// Zet een lokaal bestandspad om naar een klikbare file://-link. Werkt enkel als
+// het veld het volledige pad bevat (map + bestandsnaam) en de pagina bekeken
+// wordt vanaf de computer waar het bestand effectief staat.
+function toFileUrl(pad) {
+  if (!pad) return null;
+  const schoon = pad.trim().replace(/\\/g, '/');
+  const metSlash = schoon.startsWith('/') ? schoon : '/' + schoon;
+  return 'file://' + metSlash.replace(/ /g, '%20');
+}
+// Enkel als een "echt" pad-achtig iets (map + bestand), niet een blote bestandsnaam
+function isVolledigPad(pad) {
+  return !!pad && (pad.includes('/') || pad.includes('\\'));
+}
+
 function StatusDot({ status }) {
   const colors = { running:'#ef4444', printing:'#ef4444', finish:'#22c55e', complete:'#22c55e', success:'#22c55e', idle:'#f59e0b', standby:'#f59e0b', unavailable:'#555' };
   const c = colors[status?.toLowerCase()] || '#f59e0b';
@@ -310,7 +324,7 @@ const [form, setForm] = useState(job ? {
           <div className="form-group"><label>Klant</label>
             <select value={form.klant_id || ''} onChange={e => set('klant_id', e.target.value || null)}>
               <option value="">— geen klant —</option>
-              {klanten.map(k => <option key={k.id} value={k.id}>{k.naam}</option>)}
+              {klanten.map(k => <option key={k.id} value={k.id}>{k.voornaam ? `${k.voornaam} ${k.naam}` : k.naam}</option>)}
             </select>
           </div>
         </div>
@@ -328,8 +342,14 @@ const [form, setForm] = useState(job ? {
           <div className="form-group"><label>Print uren (werkelijk)</label>
             <input type="number" step="0.1" value={form.print_uren_werkelijk || ''} onChange={e => set('print_uren_werkelijk', e.target.value)} />
           </div>
-          <div className="form-group"><label>STL bestandsnaam</label>
-            <input value={form.stl_bestandsnaam || ''} onChange={e => set('stl_bestandsnaam', e.target.value)} />
+          <div className="form-group">
+            <label>STL bestandsnaam <span style={{ color:'var(--muted)', fontWeight:400, fontSize:11 }}>volledig pad voor klikbare link, bv. C:\Users\...\bestand.stl</span></label>
+            <div style={{ display:'flex', gap:6 }}>
+              <input style={{ flex:1 }} value={form.stl_bestandsnaam || ''} onChange={e => set('stl_bestandsnaam', e.target.value)} />
+              {isVolledigPad(form.stl_bestandsnaam) && (
+                <a className="btn" href={toFileUrl(form.stl_bestandsnaam)} title="Bestand openen (werkt enkel vanaf deze computer)">📂</a>
+              )}
+            </div>
           </div>
         </div>
         <div className="form-row">
@@ -509,7 +529,11 @@ export default function Jobs() {
           <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.65rem', marginBottom:'0.75rem', fontSize:13 }}>
             <div style={{ fontWeight:600 }}>{selectedJob.klant_naam ? (selectedJob.klant_voornaam ? `${selectedJob.klant_voornaam} ${selectedJob.klant_naam}` : selectedJob.klant_naam) : <span style={{ color:'var(--muted)' }}>Eigen print</span>}</div>
             <div style={{ color:'var(--muted)', fontSize:12 }}>🖨 {selectedJob.printer_naam}</div>
-            {selectedJob.stl_bestandsnaam && <div style={{ color:'var(--accent)', fontSize:12 }}>📄 {selectedJob.stl_bestandsnaam}</div>}
+            {selectedJob.stl_bestandsnaam && (
+              isVolledigPad(selectedJob.stl_bestandsnaam)
+                ? <a href={toFileUrl(selectedJob.stl_bestandsnaam)} style={{ color:'var(--accent)', fontSize:12 }} title="Bestand openen (werkt enkel vanaf deze computer)">📂 {selectedJob.stl_bestandsnaam}</a>
+                : <div style={{ color:'var(--accent)', fontSize:12 }}>📄 {selectedJob.stl_bestandsnaam}</div>
+            )}
           </div>
 
           {/* Details grid */}
