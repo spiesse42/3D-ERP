@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import Bestellingen from './Bestellingen.jsx';
 import { KLEUREN, kleurHex } from '../lib/kleuren.js';
+import KleurDot from '../components/KleurDot.jsx';
 
 function eenheidSuffix(eenheid) {
   if (eenheid === 'stuk') return ' stuk';
@@ -90,16 +91,6 @@ function GroepDetailModal({ groep, rollen, onClose, onEditRol, onNieuweRol, onTo
         </div>
       </div>
     </div>
-  );
-}
-
-function KleurDot({ kleur, hex, size = 12 }) {
-  return (
-    <span style={{
-      display: 'inline-block', width: size, height: size, borderRadius: '50%',
-      background: kleurHex(kleur, hex), border: '1px solid rgba(255,255,255,0.15)',
-      flexShrink: 0, verticalAlign: 'middle', marginRight: 6
-    }} title={kleur} />
   );
 }
 

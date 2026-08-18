@@ -2,12 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api.js';
 import { useNavigate } from 'react-router-dom';
 import { usePrinterData } from '../lib/usePrinterData.js';
-import { kleurHex } from '../lib/kleuren.js';
 import PrinterCard from '../components/PrinterCard.jsx';
-
-function KleurDot({ kleur, hex, size = 12 }) {
-  return <span style={{ display:'inline-block', width:size, height:size, borderRadius:'50%', background:kleurHex(kleur, hex), border:'1px solid rgba(255,255,255,0.15)', marginRight:4, verticalAlign:'middle', flexShrink:0 }} />;
-}
+import KleurDot from '../components/KleurDot.jsx';
 
 function OperationeelWidget({ icon, titel, items, renderRij, leegTekst }) {
   const PER_PAGINA = 5;
