@@ -21,7 +21,12 @@ function isVolledigPad(pad) {
 }
 
 function StatusDot({ status }) {
-  const colors = { running:'#ef4444', printing:'#ef4444', finish:'#22c55e', complete:'#22c55e', success:'#22c55e', idle:'#f59e0b', standby:'#f59e0b', unavailable:'#555' };
+  const colors = {
+    running:'#ef4444', printing:'#ef4444',
+    finish:'#22c55e', complete:'#22c55e', success:'#22c55e',
+    idle:'#f59e0b', standby:'#f59e0b', offline:'#555',
+    unavailable:'#555', failed:'#ef4444', pause:'#f59e0b',
+  };
   const c = colors[status?.toLowerCase()] || '#f59e0b';
   return <span style={{ display:'inline-block', width:8, height:8, borderRadius:'50%', background:c, marginRight:6, boxShadow:`0 0 6px ${c}` }} />;
 }

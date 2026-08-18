@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db.js';
+import { haGet } from '../lib/ha.js';
 
 // --- TARIEVEN ---
 export const tarieven = Router();
@@ -46,31 +47,6 @@ instellingen.put('/:sleutel', (req, res) => {
 
 // --- HOME ASSISTANT ---
 export const ha = Router();
-
-function getHaConfig() {
-  try {
-    const db = getDb();
-    const urlRow   = db.prepare("SELECT waarde FROM instellingen WHERE sleutel = 'ha_url'").get();
-    const tokenRow = db.prepare("SELECT waarde FROM instellingen WHERE sleutel = 'ha_token'").get();
-    const url   = urlRow?.waarde   || process.env.HA_URL   || 'http://supervisor/core';
-    const token = tokenRow?.waarde || process.env.HA_TOKEN || '';
-    return { url, token };
-  } catch {
-    return {
-      url:   process.env.HA_URL   || 'http://supervisor/core',
-      token: process.env.HA_TOKEN || '',
-    };
-  }
-}
-
-async function haGet(path) {
-  const { url, token } = getHaConfig();
-  const res = await fetch(`${url}/api/${path}`, {
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
-  });
-  if (!res.ok) throw new Error(`HA HTTP ${res.status}`);
-  return res.json();
-}
 
 ha.get('/test', async (req, res) => {
   try {

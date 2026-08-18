@@ -1,34 +1,6 @@
 import { Router } from 'express';
 import { getDb } from './db.js';
-
-// ============================================================
-// HA helper (zelfstandige kopie — leest url+token uit instellingen)
-// ============================================================
-function getHaConfig() {
-  try {
-    const db = getDb();
-    const urlRow   = db.prepare("SELECT waarde FROM instellingen WHERE sleutel = 'ha_url'").get();
-    const tokenRow = db.prepare("SELECT waarde FROM instellingen WHERE sleutel = 'ha_token'").get();
-    return {
-      url:   urlRow?.waarde   || process.env.HA_URL   || 'http://supervisor/core',
-      token: tokenRow?.waarde || process.env.HA_TOKEN || '',
-    };
-  } catch {
-    return {
-      url:   process.env.HA_URL   || 'http://supervisor/core',
-      token: process.env.HA_TOKEN || '',
-    };
-  }
-}
-
-async function haGetState(entity) {
-  const { url, token } = getHaConfig();
-  const res = await fetch(`${url}/api/states/${entity}`, {
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
-  });
-  if (!res.ok) throw new Error(`HA HTTP ${res.status}`);
-  return res.json();
-}
+import { haGetState } from './lib/ha.js';
 
 // ============================================================
 // SAMPLER — elke 30 sec watt opslaan voor jobs met status 'bezig'

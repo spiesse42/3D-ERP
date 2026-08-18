@@ -1,16 +1,9 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api.js';
-
-const KLEUREN_MAP = {
-  'Wit':'#f5f5f5','Zwart':'#1a1a1a','Grijs':'#808080','Rood':'#ef4444',
-  'Blauw':'#3b82f6','Groen':'#22c55e','Geel':'#eab308','Oranje':'#f97316',
-  'Paars':'#a855f7','Roze':'#ec4899','Bruin':'#92400e','Beige':'#d4b896',
-  'Zilver':'#c0c0c0','Goud':'#d4af37','Transparant':'#e0f2fe',
-};
+import { kleurHex } from '../lib/kleuren.js';
 
 function KleurDot({ kleur }) {
-  const hex = KLEUREN_MAP[kleur] || '#555';
-  return <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:hex, border:'1px solid rgba(255,255,255,0.15)', marginRight:6, verticalAlign:'middle' }} />;
+  return <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:kleurHex(kleur), border:'1px solid rgba(255,255,255,0.15)', marginRight:6, verticalAlign:'middle' }} />;
 }
 
 function BalkGrafiek({ data, labelKey, waardeKey, kleur = 'var(--accent)', eenheid = '' }) {
