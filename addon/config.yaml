@@ -13,9 +13,9 @@ panel_icon: mdi:printer-3d
 panel_title: "3D Print ERP"
 options:
   ha_token: ""
-  smtp_user: "davidspiesschaert1@gmail.com"
-  smtp_pass: "vnsh rdwi usve leei"
-  smtp_from: "davidspiesschaert1@gmail.com"
+  smtp_user: "3dplezier@gmail.com"
+  smtp_pass: ""
+  smtp_from: "3dplezier@gmail.com"
 schema:
   ha_token: str?
   smtp_user: str?
