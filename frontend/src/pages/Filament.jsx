@@ -206,6 +206,142 @@ function TypeModal({ type, onClose, onSaved }) {
   );
 }
 
+// ─── KalibratieModal — Flow Ratio, Max Volumetric Speed enz., per printer ─────
+const KALIBRATIE_VELDEN = [
+  'flow_ratio', 'max_volumetric_speed',
+  'nozzle_temp_eerste_laag', 'nozzle_temp_overige_lagen',
+  'bed_temp_eerste_laag', 'bed_temp_overige_lagen',
+  'pressure_advance', 'retractie_lengte', 'retractie_snelheid',
+];
+
+function KalibratieModal({ type, onClose }) {
+  const [rijen, setRijen] = useState([]);
+  const [geladen, setGeladen] = useState(false);
+  const [savedId, setSavedId] = useState(null);
+
+  useEffect(() => {
+    api.get(`/kalibratie/type/${type.id}`).then(rows => {
+      setRijen(rows.map(r => {
+        const rij = { printer_id: r.printer_id, printer_naam: r.printer_naam, notities: r.notities ?? '' };
+        KALIBRATIE_VELDEN.forEach(v => { rij[v] = r[v] ?? ''; });
+        return rij;
+      }));
+      setGeladen(true);
+    });
+  }, [type.id]);
+
+  function setVeld(printerId, veld, waarde) {
+    setRijen(rs => rs.map(r => r.printer_id === printerId ? { ...r, [veld]: waarde } : r));
+  }
+
+  async function bewaarRij(rij) {
+    try {
+      await api.put('/kalibratie', { filament_type_id: type.id, printer_id: rij.printer_id, ...rij });
+      setSavedId(rij.printer_id);
+      setTimeout(() => setSavedId(null), 2500);
+    } catch (e) { alert(e.message); }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 640 }}>
+        <div className="modal-header">
+          <h2>🎛 Kalibratie — {type.merk} {type.materiaal}</h2>
+          <button className="btn" onClick={onClose}>✕</button>
+        </div>
+
+        <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 12 }}>
+          Waarden uit je slicerprofiel (Bambu Studio, Orca Slicer, Klipper...), per printer — nozzle en hotend kunnen immers per toestel verschillen.
+        </p>
+
+        {!geladen
+          ? <p style={{ color: 'var(--muted)' }}>Laden...</p>
+          : rijen.length === 0
+            ? <div className="empty">Geen actieve printers gevonden</div>
+            : rijen.map(rij => (
+                <div key={rij.printer_id} className="card" style={{ marginBottom: 12 }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{rij.printer_naam}</h3>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Flow Ratio</label>
+                      <input type="number" step="0.01" value={rij.flow_ratio}
+                        onChange={e => setVeld(rij.printer_id, 'flow_ratio', e.target.value)} placeholder="bv. 0.98" />
+                    </div>
+                    <div className="form-group">
+                      <label>Max Volumetric Speed (mm³/s)</label>
+                      <input type="number" step="0.1" value={rij.max_volumetric_speed}
+                        onChange={e => setVeld(rij.printer_id, 'max_volumetric_speed', e.target.value)} placeholder="bv. 15" />
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Nozzle temp — 1e laag (°C)</label>
+                      <input type="number" value={rij.nozzle_temp_eerste_laag}
+                        onChange={e => setVeld(rij.printer_id, 'nozzle_temp_eerste_laag', e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label>Nozzle temp — overige lagen (°C)</label>
+                      <input type="number" value={rij.nozzle_temp_overige_lagen}
+                        onChange={e => setVeld(rij.printer_id, 'nozzle_temp_overige_lagen', e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Bed temp — 1e laag (°C)</label>
+                      <input type="number" value={rij.bed_temp_eerste_laag}
+                        onChange={e => setVeld(rij.printer_id, 'bed_temp_eerste_laag', e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label>Bed temp — overige lagen (°C)</label>
+                      <input type="number" value={rij.bed_temp_overige_lagen}
+                        onChange={e => setVeld(rij.printer_id, 'bed_temp_overige_lagen', e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Pressure Advance / K-factor</label>
+                      <input type="number" step="0.001" value={rij.pressure_advance}
+                        onChange={e => setVeld(rij.printer_id, 'pressure_advance', e.target.value)} placeholder="bv. 0.045" />
+                    </div>
+                    <div className="form-group">
+                      <label>Retractie lengte (mm)</label>
+                      <input type="number" step="0.1" value={rij.retractie_lengte}
+                        onChange={e => setVeld(rij.printer_id, 'retractie_lengte', e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Retractie snelheid (mm/s)</label>
+                    <input type="number" step="1" value={rij.retractie_snelheid}
+                      onChange={e => setVeld(rij.printer_id, 'retractie_snelheid', e.target.value)} />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Notities</label>
+                    <input value={rij.notities} onChange={e => setVeld(rij.printer_id, 'notities', e.target.value)}
+                      placeholder="bv. slicer-profielnaam" />
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button className="btn primary" onClick={() => bewaarRij(rij)}>Opslaan</button>
+                    {savedId === rij.printer_id && <span style={{ color: 'var(--accent2)', fontSize: 12 }}>✓ Bewaard</span>}
+                  </div>
+                </div>
+              ))
+        }
+
+        <div className="modal-footer">
+          <button className="btn" onClick={onClose}>Sluiten</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── RolModal ────────────────────────────────────────────────────────────────
 function RolModal({ types, rol, onClose, onSaved }) {
   const isEdit = !!rol?.id;
@@ -456,6 +592,7 @@ export default function Filament() {
   const [typeModal, setTypeModal] = useState(null);
   const [rolModal,  setRolModal]  = useState(null);
   const [groepModal, setGroepModal] = useState(null);
+  const [kalibratieModal, setKalibratieModal] = useState(null);
 
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get('highlight') ? parseInt(searchParams.get('highlight')) : null;
@@ -636,6 +773,9 @@ export default function Filament() {
                       <td style={{ color: 'var(--muted)' }}>{t.leverancier || '—'}</td>
                       <td>
                         <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
+                          {(t.categorie || 'filament') === 'filament' && (
+                            <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} title="Kalibratie per printer" onClick={() => setKalibratieModal(t)}>🎛</button>
+                          )}
                           <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => setTypeModal(t)}>✏</button>
                           <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => deleteType(t)}>✕</button>
                         </div>
@@ -653,6 +793,12 @@ export default function Filament() {
           type={typeModal?.id ? typeModal : null}
           onClose={() => setTypeModal(null)}
           onSaved={() => { setTypeModal(null); load(); }}
+        />
+      )}
+      {kalibratieModal !== null && (
+        <KalibratieModal
+          type={kalibratieModal}
+          onClose={() => setKalibratieModal(null)}
         />
       )}
       {rolModal !== null && (
