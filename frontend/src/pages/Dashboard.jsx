@@ -42,6 +42,27 @@ function OperationeelWidget({ icon, titel, items, renderRij, leegTekst }) {
   );
 }
 
+function FacturatieSamenvattingWidget({ aantal, totaal, navigate }) {
+  return (
+    <div className="card" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+      <div>
+        <h2 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 0.75rem 0' }}>💶 Controle / Facturatie</h2>
+        {aantal === 0
+          ? <p style={{ color: 'var(--muted)', fontSize: 12 }}>Niets openstaand</p>
+          : <>
+              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--warn)' }}>€{totaal.toFixed(2)}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>{aantal} {aantal === 1 ? 'job' : 'jobs'} nog te innen</div>
+            </>
+        }
+      </div>
+      <button className="btn" style={{ marginTop: '0.75rem', alignSelf: 'flex-start' }}
+        onClick={() => navigate('/financien?tab=facturatie')}>
+        Naar Facturatie →
+      </button>
+    </div>
+  );
+}
+
 function TeBestellenWidget({ rollen, navigate }) {
   const PER_PAGINA = 10;
   const [pagina, setPagina] = React.useState(0);
@@ -149,7 +170,7 @@ function FilamentStockWidget({ rollen, navigate }) {
 export default function Dashboard() {
   const [rollen,       setRollen]       = useState([]);
   const [klanten,      setKlanten]      = useState([]);
-  const [operationeel, setOperationeel] = useState({ gepland:[], bezig:[], voltooid:[], controle_facturatie:[] });
+  const [operationeel, setOperationeel] = useState({ gepland:[], bezig:[], voltooid:[], controle_facturatie:[], controle_facturatie_totaal:0 });
   const [loading,      setLoading]      = useState(true);
   const { printerConfig, printerData, reloadPrinterConfig }  = usePrinterData();
   const navigate = useNavigate();
@@ -293,27 +314,10 @@ export default function Dashboard() {
           )}
         />
 
-        <OperationeelWidget
-          icon="💶" titel="Controle / Facturatie" leegTekst="Niets openstaand"
-          items={operationeel.controle_facturatie}
-          renderRij={j => (
-            <div key={j.id} style={jobRijStijl()}
-              onClick={() => navigate(`/jobs?highlight=${j.id}`)}
-              onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
-              onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-              <div style={{ flex:1 }}>
-                <div style={{ fontWeight:500 }}>{j.naam}</div>
-                <div style={{ color:'var(--muted)', fontSize:11 }}>
-                  {j.klant_voornaam ? `${j.klant_voornaam} ${j.klant_naam}` : j.klant_naam}
-                </div>
-                <span style={{ fontSize:10, padding:'1px 5px', borderRadius:3, background: j.status === 'gefactureerd' ? 'rgba(245,158,11,0.2)' : 'rgba(139,92,246,0.2)', color: j.status === 'gefactureerd' ? 'var(--warn)' : '#8b5cf6' }}>{j.status}</span>
-              </div>
-              {j.verkoopprijs != null
-                ? <span style={{ color:'var(--accent2)', fontWeight:600 }}>€{j.verkoopprijs.toFixed(2)}</span>
-                : <span style={{ color:'var(--warn)', fontSize:11 }}>geen prijs</span>
-              }
-            </div>
-          )}
+        <FacturatieSamenvattingWidget
+          aantal={operationeel.controle_facturatie.length}
+          totaal={operationeel.controle_facturatie_totaal || 0}
+          navigate={navigate}
         />
       </div>
 

@@ -15,8 +15,10 @@ import kalibratie from './routes/kalibratie.js';
 import ha from './routes/ha.js';
 import rapportage from './routes/rapportage.js';
 import reset from './routes/reset.js';
+import uitgaven from './routes/uitgaven.js';
 import { instellingen } from './routes/_combined.js';
 import { startSampler, energie } from './sampler.js';
+import { startAutoBackup } from './auto_backup.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -29,6 +31,7 @@ app.use((req, res, next) => {
 });
 initDb();
 startSampler();
+startAutoBackup();
 app.use('/api/klanten',      klanten);
 app.use('/api/printers',     printers);
 app.use('/api/filament',     filament);
@@ -43,6 +46,7 @@ app.use('/api/energie', energie);
 app.use('/api/ha',           ha);
 app.use('/api/rapportage',   rapportage);
 app.use('/api/reset',        reset);
+app.use('/api/uitgaven',     uitgaven);
 const frontendPath = path.join(__dirname, '..', 'frontend', 'dist');
 app.use(express.static(frontendPath));
 app.get('*', (req, res) => {

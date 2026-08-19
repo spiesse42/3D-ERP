@@ -22,6 +22,11 @@ export default function Instellingen() {
   const [resetResult,  setResetResult]  = useState(null);
   const [resetError,   setResetError]   = useState('');
   const [nieuwePrinter, setNieuwePrinter] = useState(null);
+  const [backups, setBackups]             = useState([]);
+  const [backupBusy, setBackupBusy]       = useState(false);
+  const [backupMelding, setBackupMelding] = useState('');
+  const [backupAutoActief, setBackupAutoActief]     = useState(true);
+  const [backupAutoInterval, setBackupAutoInterval] = useState('24');
 
   async function startNieuwJaar() {
     if (resetConfirm !== 'RESET') return;
@@ -49,14 +54,41 @@ export default function Instellingen() {
       setGeladen(true);
     });
     api.get('/printers').then(setPrinters);
-    // Laad HA instellingen uit de instellingen tabel
+    // Laad HA + backup instellingen uit de instellingen tabel
     api.get('/instellingen').then(rows => {
       const map = {};
       rows.forEach(r => { map[r.sleutel] = r.waarde; });
       setHaUrl(map.ha_url || 'http://192.168.0.105:8123');
       setHaToken(map.ha_token || '');
+      setBackupAutoActief(map.backup_auto_actief !== '0');
+      setBackupAutoInterval(map.backup_auto_interval_uren || '24');
     }).catch(() => {});
+    laadBackups();
   }, []);
+
+  function laadBackups() {
+    api.get('/reset/archieven').then(rows => setBackups(rows.filter(r => r.type !== 'jaarreset'))).catch(() => {});
+  }
+
+  async function backupNu() {
+    setBackupBusy(true);
+    setBackupMelding('');
+    try {
+      await api.post('/reset/backup');
+      setBackupMelding('✓ Backup gemaakt');
+      laadBackups();
+    } catch (e) {
+      setBackupMelding(`✗ ${e.message}`);
+    } finally {
+      setBackupBusy(false);
+      setTimeout(() => setBackupMelding(''), 4000);
+    }
+  }
+
+  async function saveBackupAutoInstellingen(actief, interval) {
+    await api.put('/instellingen/backup_auto_actief', { waarde: actief ? '1' : '0' });
+    await api.put('/instellingen/backup_auto_interval_uren', { waarde: interval });
+  }
 
   function setTarief(sleutel, waarde) {
     setTarieven(t => ({ ...t, [sleutel]: { ...t[sleutel], waarde: parseFloat(waarde) || 0 } }));
@@ -339,6 +371,58 @@ export default function Instellingen() {
           <div className="card">
             <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'1rem' }}>Data export</h2>
             <a className="btn" href="/api/rapportage/csv/jobs" download>↓ Jobs exporteren (CSV)</a>
+          </div>
+
+          <div className="card">
+            <h2 style={{ fontSize:14, fontWeight:600, marginBottom:8 }}>📦 Backup</h2>
+            <p style={{ fontSize:11, color:'var(--muted)', marginBottom:12 }}>
+              Niet-destructief: maakt enkel een kopie van de volledige database, er wordt niets verwijderd of leeggemaakt.
+            </p>
+
+            <button className="btn" style={{ marginBottom:8 }} disabled={backupBusy} onClick={backupNu}>
+              {backupBusy ? 'Bezig...' : '📦 Backup nu maken'}
+            </button>
+            {backupMelding && (
+              <div style={{ fontSize:11, color: backupMelding.startsWith('✓') ? 'var(--accent2)' : 'var(--danger)', marginBottom:8 }}>
+                {backupMelding}
+              </div>
+            )}
+
+            <div style={{ display:'flex', alignItems:'center', gap:8, margin:'12px 0', fontSize:13 }}>
+              <input type="checkbox" checked={backupAutoActief} style={{ width:16, height:16, cursor:'pointer' }}
+                onChange={e => {
+                  const v = e.target.checked;
+                  setBackupAutoActief(v);
+                  saveBackupAutoInstellingen(v, backupAutoInterval);
+                }} />
+              <span>Automatische backup</span>
+              <select value={backupAutoInterval} disabled={!backupAutoActief} style={{ width:'auto' }}
+                onChange={e => {
+                  const v = e.target.value;
+                  setBackupAutoInterval(v);
+                  saveBackupAutoInstellingen(backupAutoActief, v);
+                }}>
+                <option value="24">Elke dag</option>
+                <option value="168">Elke week</option>
+              </select>
+            </div>
+
+            {backups.length > 0 && (
+              <div style={{ marginTop:12 }}>
+                <div style={{ fontSize:11, color:'var(--muted)', marginBottom:6 }}>Laatste backups ({backups.length}/20)</div>
+                <div style={{ maxHeight:200, overflowY:'auto' }}>
+                  {backups.map(b => (
+                    <div key={b.bestand} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:11 }}>
+                      <span>
+                        {b.aangemaakt.replace('T', ' ').slice(0, 16)}
+                        <span style={{ color:'var(--muted)', marginLeft:6 }}>({b.type})</span>
+                      </span>
+                      <a className="btn" style={{ fontSize:10, padding:'2px 6px' }} href={`${BASE}/reset/download/${b.bestand}`} target="_blank" rel="noreferrer">↓</a>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="card" style={{ border:'1px solid var(--danger)' }}>

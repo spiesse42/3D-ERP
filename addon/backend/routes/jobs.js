@@ -84,8 +84,33 @@ r.patch('/:id/status', (req, res) => {
   const updates = { status };
   if (status === 'bezig')    updates.gestart_op  = new Date().toISOString();
   if (status === 'voltooid') updates.voltooid_op = new Date().toISOString();
-  db.prepare(`UPDATE jobs SET status=?,gestart_op=COALESCE(?,gestart_op),voltooid_op=? WHERE id=?`)
-    .run(status, updates.gestart_op||null, updates.voltooid_op||null, req.params.id);
+
+  // 'betaald' is zowel een status-waarde als een apart betaald/betaald_op-veld
+  // (dat laatste wordt ook los bewerkt via PATCH /:id/betaald). Hou ze gesynchroniseerd:
+  // bij status -> 'betaald' de vlag+datum zetten, bij status weg van 'betaald' weer wissen.
+  const betaald    = status === 'betaald' ? 1 : 0;
+  const betaaldOpSql = status === 'betaald'
+    ? `COALESCE(betaald_op, ?)`
+    : `NULL`;
+  const betaaldOpParam = status === 'betaald' ? new Date().toISOString() : null;
+
+  // voltooid_op mag NIET verloren gaan zodra de status verder gaat dan 'voltooid'
+  // (gecontroleerd/gefactureerd/betaald) — enkel overschrijven als deze patch de
+  // status net NAAR 'voltooid' zet, anders de bestaande waarde behouden.
+  const params = [status, updates.gestart_op || null];
+  let sql = `UPDATE jobs SET status=?,gestart_op=COALESCE(?,gestart_op),`;
+  if (status === 'voltooid') {
+    sql += `voltooid_op=?,`;
+    params.push(updates.voltooid_op);
+  } else {
+    sql += `voltooid_op=voltooid_op,`;
+  }
+  sql += `betaald=?,betaald_op=${betaaldOpSql} WHERE id=?`;
+  params.push(betaald);
+  if (status === 'betaald') params.push(betaaldOpParam);
+  params.push(req.params.id);
+
+  db.prepare(sql).run(...params);
   res.json({ ok: true });
 });
 r.patch('/:id/kwh_start', (req, res) => {

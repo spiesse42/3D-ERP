@@ -95,12 +95,15 @@ export const rapportage = Router();
 
 rapportage.get('/dashboard', (req, res) => {
   const db = getDb();
+  // Alle afgewerkte statussen tellen mee voor omzet — niet enkel 'voltooid',
+  // want een job die al gecontroleerd/gefactureerd/betaald is, is nog steeds
+  // gerealiseerde omzet (voordien viel die hier onterecht uit weg).
   const omzet_maand = db.prepare(`
     SELECT strftime('%Y-%m', voltooid_op) as maand, COUNT(*) as jobs,
       ROUND(SUM(jk.verkoopprijs),2) as omzet, ROUND(SUM(jk.totaal_kost),2) as kost,
       ROUND(SUM(jk.kwh_verbruikt),2) as kwh
     FROM jobs j JOIN job_kosten jk ON jk.job_id = j.id
-    WHERE j.status = 'voltooid' AND j.voltooid_op IS NOT NULL
+    WHERE j.status IN ('voltooid','gecontroleerd','gefactureerd','betaald') AND j.voltooid_op IS NOT NULL
     GROUP BY maand ORDER BY maand DESC LIMIT 12
   `).all();
 
@@ -177,25 +180,27 @@ rapportage.get('/stats/jobs-per-maand', (req, res) => {
 // Statistieken: kWh per dag/maand/jaar
 rapportage.get('/stats/kwh', (req, res) => {
   const db = getDb();
+  // Zelfde correctie als bij omzet_maand: alle afgewerkte statussen meetellen,
+  // anders verdwijnt het kWh-verbruik van een job zodra hij verder gaat dan 'voltooid'.
   const perDag = db.prepare(`
     SELECT strftime('%Y-%m-%d', j.voltooid_op) as dag,
       ROUND(SUM(jk.kwh_verbruikt), 3) as kwh
     FROM jobs j JOIN job_kosten jk ON jk.job_id = j.id
-    WHERE j.status = 'voltooid' AND j.voltooid_op IS NOT NULL
+    WHERE j.status IN ('voltooid','gecontroleerd','gefactureerd','betaald') AND j.voltooid_op IS NOT NULL
     GROUP BY dag ORDER BY dag DESC LIMIT 30
   `).all();
   const perMaand = db.prepare(`
     SELECT strftime('%Y-%m', j.voltooid_op) as maand,
       ROUND(SUM(jk.kwh_verbruikt), 3) as kwh
     FROM jobs j JOIN job_kosten jk ON jk.job_id = j.id
-    WHERE j.status = 'voltooid' AND j.voltooid_op IS NOT NULL
+    WHERE j.status IN ('voltooid','gecontroleerd','gefactureerd','betaald') AND j.voltooid_op IS NOT NULL
     GROUP BY maand ORDER BY maand DESC LIMIT 12
   `).all();
   const perJaar = db.prepare(`
     SELECT strftime('%Y', j.voltooid_op) as jaar,
       ROUND(SUM(jk.kwh_verbruikt), 3) as kwh
     FROM jobs j JOIN job_kosten jk ON jk.job_id = j.id
-    WHERE j.status = 'voltooid' AND j.voltooid_op IS NOT NULL
+    WHERE j.status IN ('voltooid','gecontroleerd','gefactureerd','betaald') AND j.voltooid_op IS NOT NULL
     GROUP BY jaar ORDER BY jaar DESC
   `).all();
   res.json({ per_dag: perDag, per_maand: perMaand, per_jaar: perJaar });
@@ -246,8 +251,83 @@ rapportage.get('/dashboard/operationeel', (req, res) => {
       AND (j.betaald = 0 OR j.betaald IS NULL)
     ORDER BY j.voltooid_op DESC
   `).all();
+  const controle_facturatie_totaal = Math.round(
+    controle_facturatie.reduce((s, j) => s + (j.verkoopprijs || 0), 0) * 100
+  ) / 100;
 
-  res.json({ gepland, bezig, voltooid, controle_facturatie });
+  res.json({ gepland, bezig, voltooid, controle_facturatie, controle_facturatie_totaal });
+});
+
+// Facturatie: volledige lijst (open / betaald / alles) t.b.v. de Financiën-pagina
+rapportage.get('/facturatie', (req, res) => {
+  const db = getDb();
+  const status = req.query.status || 'open'; // 'open' | 'betaald' | 'alles'
+
+  let where = `j.status IN ('gecontroleerd','gefactureerd','betaald') AND j.klant_id IS NOT NULL`;
+  if (status === 'open') where += ` AND (j.betaald = 0 OR j.betaald IS NULL)`;
+  else if (status === 'betaald') where += ` AND j.betaald = 1`;
+
+  const rows = db.prepare(`
+    SELECT j.id, j.naam, j.status, j.betaald, j.betaald_op, j.voltooid_op,
+      k.id as klant_id, k.naam as klant_naam, k.voornaam as klant_voornaam,
+      jk.verkoopprijs
+    FROM jobs j
+    LEFT JOIN klanten k ON k.id = j.klant_id
+    LEFT JOIN job_kosten jk ON jk.job_id = j.id
+    WHERE ${where}
+    ORDER BY j.voltooid_op DESC
+  `).all();
+
+  const totaal = Math.round(rows.reduce((s, r) => s + (r.verkoopprijs || 0), 0) * 100) / 100;
+  res.json({ rows, totaal, aantal: rows.length });
+});
+
+// Financiën: inkomsten (kasstelsel — op betaaldatum) vs. materiaalkosten en
+// overige uitgaven, per maand samengevoegd tot een saldo.
+rapportage.get('/stats/financien', (req, res) => {
+  const db = getDb();
+
+  const inkomsten = db.prepare(`
+    SELECT strftime('%Y-%m', j.betaald_op) as maand,
+      ROUND(SUM(jk.verkoopprijs), 2) as bedrag
+    FROM jobs j JOIN job_kosten jk ON jk.job_id = j.id
+    WHERE j.betaald = 1 AND j.betaald_op IS NOT NULL
+    GROUP BY maand
+  `).all();
+
+  const materiaalkosten = db.prepare(`
+    SELECT strftime('%Y-%m', b.besteld_op) as maand,
+      ROUND(SUM(bi.prijs_totaal), 2) as bedrag
+    FROM bestelling_items bi JOIN bestellingen b ON b.id = bi.bestelling_id
+    WHERE b.besteld_op IS NOT NULL AND bi.prijs_totaal IS NOT NULL
+    GROUP BY maand
+  `).all();
+
+  const uitgaven = db.prepare(`
+    SELECT strftime('%Y-%m', datum) as maand,
+      ROUND(SUM(bedrag), 2) as bedrag
+    FROM uitgaven
+    GROUP BY maand
+  `).all();
+
+  // Per maand samenvoegen tot 1 rij
+  const perMaand = new Map();
+  const zetRij = (maand) => {
+    if (!perMaand.has(maand)) {
+      perMaand.set(maand, { maand, inkomsten: 0, materiaalkosten: 0, uitgaven: 0 });
+    }
+    return perMaand.get(maand);
+  };
+  inkomsten.forEach(r => { if (r.maand) zetRij(r.maand).inkomsten = r.bedrag || 0; });
+  materiaalkosten.forEach(r => { if (r.maand) zetRij(r.maand).materiaalkosten = r.bedrag || 0; });
+  uitgaven.forEach(r => { if (r.maand) zetRij(r.maand).uitgaven = r.bedrag || 0; });
+
+  const rijen = [...perMaand.values()]
+    .map(r => ({ ...r, saldo: Math.round((r.inkomsten - r.materiaalkosten - r.uitgaven) * 100) / 100 }))
+    .sort((a, b) => b.maand.localeCompare(a.maand))
+    .slice(0, 24);
+
+  res.json(rijen);
 });
 
 rapportage.get('/csv/jobs', (req, res) => {
