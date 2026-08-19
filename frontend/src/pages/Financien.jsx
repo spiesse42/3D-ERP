@@ -55,6 +55,50 @@ function BalkGrafiek({ data, labelKey, waardeKey, kleur = 'var(--accent)', eenhe
   );
 }
 
+// ─── Drempel-voortgangsbalk (btw-vrijstelling / sociale bijdragen bijberoep) ──
+function DrempelBalk({ label, ytd, drempel }) {
+  const pct = drempel > 0 ? Math.min(100, Math.round((ytd / drempel) * 100)) : 0;
+  const kleur = pct >= 100 ? '#ef4444' : pct >= 80 ? 'var(--warn)' : 'var(--accent2)';
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+        <span>{label}</span>
+        <span style={{ color: 'var(--muted)' }}>€{ytd.toFixed(2)} / €{drempel.toFixed(2)} ({pct}%)</span>
+      </div>
+      <div style={{ height: 10, background: 'var(--bg3)', borderRadius: 5, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: kleur, borderRadius: 5, transition: 'width 0.3s' }} />
+      </div>
+    </div>
+  );
+}
+
+function DrempelsWidget() {
+  const [d, setD] = useState(null);
+
+  useEffect(() => {
+    api.get('/rapportage/drempels').then(setD).catch(() => {});
+  }, []);
+
+  if (!d) return null;
+
+  return (
+    <Sectie titel={`📊 Drempels bijberoep ${d.jaar}`}>
+      {!d.startdatum && (
+        <p style={{ fontSize: 12, color: 'var(--warn)', marginBottom: 10 }}>
+          Geen startdatum ingesteld — de volledige jaardrempel wordt getoond in plaats van verhoudingsgewijs verminderd.
+          Stel dit in bij Instellingen → Drempels.
+        </p>
+      )}
+      <DrempelBalk label="Omzet (btw-vrijstelling kleine onderneming)" ytd={d.omzet.ytd} drempel={d.omzet.drempel_prorated} />
+      <DrempelBalk label="Winst (vrijstelling sociale bijdragen bijberoep)" ytd={d.winst.ytd} drempel={d.winst.drempel_prorated} />
+      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+        Richtwaarde, geen officiële berekening — verifieer bij twijfel met je sociaal secretariaat of boekhouder.
+        {d.startdatum && ` Verhoudingsgewijs berekend op basis van ${d.dagen_actief}/${d.dagen_in_jaar} dagen actief in ${d.jaar}.`}
+      </p>
+    </Sectie>
+  );
+}
+
 // ─── Tab: Overzicht ────────────────────────────────────────────────
 function OverzichtTab() {
   const [rijen, setRijen] = useState([]);
@@ -73,6 +117,8 @@ function OverzichtTab() {
 
   return (
     <>
+      <DrempelsWidget />
+
       <div style={{ display: 'flex', gap: 12, marginBottom: '1.5rem', flexWrap: 'wrap' }}>
         <div className="card" style={{ flex: 1, minWidth: 160 }}>
           <div style={{ fontSize: 11, color: 'var(--muted)' }}>Inkomsten (laatste 24 mnd)</div>

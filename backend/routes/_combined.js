@@ -206,6 +206,71 @@ rapportage.get('/stats/kwh', (req, res) => {
   res.json({ per_dag: perDag, per_maand: perMaand, per_jaar: perJaar });
 });
 
+// Drempels bijberoep: btw-vrijstelling (omzet) en sociale-bijdragen-vrijstelling
+// (winst), beide verhoudingsgewijs verminderd in het kalenderjaar van de
+// opgegeven startdatum. Bedragen en startdatum zijn instelbaar via de
+// generieke instellingen-tabel (bedrijf_startdatum, drempel_omzet_jaar,
+// drempel_winst_jaar) — geen harde codering, want deze bedragen/regels
+// kunnen jaarlijks wijzigen. Enkel een richtwaarde, geen officiële berekening.
+rapportage.get('/drempels', (req, res) => {
+  const db = getDb();
+
+  const instelling = (sleutel, standaard) => {
+    const rij = db.prepare('SELECT waarde FROM instellingen WHERE sleutel = ?').get(sleutel);
+    return rij && rij.waarde !== '' ? rij.waarde : standaard;
+  };
+
+  const nu = new Date();
+  const huidigJaar = nu.getFullYear();
+  const startdatumStr = instelling('bedrijf_startdatum', null);
+  const drempelOmzetJaar = parseFloat(instelling('drempel_omzet_jaar', '25000')) || 25000;
+  const drempelWinstJaar = parseFloat(instelling('drempel_winst_jaar', '1922.16')) || 1922.16;
+
+  const isSchrikkeljaar = (j) => (j % 4 === 0 && j % 100 !== 0) || j % 400 === 0;
+  const dagenInJaar = isSchrikkeljaar(huidigJaar) ? 366 : 365;
+
+  let dagenActief = dagenInJaar;
+  if (startdatumStr) {
+    const start = new Date(startdatumStr + 'T00:00:00Z');
+    if (!isNaN(start) && start.getUTCFullYear() === huidigJaar) {
+      const eindJaar = new Date(Date.UTC(huidigJaar, 11, 31));
+      dagenActief = Math.round((eindJaar - start) / 86400000) + 1;
+    }
+  }
+  const ratio = Math.min(1, Math.max(0, dagenActief / dagenInJaar));
+
+  const jaarFilter = String(huidigJaar);
+
+  const omzetYtd = db.prepare(`
+    SELECT ROUND(SUM(jk.verkoopprijs),2) as bedrag
+    FROM jobs j JOIN job_kosten jk ON jk.job_id = j.id
+    WHERE j.status IN ('voltooid','gecontroleerd','gefactureerd','betaald')
+      AND j.voltooid_op IS NOT NULL AND strftime('%Y', j.voltooid_op) = ?
+  `).get(jaarFilter).bedrag || 0;
+
+  const materiaalYtd = db.prepare(`
+    SELECT ROUND(SUM(bi.prijs_totaal),2) as bedrag
+    FROM bestelling_items bi JOIN bestellingen b ON b.id = bi.bestelling_id
+    WHERE b.besteld_op IS NOT NULL AND strftime('%Y', b.besteld_op) = ?
+  `).get(jaarFilter).bedrag || 0;
+
+  const uitgavenYtd = db.prepare(`
+    SELECT ROUND(SUM(bedrag),2) as bedrag FROM uitgaven WHERE strftime('%Y', datum) = ?
+  `).get(jaarFilter).bedrag || 0;
+
+  const winstYtd = Math.round((omzetYtd - materiaalYtd - uitgavenYtd) * 100) / 100;
+  const rond2 = (n) => Math.round(n * 100) / 100;
+
+  res.json({
+    jaar: huidigJaar,
+    startdatum: startdatumStr,
+    dagen_actief: dagenActief,
+    dagen_in_jaar: dagenInJaar,
+    omzet: { ytd: omzetYtd, drempel_vol: drempelOmzetJaar, drempel_prorated: rond2(drempelOmzetJaar * ratio) },
+    winst: { ytd: winstYtd, drempel_vol: drempelWinstJaar, drempel_prorated: rond2(drempelWinstJaar * ratio) },
+  });
+});
+
 // Dashboard: operationele data
 rapportage.get('/dashboard/operationeel', (req, res) => {
   const db = getDb();

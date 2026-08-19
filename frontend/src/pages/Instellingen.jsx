@@ -27,6 +27,10 @@ export default function Instellingen() {
   const [backupMelding, setBackupMelding] = useState('');
   const [backupAutoActief, setBackupAutoActief]     = useState(true);
   const [backupAutoInterval, setBackupAutoInterval] = useState('24');
+  const [startdatum, setStartdatum]           = useState('');
+  const [drempelOmzet, setDrempelOmzet]       = useState('25000');
+  const [drempelWinst, setDrempelWinst]       = useState('1922.16');
+  const [drempelSaved, setDrempelSaved]       = useState('');
 
   async function startNieuwJaar() {
     if (resetConfirm !== 'RESET') return;
@@ -62,9 +66,20 @@ export default function Instellingen() {
       setHaToken(map.ha_token || '');
       setBackupAutoActief(map.backup_auto_actief !== '0');
       setBackupAutoInterval(map.backup_auto_interval_uren || '24');
+      setStartdatum(map.bedrijf_startdatum || '');
+      setDrempelOmzet(map.drempel_omzet_jaar || '25000');
+      setDrempelWinst(map.drempel_winst_jaar || '1922.16');
     }).catch(() => {});
     laadBackups();
   }, []);
+
+  async function saveDrempels() {
+    await api.put('/instellingen/bedrijf_startdatum', { waarde: startdatum });
+    await api.put('/instellingen/drempel_omzet_jaar', { waarde: drempelOmzet });
+    await api.put('/instellingen/drempel_winst_jaar', { waarde: drempelWinst });
+    setDrempelSaved('Opgeslagen!');
+    setTimeout(() => setDrempelSaved(''), 3000);
+  }
 
   function laadBackups() {
     api.get('/reset/archieven').then(rows => setBackups(rows.filter(r => r.type !== 'jaarreset'))).catch(() => {});
@@ -367,6 +382,29 @@ export default function Instellingen() {
               </button>
             </div>
           ))}
+
+          <div className="card">
+            <h2 style={{ fontSize:14, fontWeight:600, marginBottom:8 }}>📊 Drempels (bijberoep)</h2>
+            <p style={{ fontSize:11, color:'var(--muted)', marginBottom:12 }}>
+              Gebruikt voor de voortgangsbalken op de Financiën-pagina (btw-vrijstelling kleine onderneming
+              en vrijstelling sociale bijdragen bijberoep). Enkel een richtwaarde, geen officiële berekening —
+              verifieer bij twijfel met je sociaal secretariaat of boekhouder.
+            </p>
+            <div className="form-group" style={{ marginBottom:8 }}>
+              <label>Startdatum (registratie als zelfstandige)</label>
+              <input type="date" value={startdatum} onChange={e => setStartdatum(e.target.value)} />
+            </div>
+            <div className="form-group" style={{ marginBottom:8 }}>
+              <label>Omzetdrempel per jaar (€) — btw-vrijstelling</label>
+              <input type="number" step="0.01" value={drempelOmzet} onChange={e => setDrempelOmzet(e.target.value)} />
+            </div>
+            <div className="form-group" style={{ marginBottom:12 }}>
+              <label>Winstdrempel per jaar (€) — sociale bijdragen bijberoep</label>
+              <input type="number" step="0.01" value={drempelWinst} onChange={e => setDrempelWinst(e.target.value)} />
+            </div>
+            <button className="btn primary" onClick={saveDrempels}>Opslaan</button>
+            {drempelSaved && <span style={{ fontSize:11, color:'var(--accent2)', marginLeft:8 }}>{drempelSaved}</span>}
+          </div>
 
           <div className="card">
             <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'1rem' }}>Data export</h2>
