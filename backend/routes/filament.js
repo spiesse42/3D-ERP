@@ -183,8 +183,8 @@ r.post('/rollen', (req, res) => {
     const huidigGram = (req.body.gewicht_gram_huidig !== undefined && req.body.gewicht_gram_huidig !== '')
       ? (parseFloat(req.body.gewicht_gram_huidig) || gram)
       : gram;
-    const prijs = (aankoopprijs_eur !== undefined && aankoopprijs_eur !== '') ? parseFloat(aankoopprijs_eur) : null;
-    if (!prijs || isNaN(prijs) || prijs <= 0) return res.status(400).json({ error: 'Aankoopprijs is verplicht en moet groter zijn dan 0' });
+    const prijsRaw = (aankoopprijs_eur !== undefined && aankoopprijs_eur !== '') ? parseFloat(aankoopprijs_eur) : null;
+    const prijs = (prijsRaw != null && !isNaN(prijsRaw) && prijsRaw > 0) ? prijsRaw : null;
     const lot   = lotnummer || nextLotnummer(db, filament_type_id);
     const result = db.prepare(
       'INSERT INTO filament_rollen (filament_type_id,kleur,kleur_hex,gewicht_gram_start,gewicht_gram_huidig,locatie,gekocht_op,aankoopprijs_eur,lotnummer) VALUES (?,?,?,?,?,?,?,?,?)'
@@ -206,8 +206,8 @@ r.put('/rollen/:id', (req, res) => {
     const startG = parseFloat(gewicht_gram_start);
     if (!startG || isNaN(startG) || startG <= 0) return res.status(400).json({ error: 'Aantal/gewicht is verplicht en moet groter zijn dan 0' });
     const huidigG = parseFloat(gewicht_gram_huidig) || startG;
-    const prijs   = (aankoopprijs_eur !== undefined && aankoopprijs_eur !== '') ? parseFloat(aankoopprijs_eur) : null;
-    if (!prijs || isNaN(prijs) || prijs <= 0) return res.status(400).json({ error: 'Aankoopprijs is verplicht en moet groter zijn dan 0' });
+    const prijsRaw = (aankoopprijs_eur !== undefined && aankoopprijs_eur !== '') ? parseFloat(aankoopprijs_eur) : null;
+    const prijs   = (prijsRaw != null && !isNaN(prijsRaw) && prijsRaw > 0) ? prijsRaw : null;
     db.prepare(
       `UPDATE filament_rollen
        SET filament_type_id=?, gewicht_gram_start=?, gewicht_gram_huidig=?,

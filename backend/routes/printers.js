@@ -68,12 +68,32 @@ r.get('/config', (req, res) => {
   res.json(config);
 });
 
+r.post('/', (req, res) => {
+  const db = getDb();
+  const { naam, type, ha_entity_prefix, kwh_entity, watt_entity, machine_kost_per_uur, heeft_bmcu, gem_verbruik_watt } = req.body;
+  if (!naam || !naam.trim()) return res.status(400).json({ error: 'Naam is verplicht' });
+  try {
+    const result = db.prepare(`
+      INSERT INTO printers (naam,type,ha_entity_prefix,kwh_entity,watt_entity,machine_kost_per_uur,heeft_bmcu,actief,gem_verbruik_watt)
+      VALUES (?,?,?,?,?,?,?,?,?)
+    `).run(
+      naam.trim(), type || 'FDM', ha_entity_prefix || null, kwh_entity || null, watt_entity || null,
+      (machine_kost_per_uur !== undefined && machine_kost_per_uur !== '') ? parseFloat(machine_kost_per_uur) : 0.13,
+      heeft_bmcu ? 1 : 0, 1,
+      (gem_verbruik_watt !== undefined && gem_verbruik_watt !== '') ? parseFloat(gem_verbruik_watt) : null
+    );
+    res.status(201).json({ id: result.lastInsertRowid });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 r.put('/:id', (req, res) => {
   const db = getDb();
-  const { naam, type, ha_entity_prefix, kwh_entity, machine_kost_per_uur, heeft_bmcu, actief, gem_verbruik_watt } = req.body;
-  db.prepare(`UPDATE printers SET naam=?,type=?,ha_entity_prefix=?,kwh_entity=?,
+  const { naam, type, ha_entity_prefix, kwh_entity, watt_entity, machine_kost_per_uur, heeft_bmcu, actief, gem_verbruik_watt } = req.body;
+  db.prepare(`UPDATE printers SET naam=?,type=?,ha_entity_prefix=?,kwh_entity=?,watt_entity=?,
     machine_kost_per_uur=?,heeft_bmcu=?,actief=?,gem_verbruik_watt=? WHERE id=?`)
-    .run(naam, type, ha_entity_prefix||null, kwh_entity||null,
+    .run(naam, type, ha_entity_prefix||null, kwh_entity||null, watt_entity||null,
       machine_kost_per_uur, heeft_bmcu?1:0, actief?1:0,
       (gem_verbruik_watt !== undefined && gem_verbruik_watt !== '') ? parseFloat(gem_verbruik_watt) : null,
       req.params.id);

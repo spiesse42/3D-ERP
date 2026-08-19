@@ -167,10 +167,14 @@ migrateDbV10(db);
   migrateDbV24(db);
   migrateDbV25(db);
 
-  const printerCount = db.prepare('SELECT COUNT(*) as c FROM printers').get().c;
-  if (printerCount === 0) {
+  // Per printer op naam controleren (i.p.v. "tabel is leeg") — zo blokkeert een
+  // migratie die zelf al een printer toevoegt (bv. v21, AnyCubic) niet de seed
+  // van de andere standaardprinters op een verse installatie.
+  if (!db.prepare('SELECT id FROM printers WHERE naam = ?').get('Ender 3 S1 Pro')) {
     db.prepare(`INSERT INTO printers (naam,type,ha_entity_prefix,kwh_entity,machine_kost_per_uur,heeft_bmcu,actief) VALUES (?,?,?,?,?,?,?)`)
       .run('Ender 3 S1 Pro','FDM',null,'sensor.lsc_power_plug_fr_incl_power_meter_5_totaal_energieverbruik',0.13,0,1);
+  }
+  if (!db.prepare('SELECT id FROM printers WHERE naam = ?').get('Bambu A1 Mini')) {
     db.prepare(`INSERT INTO printers (naam,type,ha_entity_prefix,kwh_entity,machine_kost_per_uur,heeft_bmcu,actief) VALUES (?,?,?,?,?,?,?)`)
       .run('Bambu A1 Mini','FDM','sensor.a1mini_0300da611800680_','sensor.lsc_power_plug_fr_incl_power_meter_6_totaal_energieverbruik',0.13,1,1);
   }

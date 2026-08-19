@@ -697,6 +697,10 @@ export default function Bestellingen() {
 
   return (
     <div>
+      <div className="page-header">
+        <h1>Bestellingen</h1>
+      </div>
+
       <div style={{ display: 'flex', gap: 4, marginBottom: '1.25rem' }}>
         {[
           { key: 'te-bestellen', label: 'Te bestellen' },

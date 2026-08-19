@@ -21,6 +21,7 @@ export default function Instellingen() {
   const [resetBusy,    setResetBusy]    = useState(false);
   const [resetResult,  setResetResult]  = useState(null);
   const [resetError,   setResetError]   = useState('');
+  const [nieuwePrinter, setNieuwePrinter] = useState(null);
 
   async function startNieuwJaar() {
     if (resetConfirm !== 'RESET') return;
@@ -99,6 +100,30 @@ export default function Instellingen() {
     await api.put(`/printers/${printer.id}`, printer);
     setSaved('Printer opgeslagen!');
     setTimeout(() => setSaved(''), 3000);
+  }
+
+  function setNieuw(k, v) {
+    setNieuwePrinter(p => ({ ...p, [k]: v }));
+  }
+
+  async function maakPrinter() {
+    if (!nieuwePrinter?.naam?.trim()) { alert('Naam is verplicht'); return; }
+    try {
+      await api.post('/printers', {
+        naam: nieuwePrinter.naam.trim(),
+        type: 'FDM',
+        ha_entity_prefix:     nieuwePrinter.ha_entity_prefix || null,
+        kwh_entity:           nieuwePrinter.kwh_entity || null,
+        watt_entity:          nieuwePrinter.watt_entity || null,
+        machine_kost_per_uur: nieuwePrinter.machine_kost_per_uur || 0.13,
+        heeft_bmcu:           nieuwePrinter.heeft_bmcu ? 1 : 0,
+        gem_verbruik_watt:    nieuwePrinter.gem_verbruik_watt || null,
+      });
+      setNieuwePrinter(null);
+      setPrinters(await api.get('/printers'));
+      setSaved('Printer toegevoegd!');
+      setTimeout(() => setSaved(''), 3000);
+    } catch (e) { alert(e.message); }
   }
 
   if (!geladen) return <div style={{ padding:'2rem', color:'var(--muted)' }}>Laden...</div>;
@@ -196,6 +221,68 @@ export default function Instellingen() {
 
         {/* RECHTER KOLOM — printers + export */}
         <div>
+          {nieuwePrinter === null ? (
+            <button className="btn primary" style={{ width:'100%', marginBottom:'1rem' }}
+              onClick={() => setNieuwePrinter({})}>
+              + Nieuwe printer
+            </button>
+          ) : (
+            <div className="card" style={{ marginBottom:'1rem' }}>
+              <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'1rem' }}>Nieuwe printer</h2>
+
+              <div className="form-group">
+                <label>Naam *</label>
+                <input value={nieuwePrinter.naam || ''} onChange={e => setNieuw('naam', e.target.value)}
+                  placeholder="bv. AnyCubic Kobra S1 Pro" />
+              </div>
+
+              <div className="form-group">
+                <label>HA entity prefix <span style={{ color:'var(--muted)', fontWeight:400 }}>optioneel</span></label>
+                <input value={nieuwePrinter.ha_entity_prefix || ''} onChange={e => setNieuw('ha_entity_prefix', e.target.value)}
+                  placeholder="sensor.a1mini_0300da611800680_" />
+              </div>
+
+              <div className="form-group">
+                <label>kWh entity (slim stopcontact — teller) <span style={{ color:'var(--muted)', fontWeight:400 }}>optioneel</span></label>
+                <input value={nieuwePrinter.kwh_entity || ''} onChange={e => setNieuw('kwh_entity', e.target.value)}
+                  placeholder="sensor.lsc_power_plug_fr_..._totaal_energieverbruik" />
+              </div>
+
+              <div className="form-group">
+                <label>Watt entity (slim stopcontact — vermogen) <span style={{ color:'var(--muted)', fontWeight:400 }}>optioneel</span></label>
+                <input value={nieuwePrinter.watt_entity || ''} onChange={e => setNieuw('watt_entity', e.target.value)}
+                  placeholder="sensor.lsc_power_plug_fr_..._vermogen" />
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Machine kost/uur (€)</label>
+                  <input type="number" step="0.01" value={nieuwePrinter.machine_kost_per_uur ?? ''}
+                    onChange={e => setNieuw('machine_kost_per_uur', parseFloat(e.target.value))} placeholder="0.13" />
+                </div>
+                <div className="form-group">
+                  <label>Heeft BMCU</label>
+                  <select value={nieuwePrinter.heeft_bmcu ? '1' : '0'} onChange={e => setNieuw('heeft_bmcu', e.target.value === '1' ? 1 : 0)}>
+                    <option value="0">Nee</option>
+                    <option value="1">Ja</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Gemiddeld verbruik (Watt) <span style={{ color:'var(--muted)', fontWeight:400 }}>optioneel</span></label>
+                <input type="number" step="1" value={nieuwePrinter.gem_verbruik_watt ?? ''}
+                  onChange={e => setNieuw('gem_verbruik_watt', e.target.value === '' ? null : parseFloat(e.target.value))}
+                  placeholder="bv. 300" />
+              </div>
+
+              <div style={{ display:'flex', gap:8 }}>
+                <button className="btn" style={{ flex:1 }} onClick={() => setNieuwePrinter(null)}>Annuleer</button>
+                <button className="btn primary" style={{ flex:1 }} onClick={maakPrinter}>Toevoegen</button>
+              </div>
+            </div>
+          )}
+
           {printers.map(p => (
             <div key={p.id} className="card" style={{ marginBottom:'1rem' }}>
               <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'1rem' }}>{p.naam}</h2>

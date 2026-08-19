@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
-import Bestellingen from './Bestellingen.jsx';
 import { KLEUREN, kleurHex } from '../lib/kleuren.js';
 import KleurDot from '../components/KleurDot.jsx';
 
@@ -546,14 +545,12 @@ export default function Filament() {
       </div>
 
       <div style={{ display: 'flex', gap: 4, marginBottom: '1.25rem' }}>
-        {['rollen', 'types', 'bestellingen'].map(t => (
+        {['rollen', 'types'].map(t => (
           <button key={t} className={`btn${tab === t ? ' primary' : ''}`} onClick={() => setTab(t)}>
-            {t === 'rollen' ? 'Voorraad' : t === 'types' ? 'Artikeltypes' : 'Bestellingen'}
+            {t === 'rollen' ? 'Voorraad' : 'Artikeltypes'}
           </button>
         ))}
       </div>
-
-      {tab === 'bestellingen' && <Bestellingen />}
 
       {/* ── Gegroepeerde voorraad-tabel (1 rij per type + kleur) ── */}
       {tab === 'rollen' && (
