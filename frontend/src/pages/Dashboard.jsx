@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api.js';
 import { useNavigate } from 'react-router-dom';
 import { usePrinterData } from '../lib/usePrinterData.js';
-import PrinterCard from '../components/PrinterCard.jsx';
 import KleurDot from '../components/KleurDot.jsx';
 
 function OperationeelWidget({ icon, titel, items, renderRij, leegTekst }) {
@@ -38,6 +37,27 @@ function OperationeelWidget({ icon, titel, items, renderRij, leegTekst }) {
           : zichtbaar.map(renderRij)
         }
       </div>
+    </div>
+  );
+}
+
+function FacturatieSamenvattingWidget({ aantal, totaal, navigate }) {
+  return (
+    <div className="card" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+      <div>
+        <h2 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 0.75rem 0' }}>💶 Controle / Facturatie</h2>
+        {aantal === 0
+          ? <p style={{ color: 'var(--muted)', fontSize: 12 }}>Niets openstaand</p>
+          : <>
+              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--warn)' }}>€{totaal.toFixed(2)}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>{aantal} {aantal === 1 ? 'job' : 'jobs'} nog te innen</div>
+            </>
+        }
+      </div>
+      <button className="btn" style={{ marginTop: '0.75rem', alignSelf: 'flex-start' }}
+        onClick={() => navigate('/financien?tab=facturatie')}>
+        Naar Facturatie →
+      </button>
     </div>
   );
 }
@@ -146,34 +166,124 @@ function FilamentStockWidget({ rollen, navigate }) {
   );
 }
 
+// ─── Compacte printerstatus (géén live telemetrie meer — dat hoort bij Jobs) ──
+function PrinterStatusStrip({ printerConfig, printerData, navigate }) {
+  return (
+    <div className="card" style={{ flex:1, minWidth:220 }}>
+      <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.75rem' }}>🖨 Printers</h2>
+      {printerConfig.length === 0
+        ? <p style={{ color:'var(--muted)', fontSize:12 }}>Geen printers geconfigureerd</p>
+        : <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+            {printerConfig.map(p => {
+              const d = printerData[p.id] || {};
+              const statusLower = (d.status || '').toLowerCase();
+              const isActief = ['running','printing','prepare'].includes(statusLower);
+              const isOnbekend = !d.status || statusLower === 'unavailable';
+              const kleur = isActief ? 'var(--accent2)' : isOnbekend ? 'var(--muted)' : '#f59e0b';
+              return (
+                <div key={p.id} onClick={() => navigate('/jobs')}
+                  style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', padding:'6px 4px', borderRadius:6 }}
+                  onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
+                  onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                  <span style={{ width:8, height:8, borderRadius:'50%', background:kleur, flexShrink:0 }} />
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:12, fontWeight:500 }}>{p.naam}</div>
+                    <div style={{ fontSize:11, color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                      {isActief ? (d.filename || 'aan het printen') : (d.status || 'onbekend')}
+                    </div>
+                  </div>
+                  {isActief && d.progress != null && (
+                    <span style={{ fontSize:11, color:'var(--accent2)', fontWeight:600, flexShrink:0 }}>{Math.round(d.progress)}%</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+      }
+    </div>
+  );
+}
+
+function MiniDrempel({ label, ytd, drempel }) {
+  const pct = drempel > 0 ? Math.min(100, Math.round((ytd / drempel) * 100)) : 0;
+  const kleur = pct >= 100 ? '#ef4444' : pct >= 80 ? 'var(--warn)' : 'var(--accent2)';
+  return (
+    <div style={{ marginBottom:6 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', fontSize:10, color:'var(--muted)', marginBottom:2 }}>
+        <span>{label}</span><span>{pct}%</span>
+      </div>
+      <div style={{ height:5, background:'var(--bg3)', borderRadius:3, overflow:'hidden' }}>
+        <div style={{ width:`${pct}%`, height:'100%', background:kleur, borderRadius:3, transition:'width 0.3s' }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Financieel: samengevat uit Financiën-pagina, niet gedupliceerd in detail ──
+function FinancieelWidget({ navigate }) {
+  const [maand, setMaand]       = useState(null);
+  const [drempels, setDrempels] = useState(null);
+
+  useEffect(() => {
+    const huidigeMaand = new Date().toISOString().slice(0, 7);
+    api.get('/rapportage/stats/financien')
+      .then(rijen => setMaand(rijen.find(r => r.maand === huidigeMaand) || null))
+      .catch(() => {});
+    api.get('/rapportage/drempels').then(setDrempels).catch(() => {});
+  }, []);
+
+  return (
+    <div className="card" style={{ flex:1, minWidth:240, display:'flex', flexDirection:'column' }}>
+      <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.75rem' }}>💰 Financieel</h2>
+      <div style={{ display:'flex', gap:16, marginBottom:12 }}>
+        <div>
+          <div style={{ fontSize:10, color:'var(--muted)' }}>Omzet deze maand</div>
+          <div style={{ fontSize:18, fontWeight:700, color:'var(--accent2)' }}>€{(maand?.inkomsten || 0).toFixed(2)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize:10, color:'var(--muted)' }}>Saldo deze maand</div>
+          <div style={{ fontSize:18, fontWeight:700, color: (maand?.saldo || 0) >= 0 ? 'var(--accent2)' : '#ef4444' }}>
+            €{(maand?.saldo || 0).toFixed(2)}
+          </div>
+        </div>
+      </div>
+      {drempels && (
+        <>
+          <MiniDrempel label="Omzetdrempel bijberoep" ytd={drempels.omzet.ytd} drempel={drempels.omzet.drempel_prorated} />
+          <MiniDrempel label="Winstdrempel bijberoep" ytd={drempels.winst.ytd} drempel={drempels.winst.drempel_prorated} />
+        </>
+      )}
+      <button className="btn" style={{ marginTop:'auto', alignSelf:'flex-start', fontSize:11, padding:'4px 8px' }}
+        onClick={() => navigate('/financien')}>
+        Naar Financiën →
+      </button>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [rollen,       setRollen]       = useState([]);
-  const [klanten,      setKlanten]      = useState([]);
-  const [operationeel, setOperationeel] = useState({ gepland:[], bezig:[], voltooid:[], controle_facturatie:[] });
+  const [operationeel, setOperationeel] = useState({ gepland:[], bezig:[], voltooid:[], controle_facturatie:[], controle_facturatie_totaal:0 });
   const [loading,      setLoading]      = useState(true);
-  const { printerConfig, printerData, reloadPrinterConfig }  = usePrinterData();
+  // usePrinterData blijft actief op Dashboard (ook al tonen we geen volledige
+  // printerkaarten meer) — de hook doet op de achtergrond ook auto-detectie
+  // van voltooide/mislukte prints en optionele auto-jobaanmaak. Die logica
+  // moet blijven lopen ongeacht welke pagina open staat.
+  const { printerConfig, printerData } = usePrinterData();
   const navigate = useNavigate();
-  const [jobs, setJobs] = useState([]);
 
   const loadOperationeel = () => api.get('/rapportage/dashboard/operationeel')
     .then(d => { setOperationeel(d); })
     .catch(() => {});
 
-  const loadJobs = () => api.get('/jobs').then(setJobs).catch(() => {});
-
   useEffect(() => {
     api.get('/rapportage/dashboard/operationeel')
       .then(d => { setOperationeel(d); setLoading(false); })
       .catch(() => setLoading(false));
-    api.get('/jobs').then(setJobs).catch(() => {});
     api.get('/filament/rollen').then(setRollen).catch(() => {});
-    api.get('/klanten').then(setKlanten).catch(() => {});
 
     // Periodiek herladen zodat statuswijzigingen (finish, cancel) direct zichtbaar zijn
-    const interval = setInterval(() => {
-      loadOperationeel();
-      loadJobs();
-    }, 10000);
+    const interval = setInterval(loadOperationeel, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -202,51 +312,9 @@ export default function Dashboard() {
         </span>
       </div>
 
-      {/* Rij 1: Printerkaarten + Filamentstock */}
+      {/* Rij 1: Wat gebeurt er nu */}
       <div style={{ display:'flex', gap:'1rem', marginBottom:'1.5rem', flexWrap:'wrap' }}>
-        {printerConfig.map(p => (
-          <PrinterCard
-            key={p.id}
-            printerId={p.id}
-            naam={p.naam}
-            autoJobAanmaken={p.auto_job_aanmaken}
-            onConfigChanged={reloadPrinterConfig}
-            data={printerData[p.id]}
-            klanten={klanten}
-            onJobCreated={() => { loadOperationeel(); loadJobs(); }}
-            bestaandeJobs={jobs}
-          />
-        ))}
-
-        <FilamentStockWidget rollen={activeRollen} navigate={navigate} />
-        <TeBestellenWidget rollen={activeRollen} navigate={navigate} />
-      </div>
-
-      {/* Rij 2: Operationele secties */}
-      <div style={{ display:'flex', gap:'1rem', marginBottom:'1.5rem', flexWrap:'wrap' }}>
-        <OperationeelWidget
-          icon="📋" titel="Gepland" leegTekst="Geen jobs in wachtrij"
-          items={operationeel.gepland}
-          renderRij={j => (
-            <div key={j.id} style={jobRijStijl()}
-              onClick={() => navigate(`/jobs?highlight=${j.id}`)}
-              onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
-              onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-              <div>
-                <div style={{ fontWeight:500 }}>{j.naam}</div>
-                <div style={{ color:'var(--muted)', fontSize:11 }}>{j.printer_naam}</div>
-              </div>
-              <div style={{ display:'flex', alignItems:'center', gap:8 }} onClick={e => e.stopPropagation()}>
-                <span style={{ color:'var(--muted)', fontSize:11 }}>{j.klant_naam || '—'}</span>
-                <select value={j.status}
-                  style={{ fontSize:11, padding:'2px 6px', background:'var(--bg2)', color:'var(--text)', border:'1px solid var(--border)', borderRadius:4 }}
-                  onChange={async e => { await api.patch(`/jobs/${j.id}/status`, { status: e.target.value }); loadOperationeel(); }}>
-                  {['gepland','bezig','voltooid','gefaald','geannuleerd'].map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-            </div>
-          )}
-        />
+        <PrinterStatusStrip printerConfig={printerConfig} printerData={printerData} navigate={navigate} />
 
         <OperationeelWidget
           icon="🖨" titel="Bezig" leegTekst="Geen actieve prints"
@@ -271,53 +339,19 @@ export default function Dashboard() {
           )}
         />
 
-        <OperationeelWidget
-          icon="✅" titel="Voltooid" leegTekst="Geen voltooide jobs"
-          items={operationeel.voltooid}
-          renderRij={j => (
-            <div key={j.id} style={jobRijStijl()}
-              onClick={() => navigate(`/jobs?highlight=${j.id}`)}
-              onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
-              onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-              <div style={{ flex:1 }}>
-                <div style={{ fontWeight:500 }}>{j.naam}</div>
-                <div style={{ color:'var(--muted)', fontSize:11 }}>
-                  {j.klant_voornaam ? `${j.klant_voornaam} ${j.klant_naam}` : j.klant_naam || '—'}
-                </div>
-              </div>
-              {j.verkoopprijs != null
-                ? <span style={{ color:'var(--warn)', fontWeight:600 }}>~€{j.verkoopprijs.toFixed(2)}</span>
-                : <span style={{ color:'var(--muted)', fontSize:11 }}>geen prijs</span>
-              }
-            </div>
-          )}
-        />
-
-        <OperationeelWidget
-          icon="💶" titel="Controle / Facturatie" leegTekst="Niets openstaand"
-          items={operationeel.controle_facturatie}
-          renderRij={j => (
-            <div key={j.id} style={jobRijStijl()}
-              onClick={() => navigate(`/jobs?highlight=${j.id}`)}
-              onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
-              onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-              <div style={{ flex:1 }}>
-                <div style={{ fontWeight:500 }}>{j.naam}</div>
-                <div style={{ color:'var(--muted)', fontSize:11 }}>
-                  {j.klant_voornaam ? `${j.klant_voornaam} ${j.klant_naam}` : j.klant_naam}
-                </div>
-                <span style={{ fontSize:10, padding:'1px 5px', borderRadius:3, background: j.status === 'gefactureerd' ? 'rgba(245,158,11,0.2)' : 'rgba(139,92,246,0.2)', color: j.status === 'gefactureerd' ? 'var(--warn)' : '#8b5cf6' }}>{j.status}</span>
-              </div>
-              {j.verkoopprijs != null
-                ? <span style={{ color:'var(--accent2)', fontWeight:600 }}>€{j.verkoopprijs.toFixed(2)}</span>
-                : <span style={{ color:'var(--warn)', fontSize:11 }}>geen prijs</span>
-              }
-            </div>
-          )}
-        />
+        <FinancieelWidget navigate={navigate} />
       </div>
 
-
+      {/* Rij 2: Vraagt jouw aandacht */}
+      <div style={{ display:'flex', gap:'1rem', marginBottom:'1.5rem', flexWrap:'wrap' }}>
+        <FilamentStockWidget rollen={activeRollen} navigate={navigate} />
+        <TeBestellenWidget rollen={activeRollen} navigate={navigate} />
+        <FacturatieSamenvattingWidget
+          aantal={operationeel.controle_facturatie.length}
+          totaal={operationeel.controle_facturatie_totaal || 0}
+          navigate={navigate}
+        />
+      </div>
     </div>
   );
 }
