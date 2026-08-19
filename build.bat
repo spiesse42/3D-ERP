@@ -16,7 +16,11 @@ echo.
 echo [3/4] Backend dependencies installeren...
 cd ..\backend
 call npm install --omit=dev
-if %errorlevel% neq 0 ( echo FOUT bij npm install backend & pause & exit /b 1 )
+if %errorlevel% neq 0 (
+    echo WAARSCHUWING: npm install backend is lokaal mislukt ^(meestal door native modules zoals better-sqlite3 die geen Windows-build kunnen vinden^).
+    echo Dit heeft GEEN invloed op de addon zelf: Docker installeert de backend-dependencies opnieuw, voor Linux, tijdens het bouwen in Home Assistant.
+    echo Build gaat door...
+)
 
 echo.
 echo [4/4] Bestanden kopiëren naar addon...
