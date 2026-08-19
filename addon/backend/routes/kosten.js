@@ -47,6 +47,7 @@ function buildPdfHtml(kosten, klant, extraInfo = {}) {
   <div class="logo">▲ 3D PRINT ERP</div>
   <div style="text-align:right;color:#666;font-size:.85rem">
     <div style="font-size:1.1rem;font-weight:bold">WERKBON</div>
+    ${kosten.volgnummer ? `<div style="font-family:monospace;font-weight:600">${kosten.volgnummer}</div>` : ''}
     <div>${nu}</div>
     <div>${kosten.printer_naam||''}</div>
   </div>
@@ -57,12 +58,12 @@ ${klant ? `<div class="klant"><h3>Klant</h3>
   ${klant.email ? `<p>✉ ${klant.email}</p>` : ''}
   ${klant.btw_nummer ? `<p>BTW: ${klant.btw_nummer}</p>` : ''}
 </div>` : ''}
-<p style="margin-bottom:16px"><strong>Print:</strong> ${kosten.job_naam||'—'} &nbsp;|&nbsp; <strong>Aantal:</strong> ${aantal}</p>
+<p style="margin-bottom:16px"><strong>${kosten.type === 'dienst' ? 'Opdracht' : 'Print'}:</strong> ${kosten.job_naam||'—'} &nbsp;|&nbsp; <strong>Aantal:</strong> ${aantal}</p>
 <table>
   <thead><tr><th>Post</th><th>Detail</th><th>Bedrag</th></tr></thead>
   <tbody>
-    ${matRijen || `<tr><td>Materiaal</td><td>—</td><td>${toon(kosten.materiaal_kost*margeFactor)}</td></tr>`}
-    <tr><td>Energie</td><td>${kosten.kwh_verbruikt} kWh</td><td>${toon(kosten.energie_kost*margeFactor)}</td></tr>
+    ${kosten.type === 'dienst' ? '' : (matRijen || `<tr><td>Materiaal</td><td>—</td><td>${toon(kosten.materiaal_kost*margeFactor)}</td></tr>`)}
+    ${kosten.type === 'dienst' ? '' : `<tr><td>Energie</td><td>${kosten.kwh_verbruikt} kWh</td><td>${toon(kosten.energie_kost*margeFactor)}</td></tr>`}
     ${kosten.machine_kost > 0 ? `<tr><td>Machine</td><td>—</td><td>${toon(kosten.machine_kost*margeFactor)}</td></tr>` : ''}
     ${voorbMin > 0 ? `<tr><td>Voorbereiding</td><td>${voorbMin} min</td><td>${toon((voorbMin/60)*arbTarief*margeFactor)}</td></tr>` : ''}
     ${nabMin > 0 ? `<tr><td>Nabewerking</td><td>${nabMin} min</td><td>${toon((nabMin/60)*arbTarief*margeFactor)}</td></tr>` : ''}
@@ -90,11 +91,14 @@ ${kosten.opmerking ? `<div class="opmerking">📝 ${kosten.opmerking}</div>` : '
 
 r.post('/bereken/:jobId', (req, res) => {
   const db = getDb();
+  // LEFT JOIN — een 'dienst'-job (consultancy/ontwerp) heeft geen printer_id,
+  // en moet dus ook zonder gekoppelde printer een berekening kunnen krijgen.
   const job = db.prepare(`
     SELECT j.*, p.machine_kost_per_uur, p.heeft_bmcu, p.naam as printer_naam
-    FROM jobs j JOIN printers p ON p.id = j.printer_id WHERE j.id = ?
+    FROM jobs j LEFT JOIN printers p ON p.id = j.printer_id WHERE j.id = ?
   `).get(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Job niet gevonden' });
+  const machineKostPerUur = job.machine_kost_per_uur || 0;
 
   const t = getTarieven(db);
   const kwh_prijs = t.kwh_prijs || 0.35;
@@ -155,7 +159,7 @@ r.post('/bereken/:jobId', (req, res) => {
   const materiaal_kost = filament_kost + artikel_kost;
 
   const energie_kost = parseFloat(kwh_verbruikt) * kwh_prijs;
-  const machine_kost = uren * job.machine_kost_per_uur;
+  const machine_kost = uren * machineKostPerUur;
   const bmcu_slijtage = (is_multicolor && job.heeft_bmcu) ? bmcu_per_job : 0;
 
   // Voorbereiding/nabewerking — waarden komen uit de modal (incl. eventuele extra)
@@ -240,7 +244,7 @@ r.get('/pdf/:jobId', (req, res) => {
     straat:job.straat, huisnummer:job.huisnummer, postcode:job.postcode, gemeente:job.gemeente, btw_nummer:job.btw_nummer } : null;
 
   const t = getTarieven(db);
-  const volledigeKosten = { ...kosten, job_naam:job?.naam, printer_naam:job?.printer_naam, opmerking:job?.notities||'' };
+  const volledigeKosten = { ...kosten, job_naam:job?.naam, printer_naam:job?.printer_naam, opmerking:job?.notities||'', volgnummer:job?.volgnummer||'', type:job?.type||'print', dienst_categorie:job?.dienst_categorie||'' };
   const klantType = job?.klant_id ? db.prepare('SELECT type FROM klanten WHERE id = ?').get(job.klant_id)?.type : null;
   const btwParam = req.query.btw;
   const btw = btwParam != null ? btwParam === '1' || btwParam === 'true' : klantType === 'zakelijk';
@@ -284,7 +288,7 @@ r.post('/email/:jobId', async (req, res) => {
   const emailTo = to || job?.email || process.env.SMTP_FROM;
   const t = getTarieven(db);
   const klant = job?.klant_id ? { naam:job.klant_naam, voornaam:job.voornaam, email:job.email, straat:job.straat, huisnummer:job.huisnummer, postcode:job.postcode, gemeente:job.gemeente, btw_nummer:job.btw_nummer } : null;
-  const volledigeKosten = { ...kosten, job_naam:job?.naam, printer_naam:job?.printer_naam, opmerking:job?.notities||'' };
+  const volledigeKosten = { ...kosten, job_naam:job?.naam, printer_naam:job?.printer_naam, opmerking:job?.notities||'', volgnummer:job?.volgnummer||'', type:job?.type||'print', dienst_categorie:job?.dienst_categorie||'' };
   const klantTypeEmail = job?.klant_id ? db.prepare('SELECT type FROM klanten WHERE id = ?').get(job.klant_id)?.type : null;
   const btwEmail = extra_velden.btw != null ? !!extra_velden.btw : klantTypeEmail === 'zakelijk';
   const btwBedragEmail = btwEmail ? (kosten.verkoopprijs||0) * 0.21 : 0;

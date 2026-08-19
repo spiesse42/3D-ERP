@@ -3,8 +3,23 @@ import { getDb } from '../db.js';
 
 const r = Router();
 
+// Opvolgnummer per kalenderjaar (formaat JJJJ-0001), teller bijgehouden in de
+// generieke instellingen-tabel — atomisch genoeg omdat better-sqlite3 synchroon
+// en single-threaded werkt (geen race condition tussen de select en de update).
+function volgendVolgnummer(db) {
+  const jaar = new Date().getFullYear();
+  const sleutel = `volgnummer_teller_${jaar}`;
+  const rij = db.prepare('SELECT waarde FROM instellingen WHERE sleutel = ?').get(sleutel);
+  const teller = (rij ? parseInt(rij.waarde) || 0 : 0) + 1;
+  db.prepare(`
+    INSERT INTO instellingen (sleutel, waarde) VALUES (?,?)
+    ON CONFLICT(sleutel) DO UPDATE SET waarde = excluded.waarde
+  `).run(sleutel, String(teller));
+  return `${jaar}-${String(teller).padStart(4, '0')}`;
+}
+
 r.get('/', (req, res) => {
-  const { status, klant_id, printer_id } = req.query;
+  const { status, klant_id, printer_id, volgnummer } = req.query;
   let sql = `
     SELECT j.*, k.naam as klant_naam, k.voornaam as klant_voornaam, p.naam as printer_naam,
       jk.verkoopprijs, jk.totaal_kost, jk.materiaal_kost, jk.energie_kost, jk.machine_kost, jk.arbeid_kost
@@ -18,8 +33,18 @@ r.get('/', (req, res) => {
   if (status)     { sql += ' AND j.status = ?';     params.push(status); }
   if (klant_id)   { sql += ' AND j.klant_id = ?';   params.push(klant_id); }
   if (printer_id) { sql += ' AND j.printer_id = ?'; params.push(printer_id); }
+  if (volgnummer) { sql += ' AND j.volgnummer LIKE ?'; params.push(`%${volgnummer}%`); }
   sql += ' ORDER BY j.aangemaakt_op DESC';
   res.json(getDb().prepare(sql).all(...params));
+});
+
+// Reeds gebruikte dienst-categorieën — voor autocomplete-suggesties in het
+// job-formulier (geen vaste lijst, de gebruiker bouwt die zelf op).
+r.get('/dienst-categorieen', (req, res) => {
+  const rows = getDb().prepare(
+    "SELECT DISTINCT dienst_categorie FROM jobs WHERE dienst_categorie IS NOT NULL AND dienst_categorie != '' ORDER BY dienst_categorie"
+  ).all();
+  res.json(rows.map(r2 => r2.dienst_categorie));
 });
 
 r.get('/:id', (req, res) => {
@@ -48,30 +73,37 @@ r.get('/:id', (req, res) => {
 
 r.post('/', (req, res) => {
   const db = getDb();
-  const { klant_id, printer_id, naam, stl_bestandsnaam, print_uren_geschat,
+  const { klant_id, printer_id, naam, type, dienst_categorie, stl_bestandsnaam, print_uren_geschat,
           is_multicolor, aantal_kleuren, notities, status, gestart_op, gewicht_geschat } = req.body;
-  if (!printer_id || !naam) return res.status(400).json({ error: 'printer_id en naam zijn verplicht' });
+  const jobType = type === 'dienst' ? 'dienst' : 'print';
+  if (!naam) return res.status(400).json({ error: 'naam is verplicht' });
+  if (jobType === 'print' && !printer_id) return res.status(400).json({ error: 'printer_id is verplicht voor een print-job' });
   const jobStatus  = status || 'gepland';
   const gestart    = gestart_op || (jobStatus === 'bezig' ? new Date().toISOString() : null);
+  const volgnummer = volgendVolgnummer(db);
   const result = db.prepare(`
-    INSERT INTO jobs (klant_id,printer_id,naam,stl_bestandsnaam,print_uren_geschat,is_multicolor,aantal_kleuren,notities,status,gestart_op,gewicht_geschat)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)
-  `).run(klant_id||null, printer_id, naam, stl_bestandsnaam||null,
+    INSERT INTO jobs (klant_id,printer_id,naam,type,dienst_categorie,volgnummer,stl_bestandsnaam,print_uren_geschat,is_multicolor,aantal_kleuren,notities,status,gestart_op,gewicht_geschat)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).run(klant_id||null, jobType === 'dienst' ? (printer_id||null) : printer_id, naam, jobType,
+         dienst_categorie||null, volgnummer, stl_bestandsnaam||null,
          print_uren_geschat||null, is_multicolor?1:0, aantal_kleuren||1, notities||null,
          jobStatus, gestart, gewicht_geschat||null);
-  res.status(201).json({ id: result.lastInsertRowid });
+  res.status(201).json({ id: result.lastInsertRowid, volgnummer });
 });
 
 r.put('/:id', (req, res) => {
   const db = getDb();
-  const { klant_id, printer_id, naam, status, stl_bestandsnaam, print_uren_geschat,
+  const { klant_id, printer_id, naam, type, dienst_categorie, status, stl_bestandsnaam, print_uren_geschat,
           print_uren_werkelijk, is_multicolor, aantal_kleuren, gestart_op, voltooid_op,
           notities, betaald, betaald_op } = req.body;
+  const jobType = type === 'dienst' ? 'dienst' : 'print';
+  if (jobType === 'print' && !printer_id) return res.status(400).json({ error: 'printer_id is verplicht voor een print-job' });
   db.prepare(`
-    UPDATE jobs SET klant_id=?,printer_id=?,naam=?,status=?,stl_bestandsnaam=?,
+    UPDATE jobs SET klant_id=?,printer_id=?,naam=?,type=?,dienst_categorie=?,status=?,stl_bestandsnaam=?,
       print_uren_geschat=?,print_uren_werkelijk=?,is_multicolor=?,aantal_kleuren=?,
       gestart_op=?,voltooid_op=?,notities=?,betaald=?,betaald_op=? WHERE id=?
-  `).run(klant_id||null, printer_id, naam, status||'gepland', stl_bestandsnaam||null,
+  `).run(klant_id||null, jobType === 'dienst' ? (printer_id||null) : printer_id, naam, jobType,
+         dienst_categorie||null, status||'gepland', stl_bestandsnaam||null,
          print_uren_geschat||null, print_uren_werkelijk||null, is_multicolor?1:0,
          aantal_kleuren||1, gestart_op||null, voltooid_op||null, notities||null,
          betaald?1:0, betaald_op||null, req.params.id);

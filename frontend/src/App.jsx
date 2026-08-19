@@ -9,6 +9,8 @@ import Offertes from './pages/Offertes.jsx';
 import Financien from './pages/Financien.jsx';
 import Statistieken from './pages/Statistieken.jsx';
 import Instellingen from './pages/Instellingen.jsx';
+import { api } from './lib/api.js';
+import { registreerCustomKleuren } from './lib/kleuren.js';
 import './App.css';
 
 const NAV = [
@@ -56,6 +58,12 @@ const basename = window.location.pathname.replace(
 );
 
 export default function App() {
+  // Eigen (HEX/RGB) kleuren 1x globaal laden zodat kleurHex()/de kleurenkiezer
+  // ze overal kennen, ongeacht welke pagina als eerste geopend wordt.
+  useEffect(() => {
+    api.get('/kleuren').then(registreerCustomKleuren).catch(() => {});
+  }, []);
+
   return (
     <BrowserRouter basename={basename}>
       <div className="app-shell">

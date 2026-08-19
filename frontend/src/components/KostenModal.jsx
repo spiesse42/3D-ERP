@@ -52,6 +52,9 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const [autoSaveMsg,     setAutoSaveMsg]     = useState('');
   const [toonExtraKosten, setToonExtraKosten] = useState(false);
   const isReadOnly = ['gecontroleerd','gefactureerd','betaald'].includes(job.status);
+  // Dienst-job (consultancy/ontwerp, geen printer) — materiaal/energie/machine
+  // secties zijn niet van toepassing, "Ontwerp regie" hieronder is de kostenbasis.
+  const isDienst = job.type === 'dienst';
 
   const live     = printerLiveData;
   const kwhDelta = live?.kwh_delta ?? (job.kwh_start > 0 ? job.kwh_start : null);
@@ -337,7 +340,9 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
         </div>
 
         <div style={{ fontSize:11, color:'var(--muted)', marginBottom:'0.75rem', display:'flex', gap:12, flexWrap:'wrap' }}>
-          <span>🖨 {job.printer_naam}</span>
+          {isDienst
+            ? <span>🛠 Dienst{job.dienst_categorie ? ` — ${job.dienst_categorie}` : ''}</span>
+            : <span>🖨 {job.printer_naam}</span>}
           <span style={{ color: margePct === (t.marge_klein_pct || 18) ? 'var(--warn)' : 'var(--accent2)' }}>
             📊 {margePct}% marge ({totaleUren >= margeGrens ? '≥' : '<'}{margeGrens}u)
           </span>
@@ -395,7 +400,8 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
           </div>
         )}
 
-        {/* FILAMENT */}
+        {/* FILAMENT — niet van toepassing bij een dienst (consultancy/ontwerp) */}
+        {!isDienst && (
         <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
             <p style={{ fontSize:12, fontWeight:600, margin:0 }}>🧵 Filament</p>
@@ -457,8 +463,10 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             </div>
           )}
         </div>
+        )}
 
-        {/* ARTIKELEN */}
+        {/* ARTIKELEN — niet van toepassing bij een dienst */}
+        {!isDienst && (
         <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
           <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>📦 Artikelen</p>
 
@@ -511,8 +519,10 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             );
           })}
         </div>
+        )}
 
-        {/* ENERGIE */}
+        {/* ENERGIE — niet van toepassing bij een dienst */}
+        {!isDienst && (
         <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
           <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>⚡ Energie</p>
           {live && kwhDelta != null && (
@@ -530,6 +540,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             )}
           </div>
         </div>
+        )}
 
         {/* ARBEID — volledig aanpasbaar */}
         <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
@@ -630,14 +641,14 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
           <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'1rem', marginBottom:'0.75rem' }}>
             <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>📊 Werkbon kostprijsoverzicht</p>
             {[
-              ...((result.filament_kost > 0 || result.artikel_kost > 0)
+              ...(isDienst ? [] : (result.filament_kost > 0 || result.artikel_kost > 0)
                 ? [
                     ...(result.filament_kost > 0 ? [{ label:'Materiaal — filament', val: result.filament_kost, sub: `${Math.ceil(Object.values(matGroepen).reduce((s, m) => s + m.gram_totaal, 0))}g` }] : []),
                     ...(result.artikel_kost > 0 ? [{ label:'Materiaal — artikelen', val: result.artikel_kost }] : []),
                   ]
                 : [{ label:'Materiaal', val: result.materiaal_kost, sub: `${Math.ceil(Object.values(matGroepen).reduce((s, m) => s + m.gram_totaal, 0))}g` }]
               ),
-              { label:'Energie',   val: result.energie_kost,   sub: `${result.kwh_verbruikt} kWh` },
+              ...(isDienst ? [] : [{ label:'Energie',   val: result.energie_kost,   sub: `${result.kwh_verbruikt} kWh` }]),
               ...(result.machine_kost > 0 ? [{ label:`Machine (${(parseInt(printUren) + parseInt(printMin)/60).toFixed(1)}u)`, val: result.machine_kost }] : []),
               ...(totVoorb > 0   ? [{ label:`Voorbereiding (${totVoorb} min)`,              val: (totVoorb / 60) * arbTarief }] : []),
               ...(nabMin > 0     ? [{ label:`Nabewerking (${nabMin} min)`,                   val: (nabMin / 60) * arbTarief }] : []),

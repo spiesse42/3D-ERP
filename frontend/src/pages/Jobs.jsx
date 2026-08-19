@@ -23,13 +23,17 @@ function isVolledigPad(pad) {
 
 function JobModal({ job, printers, klanten, onClose, onSaved }) {
 const [form, setForm] = useState(job ? {
-    printer_id: job.printer_id, naam: job.naam, status: job.status,
+    printer_id: job.printer_id || '', naam: job.naam, status: job.status,
+    type: job.type || 'print', dienst_categorie: job.dienst_categorie || '',
     klant_id: job.klant_id || '', is_multicolor: job.is_multicolor,
     aantal_kleuren: job.aantal_kleuren || '', print_uren_geschat: job.print_uren_geschat || '',
     print_uren_werkelijk: job.print_uren_werkelijk || '', stl_bestandsnaam: job.stl_bestandsnaam || '',
     notities: job.notities || '',
-  } : { printer_id: printers[0]?.id || '', naam:'', status:'gepland', is_multicolor:false, aantal_kleuren:1, print_uren_geschat:'', notities:'' });  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  } : { printer_id: printers[0]?.id || '', naam:'', status:'gepland', type:'print', dienst_categorie:'', is_multicolor:false, aantal_kleuren:1, print_uren_geschat:'', notities:'' });  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const [categorieSuggesties, setCategorieSuggesties] = useState([]);
+  useEffect(() => { api.get('/jobs/dienst-categorieen').then(setCategorieSuggesties).catch(() => {}); }, []);
   async function save() {
+    if (form.type !== 'dienst' && !form.printer_id) { alert('Selecteer een printer'); return; }
     try {
       if (job?.id) await api.put(`/jobs/${job.id}`, form);
       else await api.post('/jobs', form);
@@ -42,14 +46,15 @@ const [form, setForm] = useState(job ? {
     }}>
       <div className="modal">
         <div className="modal-header">
-          <h2>{job?.id ? 'Job bewerken' : 'Nieuwe job'}</h2>
+          <h2>{job?.id ? 'Job bewerken' : 'Nieuwe job'}{job?.volgnummer ? <span style={{ fontSize:12, fontFamily:'monospace', color:'var(--muted)', fontWeight:400, marginLeft:8 }}>{job.volgnummer}</span> : null}</h2>
           <button className="btn" onClick={onClose}>✕</button>
         </div>
         <div className="form-group"><label>Naam *</label><input value={form.naam} onChange={e => set('naam', e.target.value)} placeholder="Naam van de print" /></div>
         <div className="form-row">
-          <div className="form-group"><label>Printer *</label>
-            <select value={form.printer_id} onChange={e => set('printer_id', e.target.value)}>
-              {printers.map(p => <option key={p.id} value={p.id}>{p.naam}</option>)}
+          <div className="form-group"><label>Type</label>
+            <select value={form.type} onChange={e => set('type', e.target.value)}>
+              <option value="print">🖨 Print</option>
+              <option value="dienst">🛠 Dienst (consultancy/ontwerp)</option>
             </select>
           </div>
           <div className="form-group"><label>Klant</label>
@@ -59,6 +64,21 @@ const [form, setForm] = useState(job ? {
             </select>
           </div>
         </div>
+        {form.type === 'print' ? (
+          <div className="form-group"><label>Printer *</label>
+            <select value={form.printer_id} onChange={e => set('printer_id', e.target.value)}>
+              {printers.map(p => <option key={p.id} value={p.id}>{p.naam}</option>)}
+            </select>
+          </div>
+        ) : (
+          <div className="form-group">
+            <label>Categorie <span style={{ color:'var(--muted)', fontWeight:400, fontSize:11 }}>optioneel — bv. Ontwerp op maat, Consultancy...</span></label>
+            <input list="dienst-categorieen-lijst" value={form.dienst_categorie} onChange={e => set('dienst_categorie', e.target.value)} placeholder="bv. Ontwerp op maat" />
+            <datalist id="dienst-categorieen-lijst">
+              {categorieSuggesties.map(c => <option key={c} value={c} />)}
+            </datalist>
+          </div>
+        )}
         <div className="form-row">
           <div className="form-group"><label>Status</label>
             <select value={form.status} onChange={e => set('status', e.target.value)}>
@@ -112,6 +132,7 @@ export default function Jobs() {
   const [modal,       setModal]       = useState(null);
   const [kostenJob,   setKostenJob]   = useState(null);
   const [filter,      setFilter]      = useState('');
+  const [zoekVolgnummer, setZoekVolgnummer] = useState('');
   const [selectedJob, setSelectedJob] = useState(null);
   const { printerConfig, printerData, reloadPrinterConfig } = usePrinterData();
   const [searchParams] = useSearchParams();
@@ -133,7 +154,9 @@ export default function Jobs() {
     };
   }, []);
 
-  const filtered = filter ? jobs.filter(j => j.status === filter) : jobs;
+  const filtered = jobs
+    .filter(j => !filter || j.status === filter)
+    .filter(j => !zoekVolgnummer || (j.volgnummer || '').toLowerCase().includes(zoekVolgnummer.trim().toLowerCase()));
 
   async function deleteJob(id) {
     if (!confirm('Job verwijderen?')) return;
@@ -151,6 +174,8 @@ export default function Jobs() {
             <option value="">Alle statussen</option>
             {STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
+          <input value={zoekVolgnummer} onChange={e => setZoekVolgnummer(e.target.value)}
+            placeholder="Zoek op volgnummer..." style={{ width:170 }} />
           <button className="btn primary" onClick={() => setModal({})}>+ Nieuwe job</button>
         </div>
       </div>
@@ -185,10 +210,16 @@ export default function Jobs() {
                     onClick={() => setSelectedJob(prev => prev?.id === j.id ? null : j)}>
                     <td>
                       <div style={{ fontWeight:500 }}>{j.naam}</div>
+                      <div style={{ display:'flex', gap:6, alignItems:'center', marginTop:2 }}>
+                        {j.volgnummer && <span style={{ fontSize:10, fontFamily:'monospace', color:'var(--muted)' }}>{j.volgnummer}</span>}
+                        <span style={{ fontSize:10, color:'var(--muted)' }}>{j.type === 'dienst' ? '🛠 Dienst' : '🖨 Print'}</span>
+                      </div>
                       {j.is_multicolor ? <div style={{ fontSize:11, color:'var(--accent)' }}>BMCU · {j.aantal_kleuren} kleuren</div> : null}
                     </td>
                     <td>{j.klant_naam || <span style={{ color:'var(--muted)' }}>—</span>}</td>
-                    <td>{j.printer_naam}</td>
+                    <td>{j.type === 'dienst'
+                      ? (j.dienst_categorie || <span style={{ color:'var(--muted)' }}>—</span>)
+                      : j.printer_naam}</td>
                     <td><span className={`badge ${j.status}`}>{j.status}</span></td>
                     <td style={{ color:'var(--muted)' }}>
                       {(() => {
@@ -243,7 +274,10 @@ export default function Jobs() {
       {selectedJob && (
         <div className="card" style={{ position:'sticky', top:0, maxHeight:'90vh', overflowY:'auto' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.75rem' }}>
-            <h2 style={{ fontSize:15, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:260 }}>{selectedJob.naam}</h2>
+            <div style={{ overflow:'hidden' }}>
+              <h2 style={{ fontSize:15, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:260 }}>{selectedJob.naam}</h2>
+              {selectedJob.volgnummer && <div style={{ fontSize:11, fontFamily:'monospace', color:'var(--muted)' }}>{selectedJob.volgnummer}</div>}
+            </div>
             <div style={{ display:'flex', gap:6, flexShrink:0 }}>
               <button className="btn" style={{ fontSize:11 }} onClick={() => { setModal(selectedJob); }}>✏</button>
               <button className="btn" onClick={() => setSelectedJob(null)}>✕</button>
@@ -253,7 +287,11 @@ export default function Jobs() {
           {/* Klant + printer */}
           <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.65rem', marginBottom:'0.75rem', fontSize:13 }}>
             <div style={{ fontWeight:600 }}>{selectedJob.klant_naam ? (selectedJob.klant_voornaam ? `${selectedJob.klant_voornaam} ${selectedJob.klant_naam}` : selectedJob.klant_naam) : <span style={{ color:'var(--muted)' }}>Eigen print</span>}</div>
-            <div style={{ color:'var(--muted)', fontSize:12 }}>🖨 {selectedJob.printer_naam}</div>
+            <div style={{ color:'var(--muted)', fontSize:12 }}>
+              {selectedJob.type === 'dienst'
+                ? `🛠 Dienst${selectedJob.dienst_categorie ? ' — ' + selectedJob.dienst_categorie : ''}`
+                : `🖨 ${selectedJob.printer_naam}`}
+            </div>
             {selectedJob.stl_bestandsnaam && (
               isVolledigPad(selectedJob.stl_bestandsnaam)
                 ? <a href={toFileUrl(selectedJob.stl_bestandsnaam)} style={{ color:'var(--accent)', fontSize:12 }} title="Bestand openen (werkt enkel vanaf deze computer)">📂 {selectedJob.stl_bestandsnaam}</a>

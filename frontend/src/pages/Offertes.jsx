@@ -75,6 +75,23 @@ function berekenLive(form, tarieven, rollen) {
   return { mat, ener, mach, arb, extra, bmcu, sub, marge, vkp, aantal, prijsPerKg };
 }
 
+// Op moduleniveau gedefinieerd (niet binnen OfferteFormulier) — anders krijgen
+// deze bij elke toetsaanslag een nieuwe component-identiteit, waardoor React
+// het onderliggende <input> unmount/remount en de cursor/focus verloren gaat.
+const Sec = ({ title, children }) => (
+  <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.85rem', marginBottom:'0.85rem' }}>
+    <p style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em', color:'var(--muted)', marginBottom:8 }}>{title}</p>
+    {children}
+  </div>
+);
+
+const F = ({ label, children, style }) => (
+  <div className="form-group" style={{ marginBottom:0, ...style }}>
+    <label style={{ fontSize:11 }}>{label}</label>
+    {children}
+  </div>
+);
+
 // ── OfferteFormulier ──────────────────────────────────────────────────────────
 function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRollen, tarieven, onSaved, onCancel }) {
   const [form, setForm] = useState({
@@ -183,20 +200,6 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
     } catch(e) { alert(e.message); }
     finally { setSaving(false); }
   }
-
-  const Sec = ({ title, children }) => (
-    <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.85rem', marginBottom:'0.85rem' }}>
-      <p style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em', color:'var(--muted)', marginBottom:8 }}>{title}</p>
-      {children}
-    </div>
-  );
-
-  const F = ({ label, children, style }) => (
-    <div className="form-group" style={{ marginBottom:0, ...style }}>
-      <label style={{ fontSize:11 }}>{label}</label>
-      {children}
-    </div>
-  );
 
   return (
     <div style={{ display:'grid', gridTemplateColumns:'1fr 270px', gap:'1.25rem', alignItems:'start' }}>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
-import { KLEUREN, kleurHex } from '../lib/kleuren.js';
+import { KLEUREN, kleurHex, alleKleuren, normaliseerHexInvoer, registreerCustomKleuren } from '../lib/kleuren.js';
 import KleurDot from '../components/KleurDot.jsx';
 
 function eenheidSuffix(eenheid) {
@@ -385,6 +385,27 @@ function RolModal({ types, rol, onClose, onSaved }) {
   const isFilamentCat = (gekozenType?.categorie || 'filament') === 'filament';
   const [kleurToggle, setKleurToggle] = useState(isFilamentCat || !!(form.kleur || form.kleur_hex));
 
+  // Kleurenlijst (vast palet + eigen HEX/RGB-kleuren) + invoer voor een nieuwe eigen kleur
+  const [kleurenLijst, setKleurenLijst] = useState(alleKleuren());
+  const [nieuweKleurOpen, setNieuweKleurOpen] = useState(false);
+  const [nieuweKleurCode, setNieuweKleurCode] = useState('');
+  const [nieuweKleurNaam, setNieuweKleurNaam] = useState('');
+  const [nieuweKleurFout, setNieuweKleurFout] = useState('');
+  const nieuweKleurHex = normaliseerHexInvoer(nieuweKleurCode);
+
+  async function voegKleurToe() {
+    if (!nieuweKleurHex) { setNieuweKleurFout('Ongeldige code — gebruik bv. #a855f7 of rgb(168,85,247)'); return; }
+    try {
+      const toegevoegd = await api.post('/kleuren', { hex: nieuweKleurHex, naam: nieuweKleurNaam.trim() || null });
+      const verse = await api.get('/kleuren');
+      registreerCustomKleuren(verse);
+      setKleurenLijst([...KLEUREN, ...verse]);
+      set('kleur_hex', toegevoegd.hex);
+      set('kleur', toegevoegd.naam || form.kleur);
+      setNieuweKleurOpen(false); setNieuweKleurCode(''); setNieuweKleurNaam(''); setNieuweKleurFout('');
+    } catch (e) { setNieuweKleurFout(e.message); }
+  }
+
   // Bij wisselen van artikeltype (enkel bij nieuwe voorraad) velden resetten naar een logische start
   function onTypeChange(id) {
     set('filament_type_id', id);
@@ -486,8 +507,8 @@ function RolModal({ types, rol, onClose, onSaved }) {
               <input value={form.kleur} onChange={e => set('kleur', e.target.value)} placeholder="bv. Robijnrood, Lavendel..." />
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {KLEUREN.map(k => (
-                <button key={k.naam} onClick={() => set('kleur_hex', k.hex)}
+              {kleurenLijst.map(k => (
+                <button key={k.hex} type="button" onClick={() => { set('kleur_hex', k.hex); set('kleur', k.naam || form.kleur); }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20,
                     border: form.kleur_hex === k.hex ? '2px solid var(--accent)' : '1px solid var(--border)',
@@ -495,10 +516,27 @@ function RolModal({ types, rol, onClose, onSaved }) {
                     cursor: 'pointer', fontSize: 11, color: 'var(--text)'
                   }}>
                   <span style={{ width: 10, height: 10, borderRadius: '50%', background: k.hex, border: '1px solid rgba(255,255,255,0.2)' }} />
-                  {k.naam}
+                  {k.naam || k.hex}
                 </button>
               ))}
+              <button type="button" className="btn" style={{ fontSize: 11, padding: '3px 8px' }}
+                onClick={() => setNieuweKleurOpen(o => !o)}>
+                + Eigen kleur
+              </button>
             </div>
+
+            {nieuweKleurOpen && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 8, padding: '8px 10px', background: 'var(--bg3)', borderRadius: 8 }}>
+                <span style={{ width: 18, height: 18, borderRadius: '50%', background: nieuweKleurHex || '#555', border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
+                <input value={nieuweKleurCode} onChange={e => { setNieuweKleurCode(e.target.value); setNieuweKleurFout(''); }}
+                  placeholder="#a855f7 of rgb(168,85,247)" style={{ width: 170 }} />
+                <input value={nieuweKleurNaam} onChange={e => setNieuweKleurNaam(e.target.value)}
+                  placeholder="naam (optioneel)" style={{ width: 130 }} />
+                <button type="button" className="btn primary" style={{ fontSize: 11, padding: '3px 10px' }}
+                  disabled={!nieuweKleurHex} onClick={voegKleurToe}>Toevoegen</button>
+                {nieuweKleurFout && <span style={{ color: 'var(--danger)', fontSize: 11, width: '100%' }}>{nieuweKleurFout}</span>}
+              </div>
+            )}
           </div>
         )}
 
