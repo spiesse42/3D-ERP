@@ -8,6 +8,7 @@ const _prevStatus = {};
 const _failedStreak = {};   // aantal opeenvolgende polls met failed/cancelled-status
 const _kwhLoaded = {};      // is delta al uit DB geladen voor deze printer?
 const _kwhLastSave = {};    // timestamp laatste DB save
+const _frozenElapsed = {};  // laatst gekende live verstreken-tijd (sec) per printer — bevriest na 'finish' (enkel relevant voor Bambu)
 
 function formatSec(sec) {
   if (!sec || sec <= 0) return '—';
@@ -55,10 +56,24 @@ export function usePrinterData() {
 
         let elapsed = 0, remaining = 0, filamentG = 0;
 
+        const statusLower = (s.status || '').toLowerCase();
+        const isActief = ['running','printing','prepare'].includes(statusLower);
+        const isIdle   = ['idle','standby','finish','complete','offline','unavailable','failed','cancelled'].includes(statusLower);
+
         if (p.type === 'bambu') {
-          if (s.start && s.start !== 'unavailable' && s.start !== 'unknown') {
+          // Enkel live doortellen zolang de printer effectief actief is. De
+          // 'start'-entiteit van Bambu blijft na afloop van de print gewoon het
+          // oude tijdstip tonen, dus "nu - start" zou anders eindeloos blijven
+          // oplopen na 'finish'. Bij inactief bevriezen we op de laatst gekende
+          // live waarde (= de effectieve printduur op het moment van klaar zijn).
+          if (isActief && s.start && s.start !== 'unavailable' && s.start !== 'unknown') {
             const ms = new Date(s.start).getTime();
-            if (!isNaN(ms)) elapsed = Math.max(0, (Date.now() - ms) / 1000);
+            if (!isNaN(ms)) {
+              elapsed = Math.max(0, (Date.now() - ms) / 1000);
+              _frozenElapsed[p.id] = elapsed;
+            }
+          } else {
+            elapsed = _frozenElapsed[p.id] || 0;
           }
           remaining = (parseFloat(s.remaining) || 0) * 3600;
           filamentG = parseFloat(s.filament) || 0;
@@ -76,10 +91,6 @@ export function usePrinterData() {
         const watt    = !isNaN(wattVal) ? wattVal : null;
         const kwhVal  = parseFloat(s.kwh);
         const kwh     = !isNaN(kwhVal) ? kwhVal : null;
-
-        const statusLower = (s.status || '').toLowerCase();
-        const isActief = ['running','printing','prepare'].includes(statusLower);
-        const isIdle   = ['idle','standby','finish','complete','offline','unavailable','failed','cancelled'].includes(statusLower);
 
         // kWh delta per JOB (niet per printer-status).
         // De actieve bezig-job draagt zijn eigen verbruikte delta in job.kwh_start.
