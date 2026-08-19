@@ -105,12 +105,6 @@ const [form, setForm] = useState(job ? {
   );
 }
 
-function formatSec(sec) {
-  if (!sec || sec <= 0) return '—';
-  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
-  return h > 0 ? `${h}u ${m}m` : `${m}m`;
-}
-
 export default function Jobs() {
   const [jobs,        setJobs]        = useState([]);
   const [printers,    setPrinters]    = useState([]);
