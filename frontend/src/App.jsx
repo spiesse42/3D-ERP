@@ -6,6 +6,7 @@ import Klanten from './pages/Klanten.jsx';
 import Filament from './pages/Filament.jsx';
 import Bestellingen from './pages/Bestellingen.jsx';
 import Offertes from './pages/Offertes.jsx';
+import Financien from './pages/Financien.jsx';
 import Statistieken from './pages/Statistieken.jsx';
 import Instellingen from './pages/Instellingen.jsx';
 import './App.css';
@@ -17,6 +18,7 @@ const NAV = [
   { to: '/filament',      icon: '🧵', label: 'Artikelen' },
   { to: '/bestellingen',  icon: '📦', label: 'Bestellingen' },
   { to: '/offertes',      icon: '📄', label: 'Offertes' },
+  { to: '/financien',     icon: '💶', label: 'Financiën' },
   { to: '/statistieken',  icon: '📊', label: 'Statistieken' },
   { to: '/instellingen',  icon: '⚙',  label: 'Instellingen' },
 ];
@@ -50,7 +52,7 @@ function AutoSaveIndicator() {
 }
 
 const basename = window.location.pathname.replace(
-  /\/(jobs|klanten|filament|bestellingen|offertes|statistieken|instellingen).*$/, ''
+  /\/(jobs|klanten|filament|bestellingen|offertes|financien|statistieken|instellingen).*$/, ''
 );
 
 export default function App() {
@@ -82,6 +84,7 @@ export default function App() {
             <Route path="/filament"      element={<Filament />} />
             <Route path="/bestellingen"  element={<Bestellingen />} />
             <Route path="/offertes"      element={<Offertes />} />
+            <Route path="/financien"     element={<Financien />} />
             <Route path="/statistieken"  element={<Statistieken />} />
             <Route path="/instellingen"  element={<Instellingen />} />
           </Routes>
