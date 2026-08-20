@@ -211,22 +211,79 @@ function herbereken(db, offerteId) {
   return { ...ber, btw_bedrag, totaal };
 }
 
-function buildOfferteHtml(offerte, klant, berekening, filamentType, printer, artikelen = [], kleurenRijen = []) {
-  const nu = new Date().toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const totaleUren = (offerte.geschatte_tijd_u || 0) + (offerte.geschatte_tijd_min || 0) / 60;
+// Bouwt de nette, klantgerichte regel-lijst (aantal / omschrijving /
+// eenheidsprijs / totaal) — dezelfde regels als de ERP-detailweergave
+// gebruikt, zodat het venster in de app en het uiteindelijke document altijd
+// exact hetzelfde tonen. Interne rekendetails (faalfactor, printer, aparte
+// voorbereidings-/nabewerkingsminuten, machine-uurkost...) komen hier bewust
+// niet in voor — dat is boekhouding, geen klantinformatie.
+function offerteRegels(offerte, berekening, filamentType, artikelen = []) {
   const margeFactor = 1 + (berekening.marge_pct || 0) / 100;
+  const aantal = offerte.aantal || 1;
   const eenheidLabel = e => e === 'stuk' ? 'stuks' : e === 'ml' ? 'ml' : 'g';
-  // Multicolor: 1 regel per kleur i.p.v. 1 generieke materiaalregel — bedrag
-  // per kleur is al voorberekend (zie kleurenRijen in de /pdf-route).
-  const materiaalRijen = kleurenRijen.length > 0
-    ? kleurenRijen.map(k => `<tr><td>Materiaal — ${k.naam} <span class="schatting">(incl. faalfactor)</span></td><td>${k.gram}g × ${offerte.aantal}x</td><td>€${k.bedrag.toFixed(2)}</td></tr>`).join('')
-    : `<tr><td>Materiaal <span class="schatting">(incl. faalfactor)</span></td><td>${offerte.geschat_gewicht_g}g × ${offerte.aantal}x</td><td>€${(berekening.materiaal_kost*margeFactor).toFixed(2)}</td></tr>`;
-  const artikelRijen = artikelen.map(a => {
+  const regels = [];
+
+  // Hoofdregel: het printwerk zelf (materiaal + energie + machine + evt. BMCU)
+  const printBasis = (berekening.materiaal_kost || 0) + (berekening.energie_kost_schat || 0)
+    + (berekening.machine_kost || 0) + (berekening.bmcu || 0);
+  const printOmschrijving = (offerte.object_naam || '3D-printwerk')
+    + (filamentType ? ` (${filamentType.merk} ${filamentType.materiaal})` : '')
+    + (offerte.is_multicolor ? ' — multicolor' : '');
+  regels.push({
+    omschrijving: printOmschrijving,
+    aantal,
+    eenheidsprijs: (printBasis / aantal) * margeFactor,
+    totaal: printBasis * margeFactor,
+  });
+
+  // Arbeid — voorbereiding, nabewerking en eventuele ontwerp/regie samen als
+  // 1 regel, zonder de onderliggende minuten/tarieven te tonen.
+  if (berekening.arbeid_kost > 0) {
+    regels.push({
+      omschrijving: 'Voorbereiding, afwerking & ontwerp',
+      aantal: 1,
+      eenheidsprijs: berekening.arbeid_kost * margeFactor,
+      totaal: berekening.arbeid_kost * margeFactor,
+    });
+  }
+
+  // Extra kosten
+  if (berekening.extra_totaal > 0) {
+    regels.push({
+      omschrijving: offerte.extra_omschrijving || 'Extra',
+      aantal: 1,
+      eenheidsprijs: berekening.extra_totaal * margeFactor,
+      totaal: berekening.extra_totaal * margeFactor,
+    });
+  }
+
+  // Extra artikelen (bv. verzendkosten)
+  for (const a of artikelen) {
     const deler = a.eenheid === 'gram' ? 1000 : 1;
-    const aantalTxt = a.eenheid === 'stuk' ? Math.round(a.aantal) : parseFloat(a.aantal).toFixed(1);
-    const naam = `${a.merk || ''} ${a.materiaal || ''}`.trim();
-    return `<tr><td>${naam}</td><td>${aantalTxt} ${eenheidLabel(a.eenheid)}</td><td>€${((a.aantal/deler)*(a.inkoop_prijs_per_kg||0)*margeFactor).toFixed(2)}</td></tr>`;
-  }).join('');
+    const aantalNum = parseFloat(a.aantal) || 0;
+    const aantalTxt = a.eenheid === 'stuk' ? Math.round(aantalNum) : aantalNum.toFixed(1);
+    const artikelTotaal = (aantalNum / deler) * (a.inkoop_prijs_per_kg || 0) * margeFactor;
+    regels.push({
+      omschrijving: `${a.merk || ''} ${a.materiaal || ''}`.trim(),
+      aantal: `${aantalTxt} ${eenheidLabel(a.eenheid)}`,
+      eenheidsprijs: aantalNum > 0 ? artikelTotaal / aantalNum : 0,
+      totaal: artikelTotaal,
+    });
+  }
+
+  return regels;
+}
+
+function buildOfferteHtml(offerte, klant, berekening, filamentType, artikelen = []) {
+  const nu = new Date().toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const regels = offerteRegels(offerte, berekening, filamentType, artikelen);
+  const regelRijen = regels.map(r => `
+    <tr>
+      <td>${typeof r.aantal === 'number' ? r.aantal : r.aantal}</td>
+      <td>${r.omschrijving}</td>
+      <td>€${r.eenheidsprijs.toFixed(2)}</td>
+      <td>€${r.totaal.toFixed(2)}</td>
+    </tr>`).join('');
 
   return `<!DOCTYPE html>
 <html lang="nl">
@@ -239,20 +296,18 @@ function buildOfferteHtml(offerte, klant, berekening, filamentType, printer, art
   .doc-nr{font-size:1.1rem;font-weight:bold}
   .klant{background:#f8f9fa;border-radius:8px;padding:14px 18px;margin-bottom:20px}
   .klant h3{margin:0 0 6px;font-size:.7rem;text-transform:uppercase;letter-spacing:1.5px;color:#5b8dee}
-  .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;margin-bottom:20px;font-size:.9rem}
-  .info-item{padding:6px 0;border-bottom:1px solid #eee}
-  .info-label{font-size:.75rem;color:#666;margin-bottom:2px}
+  .object{margin-bottom:20px;font-size:.9rem;color:#444}
   table{width:100%;border-collapse:collapse;margin-bottom:20px}
   th{background:#5b8dee;color:#fff;padding:9px 12px;text-align:left;font-size:.78rem;text-transform:uppercase}
+  th:first-child,td:first-child{width:70px}
+  th:nth-child(3),td:nth-child(3),th:last-child,td:last-child{text-align:right;width:110px}
   td{padding:9px 12px;border-bottom:1px solid #eee;font-size:.88rem}
   tr:nth-child(even) td{background:#f8f9fa}
   .totaal{background:#0c0c0c;color:#fff;border-radius:8px;padding:18px 22px;display:flex;justify-content:space-between;align-items:center}
   .totaal-label{color:#a0a0a0;font-size:.85rem}
   .totaal-bedrag{font-size:2rem;font-weight:900;color:#5b8dee}
   .footer{margin-top:32px;border-top:1px solid #eee;padding-top:14px;font-size:.72rem;color:#999;text-align:center}
-  .tag{font-size:.72rem;color:#5b8dee;background:#eff6ff;padding:2px 7px;border-radius:4px;margin-left:6px}
   .opmerking{margin-top:16px;padding:12px 16px;border-left:4px solid #f59e0b;background:#fffbeb;border-radius:4px;font-size:.88rem;color:#664400}
-  .schatting{font-size:.72rem;color:#999;font-style:italic}
 </style>
 </head>
 <body>
@@ -273,51 +328,20 @@ function buildOfferteHtml(offerte, klant, berekening, filamentType, printer, art
   ${klant.btw_nummer ? `<br>BTW: ${klant.btw_nummer}` : ''}
 </div>
 
-<div class="info-grid">
-  <div class="info-item">
-    <div class="info-label">Object</div>
-    <div>${offerte.object_naam || '—'}${offerte.object_link ? ` <a href="${offerte.object_link}" style="color:#5b8dee;font-size:.8rem">(link)</a>` : ''}</div>
-  </div>
-  <div class="info-item">
-    <div class="info-label">Printer</div>
-    <div>${printer?.naam || '—'}</div>
-  </div>
-  <div class="info-item">
-    <div class="info-label">Filament</div>
-    <div>${filamentType ? `${filamentType.merk} ${filamentType.materiaal}` : '—'}</div>
-  </div>
-  <div class="info-item">
-    <div class="info-label">Geschatte printtijd</div>
-    <div>${offerte.geschatte_tijd_u || 0}u ${offerte.geschatte_tijd_min || 0}min</div>
-  </div>
-  <div class="info-item">
-    <div class="info-label">Gewicht (slicer)</div>
-    <div>${offerte.geschat_gewicht_g || 0}g ${offerte.is_multicolor ? '<span class="tag">multicolor</span>' : ''}</div>
-  </div>
-  <div class="info-item">
-    <div class="info-label">Aantal</div>
-    <div>${offerte.aantal || 1} stuk(s)</div>
-  </div>
-</div>
+${offerte.object_naam || offerte.object_link ? `
+<div class="object">
+  ${offerte.object_naam ? `<strong>${offerte.object_naam}</strong>` : ''}
+  ${offerte.object_link ? ` <a href="${offerte.object_link}" style="color:#5b8dee;font-size:.85rem">(referentie)</a>` : ''}
+</div>` : ''}
 
 <table>
-  <thead><tr><th>Post</th><th>Detail</th><th>Bedrag</th></tr></thead>
-  <tbody>
-    ${materiaalRijen}
-    <tr><td>Energie <span class="schatting">(schatting)</span></td><td>${totaleUren.toFixed(2)}u × ${offerte.aantal}x</td><td>€${(berekening.energie_kost_schat*margeFactor).toFixed(2)}</td></tr>
-    ${berekening.machine_kost > 0 ? `<tr><td>Machine</td><td>—</td><td>€${(berekening.machine_kost*margeFactor).toFixed(2)}</td></tr>` : ''}
-    <tr><td>Voorbereiding</td><td>${offerte.voorbereiding_min} min</td><td>€${((offerte.voorbereiding_min / 60) * (berekening.arbeid_per_uur || 15) * margeFactor).toFixed(2)}</td></tr>
-    <tr><td>Nabewerking</td><td>${offerte.nabewerking_min} min</td><td>€${((offerte.nabewerking_min / 60) * (berekening.arbeid_per_uur || 15) * margeFactor).toFixed(2)}</td></tr>
-    ${offerte.ontwerp_min > 0 ? `<tr><td>Ontwerp regie</td><td>${offerte.ontwerp_min} min</td><td>€${((offerte.ontwerp_min / 60) * offerte.ontwerp_tarief * margeFactor).toFixed(2)}</td></tr>` : ''}
-    ${offerte.nabewerking_extra_min > 0 ? `<tr><td>Nabewerking extra</td><td>${offerte.nabewerking_extra_min} min</td><td>€${((offerte.nabewerking_extra_min / 60) * offerte.nabewerking_extra_tarief * margeFactor).toFixed(2)}</td></tr>` : ''}
-    ${berekening.extra_totaal > 0 ? `<tr><td>Extra${offerte.extra_omschrijving ? ' — ' + offerte.extra_omschrijving : ''}</td><td>—</td><td>€${(berekening.extra_totaal*margeFactor).toFixed(2)}</td></tr>` : ''}
-    ${artikelRijen}
-  </tbody>
+  <thead><tr><th>Aantal</th><th>Omschrijving</th><th>Eenheidsprijs</th><th>Totaal</th></tr></thead>
+  <tbody>${regelRijen}</tbody>
 </table>
 
 <div class="totaal">
   <div>
-    <div class="totaal-label">VERKOOPPRIJS ${offerte.aantal > 1 ? `(${offerte.aantal}× — €${(berekening.verkoopprijs / offerte.aantal).toFixed(2)}/stuk)` : '(schatting)'}</div>
+    <div class="totaal-label">TOTAAL</div>
   </div>
   <div class="totaal-bedrag">€${berekening.verkoopprijs.toFixed(2)}</div>
 </div>
@@ -665,12 +689,12 @@ r.get('/:id/pdf', (req, res) => {
   const klant = { naam: offerte.klant_naam, voornaam: offerte.voornaam, email: offerte.email,
     straat: offerte.straat, huisnummer: offerte.huisnummer, postcode: offerte.postcode,
     gemeente: offerte.gemeente, btw_nummer: offerte.btw_nummer };
-  const printer = offerte.printer_id ? db.prepare('SELECT naam FROM printers WHERE id = ?').get(offerte.printer_id) : null;
   const ft = offerte.filament_type_id ? db.prepare('SELECT * FROM filament_types WHERE id = ?').get(offerte.filament_type_id) : null;
   const t = getTarieven(db);
   const ber = {
     materiaal_kost: offerte.materiaal_kost, energie_kost_schat: offerte.energie_kost_schat,
     arbeid_kost: offerte.arbeid_kost, machine_kost: offerte.machine_kost,
+    bmcu: offerte.is_multicolor ? (t.bmcu_per_job || 0.10) : 0,
     extra_totaal: offerte.extra_totaal, subtotaal: offerte.subtotaal,
     marge_pct: offerte.marge_pct, verkoopprijs: offerte.verkoopprijs,
     // Bevroren tarief van bij het (laatst) opslaan van de offerte — zodat de
@@ -679,27 +703,7 @@ r.get('/:id/pdf', (req, res) => {
     arbeid_per_uur: offerte.arbeid_per_uur || t.arbeid_per_uur || 15
   };
 
-  let filament_rollen = [];
-  if (offerte.is_multicolor) {
-    try { filament_rollen = JSON.parse(offerte.filament_rollen_json || '[]'); } catch { filament_rollen = []; }
-  }
-  const kleurenRijen = filament_rollen
-    .filter(fr => parseFloat(fr.gram) > 0 && fr.filament_rol_id)
-    .map(fr => {
-      const info = db.prepare(`
-        SELECT r.kleur, ft2.merk, ft2.materiaal
-        FROM filament_rollen r JOIN filament_types ft2 ON ft2.id = r.filament_type_id
-        WHERE r.id = ?
-      `).get(fr.filament_rol_id);
-      const prijs = haalRolEffectievePrijs(db, fr.filament_rol_id);
-      const faalfactor = 1 + (t.faalfactor_pct || 10) / 100;
-      const margeFactor = 1 + (offerte.marge_pct || 0) / 100;
-      const bedrag = (parseFloat(fr.gram) / 1000) * prijs * faalfactor * (offerte.aantal || 1) * margeFactor;
-      const naam = info ? `${info.merk} ${info.materiaal}${info.kleur ? ' — ' + info.kleur : ''}` : 'Kleur';
-      return { naam, gram: fr.gram, bedrag };
-    });
-
-  const html = buildOfferteHtml(offerte, klant, ber, ft, printer, haalArtikelen(db, req.params.id), kleurenRijen);
+  const html = buildOfferteHtml(offerte, klant, ber, ft, haalArtikelen(db, req.params.id));
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="offerte-${offerte.nummer}.html"`);
   res.send(html);

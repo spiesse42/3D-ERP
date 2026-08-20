@@ -591,6 +591,65 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
   );
 }
 
+// Bouwt dezelfde nette, klantgerichte regel-lijst (aantal / omschrijving /
+// eenheidsprijs / totaal) als de backend's offerteRegels() voor de PDF — zodat
+// de detailweergave in de app en het uiteindelijke document altijd exact
+// hetzelfde tonen. Interne rekendetails (faalfactor, printer, aparte
+// voorbereidings-/nabewerkingsminuten, machine-uurkost...) komen hier bewust
+// niet in voor.
+function offerteRegelsClient(detail, tarieven) {
+  const marge = 1 + (detail.marge_pct || 0) / 100;
+  const aantal = detail.aantal || 1;
+  const eenheidLabel = e => e === 'stuk' ? 'stuks' : e === 'ml' ? 'ml' : 'g';
+  const regels = [];
+
+  const bmcu = detail.is_multicolor ? (tarieven.bmcu_per_job || 0.10) : 0;
+  const printBasis = (detail.materiaal_kost || 0) + (detail.energie_kost_schat || 0)
+    + (detail.machine_kost || 0) + bmcu;
+  const printOmschrijving = (detail.object_naam || '3D-printwerk')
+    + (detail.filament_merk ? ` (${detail.filament_merk} ${detail.filament_materiaal})` : '')
+    + (detail.is_multicolor ? ' — multicolor' : '');
+  regels.push({
+    omschrijving: printOmschrijving,
+    aantal,
+    eenheidsprijs: (printBasis / aantal) * marge,
+    totaal: printBasis * marge,
+  });
+
+  if (detail.arbeid_kost > 0) {
+    regels.push({
+      omschrijving: 'Voorbereiding, afwerking & ontwerp',
+      aantal: 1,
+      eenheidsprijs: detail.arbeid_kost * marge,
+      totaal: detail.arbeid_kost * marge,
+    });
+  }
+
+  if (detail.extra_totaal > 0) {
+    regels.push({
+      omschrijving: detail.extra_omschrijving || 'Extra',
+      aantal: 1,
+      eenheidsprijs: detail.extra_totaal * marge,
+      totaal: detail.extra_totaal * marge,
+    });
+  }
+
+  for (const a of (detail.artikelen || [])) {
+    const deler = a.eenheid === 'gram' ? 1000 : 1;
+    const aantalNum = parseFloat(a.aantal) || 0;
+    const aantalTxt = a.eenheid === 'stuk' ? Math.round(aantalNum) : aantalNum.toFixed(1);
+    const artikelTotaal = (aantalNum / deler) * (a.inkoop_prijs_per_kg || 0) * marge;
+    regels.push({
+      omschrijving: `${a.merk || ''} ${a.materiaal || ''}`.trim(),
+      aantal: `${aantalTxt} ${eenheidLabel(a.eenheid)}`,
+      eenheidsprijs: aantalNum > 0 ? artikelTotaal / aantalNum : 0,
+      totaal: artikelTotaal,
+    });
+  }
+
+  return regels;
+}
+
 // ── Hoofdcomponent ────────────────────────────────────────────────────────────
 export default function Offertes() {
   const [offertes,     setOffertes]     = useState([]);
@@ -702,44 +761,31 @@ export default function Offertes() {
               {detail.object_link && <a href={detail.object_link} target="_blank" rel="noreferrer" style={{ fontSize:11, color:'var(--accent)' }}>🔗 Link</a>}
             </div>
 
-            {/* Zelfde kaartjes-stijl als de Werkbon (KostenModal): 🧵 Filament sectie */}
+            {/* 📄 Offerteregels — zelfde regel-indeling als op de PDF: aantal /
+                omschrijving / eenheidsprijs / totaal. Bewust geen interne
+                rekendetails (faalfactor, printer, machine-uurkost, ...). */}
             <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
-              <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>🧵 Filament{detail.is_multicolor ? ' — multicolor' : ''}</p>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5, fontSize:12 }}>
-                {[
-                  ['Printer', detail.printer_naam || '—'],
-                  ['Type', detail.filament_merk ? `${detail.filament_merk} ${detail.filament_materiaal}` : '—'],
-                  ['Rol', detail.rol_lotnummer || detail.rol_kleur ? `${detail.rol_lotnummer || ''} ${detail.rol_kleur ? `(${detail.rol_kleur})` : ''}`.trim() : '—'],
-                  ['Gewicht', detail.geschat_gewicht_g ? `${detail.geschat_gewicht_g}g` : '—'],
-                  ['Tijd', `${detail.geschatte_tijd_u || 0}u ${detail.geschatte_tijd_min || 0}min`],
-                  ['Aantal', detail.aantal || 1],
-                ].map(([l, v]) => (
-                  <div key={l} style={{ padding:'3px 0', borderBottom:'1px solid var(--border)' }}>
-                    <div style={{ color:'var(--muted)', fontSize:10 }}>{l}</div>
-                    <div style={{ fontWeight:500 }}>{v}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* 📊 Prijsoverzicht — zelfde stijl als het kostprijsoverzicht in de Werkbon */}
-            <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
-              <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>📊 Prijsoverzicht</p>
-              {[
-                ['Materiaal', detail.materiaal_kost],
-                ['Energie', detail.energie_kost_schat],
-                ['Machine', detail.machine_kost],
-                ['Arbeid', detail.arbeid_kost],
-                ...(detail.extra_totaal > 0 ? [['Extra', detail.extra_totaal]] : []),
-                ...(detail.artikelen_kost > 0 ? [['Artikelen', detail.artikelen_kost]] : []),
-              ].map(([l, v]) => (
-                <div key={l} style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
-                  <span style={{ color:'var(--muted)' }}>{l}</span><span>€{(v || 0).toFixed(2)}</span>
-                </div>
-              ))}
-              <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:11, color:'var(--muted)' }}>
-                <span>Subtotaal</span><span>€{detail.subtotaal?.toFixed(2)}</span>
-              </div>
+              <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>📄 Offerteregels</p>
+              <table style={{ width:'100%', fontSize:12, borderCollapse:'collapse' }}>
+                <thead>
+                  <tr style={{ textAlign:'left', color:'var(--muted)', fontSize:10, textTransform:'uppercase' }}>
+                    <th style={{ padding:'2px 4px 6px 0' }}>Aantal</th>
+                    <th style={{ padding:'2px 4px 6px' }}>Omschrijving</th>
+                    <th style={{ padding:'2px 4px 6px', textAlign:'right' }}>Eenh.prijs</th>
+                    <th style={{ padding:'2px 0 6px 4px', textAlign:'right' }}>Totaal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {offerteRegelsClient(detail, tarieven).map((r, i) => (
+                    <tr key={i} style={{ borderBottom:'1px solid var(--border)' }}>
+                      <td style={{ padding:'4px 4px 4px 0' }}>{r.aantal}</td>
+                      <td style={{ padding:'4px' }}>{r.omschrijving}</td>
+                      <td style={{ padding:'4px', textAlign:'right' }}>€{r.eenheidsprijs.toFixed(2)}</td>
+                      <td style={{ padding:'4px 0 4px 4px', textAlign:'right' }}>€{r.totaal.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
               <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0 4px', fontWeight:700, fontSize:15 }}>
                 <span>Verkoopprijs</span><span style={{ color:'var(--accent2)' }}>€{detail.verkoopprijs?.toFixed(2)}</span>
               </div>
