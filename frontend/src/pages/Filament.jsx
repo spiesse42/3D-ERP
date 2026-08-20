@@ -120,6 +120,40 @@ function TypeModal({ type, onClose, onSaved }) {
   const [margeStr, setMargeStr] = useState(String(form.marge_pct ?? ''));
   const [minVoorraadStr, setMinVoorraadStr] = useState(String(form.min_voorraad ?? ''));
 
+  // Vast kleurenpalet voor dit type (optioneel) — als dit niet leeg is, mag bij
+  // het aanmaken van voorraad van dit type enkel nog uit dit palet gekozen worden.
+  const [palet,        setPalet]        = useState([]);
+  const [paletGeladen, setPaletGeladen] = useState(false);
+  const [paletNaam,    setPaletNaam]    = useState('');
+  const [paletCode,    setPaletCode]    = useState('');
+  const [paletFout,    setPaletFout]    = useState('');
+  const [paletStatus,  setPaletStatus]  = useState('');
+  const paletHex = normaliseerHexInvoer(paletCode);
+
+  useEffect(() => {
+    if (!type?.id) return;
+    api.get(`/filament/types/${type.id}/kleurenpalet`).then(rows => { setPalet(rows); setPaletGeladen(true); });
+  }, [type?.id]);
+
+  function paletKleurToevoegen() {
+    if (!paletNaam.trim()) { setPaletFout('Geef een naam op'); return; }
+    if (paletCode && !paletHex) { setPaletFout('Ongeldige code — gebruik bv. #a855f7 of rgb(168,85,247), of laat leeg voor transparant'); return; }
+    setPalet(p => [...p, { naam: paletNaam.trim(), hex: paletHex }]);
+    setPaletNaam(''); setPaletCode(''); setPaletFout('');
+  }
+
+  function paletKleurVerwijderen(i) {
+    setPalet(p => p.filter((_, idx) => idx !== i));
+  }
+
+  async function paletOpslaan() {
+    try {
+      await api.put(`/filament/types/${type.id}/kleurenpalet`, { kleuren: palet.map(k => ({ naam: k.naam, hex: k.hex })) });
+      setPaletStatus('✓ Bewaard');
+      setTimeout(() => setPaletStatus(''), 2500);
+    } catch (e) { setPaletStatus('✗ ' + e.message); }
+  }
+
   const isFilament = form.categorie === 'filament';
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -201,6 +235,41 @@ function TypeModal({ type, onClose, onSaved }) {
           <label>Leverancier</label>
           <input value={form.leverancier || ''} onChange={e => set('leverancier', e.target.value)} />
         </div>
+
+        {/* Vast kleurenpalet — enkel mogelijk voor een al opgeslagen type */}
+        <div className="form-group">
+          <label>Kleurenpalet <span style={{ color:'var(--muted)', fontWeight:400, fontSize:11 }}>optioneel — leeg = alle kleuren toegelaten bij voorraad</span></label>
+          {!type?.id
+            ? <div style={{ fontSize:11, color:'var(--muted)' }}>Sla dit type eerst op — daarna kan je hier een vast kleurenpalet instellen.</div>
+            : !paletGeladen
+              ? <div style={{ fontSize:11, color:'var(--muted)' }}>Laden...</div>
+              : <>
+                  {palet.length > 0 && (
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:8 }}>
+                      {palet.map((k, i) => (
+                        <span key={i} style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 8px', borderRadius:20, border:'1px solid var(--border)', fontSize:11 }}>
+                          <KleurDot kleur={k.naam} hex={k.hex} size={10} />
+                          {k.naam}
+                          <button type="button" onClick={() => paletKleurVerwijderen(i)} style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer', padding:0, marginLeft:2, fontSize:11 }}>✕</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:6, alignItems:'center' }}>
+                    <span style={{ width:16, height:16, borderRadius:'50%', background: paletHex || 'repeating-linear-gradient(45deg, #fff, #fff 3px, #ccc 3px, #ccc 6px)', border:'1px solid rgba(255,255,255,0.2)', flexShrink:0 }} />
+                    <input value={paletNaam} onChange={e => { setPaletNaam(e.target.value); setPaletFout(''); }} placeholder="naam, bv. Zwart" style={{ width:130 }} />
+                    <input value={paletCode} onChange={e => { setPaletCode(e.target.value); setPaletFout(''); }} placeholder="#212721 (leeg = transparant)" style={{ width:190 }} />
+                    <button type="button" className="btn" style={{ fontSize:11, padding:'3px 10px' }} onClick={paletKleurToevoegen}>+ Toevoegen</button>
+                  </div>
+                  {paletFout && <div style={{ color:'var(--danger)', fontSize:11, marginTop:4 }}>{paletFout}</div>}
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:8 }}>
+                    <button type="button" className="btn primary" style={{ fontSize:11 }} onClick={paletOpslaan}>Kleurenpalet opslaan</button>
+                    {paletStatus && <span style={{ fontSize:11, color: paletStatus.startsWith('✓') ? 'var(--accent2)' : 'var(--danger)' }}>{paletStatus}</span>}
+                  </div>
+                </>
+          }
+        </div>
+
         <div className="modal-footer">
           <button className="btn" onClick={onClose}>Annuleer</button>
           <button className="btn primary" onClick={save}>Opslaan</button>
@@ -405,6 +474,17 @@ function RolModal({ types, rol, onClose, onSaved }) {
   const [nieuweKleurFout, setNieuweKleurFout] = useState('');
   const nieuweKleurHex = normaliseerHexInvoer(nieuweKleurCode);
 
+  // Sommige artikeltypes zijn maar in een vaste reeks kleuren verkrijgbaar
+  // (bv. "AnyCubic PETG") — is er zo'n palet ingesteld voor het gekozen type,
+  // dan mag je enkel daaruit kiezen (geen vrije tekst/eigen HEX meer).
+  const [typePalet, setTypePalet] = useState([]);
+  useEffect(() => {
+    if (!form.filament_type_id) { setTypePalet([]); return; }
+    api.get(`/filament/types/${form.filament_type_id}/kleurenpalet`).then(setTypePalet).catch(() => setTypePalet([]));
+  }, [form.filament_type_id]);
+  const heeftBeperktPalet = typePalet.length > 0;
+  const gekozenKleurenLijst = heeftBeperktPalet ? typePalet : kleurenLijst;
+
   async function voegKleurToe() {
     if (!nieuweKleurHex) { setNieuweKleurFout('Ongeldige code — gebruik bv. #a855f7 of rgb(168,85,247)'); return; }
     try {
@@ -513,31 +593,35 @@ function RolModal({ types, rol, onClose, onSaved }) {
         {/* Kleur */}
         {(isFilamentCat || kleurToggle) && (
           <div className="form-group">
-            <label>Kleur <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 11 }}>optioneel</span></label>
+            <label>Kleur <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 11 }}>
+              {heeftBeperktPalet ? 'dit artikeltype heeft een vast kleurenpalet — kies hieronder' : 'optioneel'}
+            </span></label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <span style={{ width: 24, height: 24, borderRadius: '50%', background: kleurHex(form.kleur, form.kleur_hex), border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
-              <input value={form.kleur} onChange={e => set('kleur', e.target.value)} placeholder="bv. Robijnrood, Lavendel..." />
+              <input value={form.kleur} onChange={e => set('kleur', e.target.value)} placeholder="bv. Robijnrood, Lavendel..." disabled={heeftBeperktPalet} />
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {kleurenLijst.map(k => (
-                <button key={k.hex} type="button" onClick={() => { set('kleur_hex', k.hex); set('kleur', k.naam || form.kleur); }}
+              {gekozenKleurenLijst.map((k, i) => (
+                <button key={k.id ?? k.hex ?? i} type="button" onClick={() => { set('kleur_hex', k.hex); set('kleur', k.naam || form.kleur); }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 20,
                     border: form.kleur_hex === k.hex ? '2px solid var(--accent)' : '1px solid var(--border)',
                     background: form.kleur_hex === k.hex ? 'var(--bg3)' : 'transparent',
                     cursor: 'pointer', fontSize: 11, color: 'var(--text)'
                   }}>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: k.hex, border: '1px solid rgba(255,255,255,0.2)' }} />
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: k.hex || 'repeating-linear-gradient(45deg, #fff, #fff 3px, #ccc 3px, #ccc 6px)', border: '1px solid rgba(255,255,255,0.2)' }} />
                   {k.naam || k.hex}
                 </button>
               ))}
-              <button type="button" className="btn" style={{ fontSize: 11, padding: '3px 8px' }}
-                onClick={() => setNieuweKleurOpen(o => !o)}>
-                + Eigen kleur
-              </button>
+              {!heeftBeperktPalet && (
+                <button type="button" className="btn" style={{ fontSize: 11, padding: '3px 8px' }}
+                  onClick={() => setNieuweKleurOpen(o => !o)}>
+                  + Eigen kleur
+                </button>
+              )}
             </div>
 
-            {nieuweKleurOpen && (
+            {!heeftBeperktPalet && nieuweKleurOpen && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 8, padding: '8px 10px', background: 'var(--bg3)', borderRadius: 8 }}>
                 <span style={{ width: 18, height: 18, borderRadius: '50%', background: nieuweKleurHex || '#555', border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
                 <input value={nieuweKleurCode} onChange={e => { setNieuweKleurCode(e.target.value); setNieuweKleurFout(''); }}

@@ -113,6 +113,44 @@ r.get('/types/:id/kleuren', (req, res) => {
   }
 });
 
+// GET/PUT het vaste kleurenpalet van een artikeltype (bv. "AnyCubic PETG" is
+// enkel in een vaste reeks kleuren verkrijgbaar). Leeg palet = geen beperking,
+// de voorraadkleurkiezer gebruikt dan gewoon het globale palet + eigen kleuren.
+r.get('/types/:id/kleurenpalet', (req, res) => {
+  try {
+    const rows = getDb().prepare(
+      'SELECT id, naam, hex FROM filament_type_kleuren WHERE filament_type_id = ? ORDER BY volgorde, id'
+    ).all(req.params.id);
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+r.put('/types/:id/kleurenpalet', (req, res) => {
+  const db = getDb();
+  const { kleuren } = req.body;
+  if (!Array.isArray(kleuren)) return res.status(400).json({ error: 'kleuren moet een lijst zijn' });
+  const type = db.prepare('SELECT id FROM filament_types WHERE id = ?').get(req.params.id);
+  if (!type) return res.status(404).json({ error: 'Type niet gevonden' });
+
+  const schoon = kleuren
+    .map(k => ({ naam: (k.naam || '').trim(), hex: k.hex || null }))
+    .filter(k => k.naam);
+
+  const vervang = db.transaction(() => {
+    db.prepare('DELETE FROM filament_type_kleuren WHERE filament_type_id = ?').run(req.params.id);
+    const insert = db.prepare('INSERT INTO filament_type_kleuren (filament_type_id, naam, hex, volgorde) VALUES (?,?,?,?)');
+    schoon.forEach((k, i) => insert.run(req.params.id, k.naam, k.hex, i));
+  });
+  try {
+    vervang();
+    res.json({ ok: true, aantal: schoon.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Rollen ───────────────────────────────────────────────────────────────────
 
 r.get('/rollen', (req, res) => {
