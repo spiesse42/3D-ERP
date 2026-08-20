@@ -18,6 +18,10 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const [selectedArtikel, setSelectedArtikel] = useState('');
   const [artikelAantal,   setArtikelAantal]   = useState('');
   const [materialen,      setMaterialen]      = useState([]);
+  const [filamentTypes,   setFilamentTypes]   = useState([]);
+  const [diensten,        setDiensten]        = useState([]);
+  const [dienstTypeId,    setDienstTypeId]    = useState('');
+  const [dienstAantal,    setDienstAantal]    = useState('');
   const [result,          setResult]          = useState(null);
   const [saving,          setSaving]          = useState(false);
   const [emailTo,         setEmailTo]         = useState('');
@@ -62,6 +66,8 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const artikelMaterialen  = materialen.filter(m => (m.categorie || 'filament') !== 'filament');
   const filamentRollenLijst = rollen.filter(r => (r.categorie || 'filament') === 'filament');
   const artikelRollenLijst  = rollen.filter(r => (r.categorie || 'filament') !== 'filament');
+  // Diensten (bv. verzendkosten) — geprijsd op typeniveau, geen voorraad nodig
+  const dienstTypes = filamentTypes.filter(f => f.categorie === 'dienst');
   const eenheidLabel = e => e === 'stuk' ? 'stuk(s)' : e === 'ml' ? 'ml' : 'g';
   // liveGram: voor Ender herbereken op basis van gekoppeld materiaaltype
   const liveGramRaw = live?.filament_g || 0;
@@ -85,6 +91,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
       }).catch(() => {});
     }
     api.get('/filament/rollen').then(r => setRollen(r.filter(x => x.actief)));
+    api.get('/filament/types').then(setFilamentTypes).catch(() => {});
 
     Promise.all([
       api.get('/tarieven'),
@@ -124,6 +131,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
           setMaterialen(materialen);
         }).catch(() => setMaterialen(d.materialen));
       }
+      if (d.diensten) setDiensten(d.diensten);
       if (d.kosten) setResult(d.kosten);
       if (d.notities) setOpmerking(d.notities);
     });
@@ -175,7 +183,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
 
   const formValues = JSON.stringify({ printUren, printMin, kwh, isMulticolor, voorbMin, nabMin,
     extraVoorbMin, ontwerpMin, ontwerpTarief, nabewerkingExtraMin, nabewerkingExtraTarief,
-    extraPerStuk, extraEenmalig, aantal, materialen });
+    extraPerStuk, extraEenmalig, aantal, materialen, diensten });
 
   useEffect(() => {
     if (!autoCalc || !tarievenGeladen) return;
@@ -227,6 +235,35 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     try {
       await api.delete(`/jobs/${job.id}/materialen/${matId}`);
       setMaterialen(prev => prev.filter(m => m.id !== matId));
+    } catch(e) { alert(e.message); }
+  }
+
+  async function voegDienstToe() {
+    if (!dienstTypeId || !dienstAantal) return alert('Selecteer een dienst en geef een aantal op');
+    try {
+      const type = dienstTypes.find(f => f.id === parseInt(dienstTypeId));
+      const res = await api.post(`/jobs/${job.id}/diensten`, {
+        filament_type_id: parseInt(dienstTypeId),
+        aantal: parseFloat(dienstAantal),
+      });
+      setDiensten(prev => [...prev, { id: res.id, filament_type_id: parseInt(dienstTypeId), aantal: parseFloat(dienstAantal), prijs_per_eenheid: type?.inkoop_prijs_per_kg || 0, merk: type?.merk, materiaal: type?.materiaal, eenheid: type?.eenheid }]);
+      setDienstTypeId(''); setDienstAantal('');
+    } catch(e) { alert(e.message); }
+  }
+
+  async function wijzigDienst(dienstId, veld, waarde) {
+    const nieuweWaarde = parseFloat(waarde);
+    if (isNaN(nieuweWaarde) || nieuweWaarde < 0) return;
+    try {
+      await api.put(`/jobs/${job.id}/diensten/${dienstId}`, { [veld]: nieuweWaarde });
+      setDiensten(prev => prev.map(d => d.id === dienstId ? { ...d, [veld]: nieuweWaarde } : d));
+    } catch(e) { alert(e.message); }
+  }
+
+  async function verwijderDienst(dienstId) {
+    try {
+      await api.delete(`/jobs/${job.id}/diensten/${dienstId}`);
+      setDiensten(prev => prev.filter(d => d.id !== dienstId));
     } catch(e) { alert(e.message); }
   }
 
@@ -521,6 +558,59 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
         </div>
         )}
 
+        {/* DIENSTEN — bv. verzendkosten, los van voorraad, prijs/aantal per werkbon aanpasbaar */}
+        <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
+          <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>🚚 Diensten <span style={{ color:'var(--muted)', fontWeight:400 }}>(bv. verzendkosten — geen voorraad)</span></p>
+
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 90px auto', gap:6, alignItems:'end', marginBottom:8 }}>
+            <select value={dienstTypeId} onChange={e => setDienstTypeId(e.target.value)} style={{ fontSize:12 }}>
+              <option value="">— selecteer dienst —</option>
+              {dienstTypes.map(f => (
+                <option key={f.id} value={f.id}>
+                  {f.merk} {f.materiaal} — €{(f.inkoop_prijs_per_kg||0).toFixed(2)}/{eenheidLabel(f.eenheid).replace('(s)','')}
+                </option>
+              ))}
+            </select>
+            <input type="number" min="0.1" step="0.1" placeholder="aantal"
+              value={dienstAantal} onChange={e => setDienstAantal(e.target.value)} style={{ fontSize:12 }} />
+            <button className="btn primary" style={{ fontSize:11 }} onClick={voegDienstToe}>+ Voeg toe</button>
+          </div>
+
+          {dienstTypes.length === 0 && (
+            <div style={{ fontSize:11, color:'var(--muted)' }}>
+              Geen diensttypes — voeg er eerst een toe via de Artikelen-tab (categorie "Dienst").
+            </div>
+          )}
+
+          {diensten.map(d => (
+            <div key={d.id} style={{ background:'var(--bg2)', borderRadius:6, padding:'6px 10px', marginBottom:4, fontSize:12 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                <span style={{ fontWeight:500, flex:1 }}>{d.merk} {d.materiaal}</span>
+                <input
+                  type="number" min="0.1" step="0.1"
+                  defaultValue={d.eenheid === 'stuk' ? Math.round(d.aantal) : d.aantal}
+                  style={{ width:60, fontSize:12, MozAppearance:'textfield', appearance:'textfield' }}
+                  title="Aantal"
+                  onBlur={e => wijzigDienst(d.id, 'aantal', e.target.value)}
+                />
+                <span style={{ fontSize:11, color:'var(--muted)' }}>×</span>
+                <input
+                  type="number" min="0" step="0.01"
+                  defaultValue={d.prijs_per_eenheid}
+                  style={{ width:70, fontSize:12, MozAppearance:'textfield', appearance:'textfield' }}
+                  title="Prijs per eenheid (aanpasbaar voor deze werkbon)"
+                  onBlur={e => wijzigDienst(d.id, 'prijs_per_eenheid', e.target.value)}
+                />
+                <span style={{ color:'var(--muted)', minWidth:60, fontSize:11 }}>
+                  = €{(d.aantal * d.prijs_per_eenheid).toFixed(2)}
+                </span>
+                <button onClick={() => verwijderDienst(d.id)}
+                  style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer', fontSize:12 }}>✕</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
         {/* ENERGIE — niet van toepassing bij een dienst */}
         {!isDienst && (
         <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
@@ -650,6 +740,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
               ),
               ...(isDienst ? [] : [{ label:'Energie',   val: result.energie_kost,   sub: `${result.kwh_verbruikt} kWh` }]),
               ...(result.machine_kost > 0 ? [{ label:`Machine (${(parseInt(printUren) + parseInt(printMin)/60).toFixed(1)}u)`, val: result.machine_kost }] : []),
+              ...(result.diensten_kost > 0 ? [{ label:'Diensten', val: result.diensten_kost }] : []),
               ...(totVoorb > 0   ? [{ label:`Voorbereiding (${totVoorb} min)`,              val: (totVoorb / 60) * arbTarief }] : []),
               ...(nabMin > 0     ? [{ label:`Nabewerking (${nabMin} min)`,                   val: (nabMin / 60) * arbTarief }] : []),
               ...(ontwerpMin > 0 ? [{ label:`Ontwerp (${ontwerpMin} min)`,                   val: (ontwerpMin / 60) * ontwerpTarief }] : []),

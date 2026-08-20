@@ -332,7 +332,7 @@ export default function Dashboard() {
                 <select value={j.status}
                   style={{ fontSize:11, padding:'2px 6px', background:'var(--bg2)', color:'var(--text)', border:'1px solid var(--border)', borderRadius:4 }}
                   onChange={async e => { await api.patch(`/jobs/${j.id}/status`, { status: e.target.value }); loadOperationeel(); }}>
-                  {['gepland','bezig','voltooid','gefaald','geannuleerd'].map(s => <option key={s} value={s}>{s}</option>)}
+                  {['in te plannen','gepland','bezig','voltooid','gefaald','geannuleerd'].map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
             </div>

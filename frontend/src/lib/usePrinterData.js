@@ -186,7 +186,7 @@ export function usePrinterData() {
         // dit botsen met de wachtrij-logica).
         if (p.auto_job_aanmaken && isActief && !['running', 'printing', 'prepare'].includes(wasBusy)) {
           api.get(`/jobs?printer_id=${p.id}`).then(jobs => {
-            const heeftAlJob = jobs.some(j => ['bezig', 'gepland'].includes(j.status));
+            const heeftAlJob = jobs.some(j => ['bezig', 'gepland', 'in te plannen'].includes(j.status));
             if (!heeftAlJob) {
               const totalSec = elapsed + remaining;
               const urenGeschat = totalSec > 0 ? Math.round(totalSec / 360) / 10 : null;

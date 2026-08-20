@@ -31,6 +31,9 @@ import { migrateDbV27 } from './db_migration_v27.js';
 import { migrateDbV28 } from './db_migration_v28.js';
 import { migrateDbV29 } from './db_migration_v29.js';
 import { migrateDbV30 } from './db_migration_v30.js';
+import { migrateDbV31 } from './db_migration_v31.js';
+import { migrateDbV32 } from './db_migration_v32.js';
+import { migrateDbV33 } from './db_migration_v33.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'erp.db');
@@ -176,6 +179,9 @@ migrateDbV10(db);
   migrateDbV28(db);
   migrateDbV29(db);
   migrateDbV30(db);
+  migrateDbV31(db);
+  migrateDbV32(db);
+  migrateDbV33(db);
 
   // Per printer op naam controleren (i.p.v. "tabel is leeg") — zo blokkeert een
   // migratie die zelf al een printer toevoegt (bv. v21, AnyCubic) niet de seed

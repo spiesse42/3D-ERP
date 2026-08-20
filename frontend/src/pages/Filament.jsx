@@ -34,7 +34,7 @@ function VoorraadBalk({ huidig, start }) {
 }
 
 // ─── GroepDetailModal — alle individuele rollen van 1 type+kleur ──────────
-function GroepDetailModal({ groep, rollen, onClose, onEditRol, onNieuweRol, onToggleActief, onDeleteRol }) {
+function GroepDetailModal({ groep, rollen, onClose, onEditRol, onNieuweRol, onToggleActief, onDeleteRol, onKalibratie }) {
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 720 }}>
@@ -46,8 +46,11 @@ function GroepDetailModal({ groep, rollen, onClose, onEditRol, onNieuweRol, onTo
           <button className="btn" onClick={onClose}>✕</button>
         </div>
 
-        <div style={{ marginBottom: 12 }}>
+        <div style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
           <button className="btn primary" onClick={onNieuweRol}>+ Rol toevoegen</button>
+          {(groep.categorie || 'filament') === 'filament' && (
+            <button className="btn" onClick={onKalibratie} title="Kalibratie voor dit type + deze kleur">🎛 Kalibratie</button>
+          )}
         </div>
 
         {rollen.length === 0
@@ -98,6 +101,7 @@ const CATEGORIEEN = [
   { waarde: 'filament',           label: '🧵 Filament' },
   { waarde: 'onderdeel',          label: '🔧 Onderdeel (sleutelhangers, ringetjes...)' },
   { waarde: 'verbruiksmateriaal', label: '🧪 Verbruiksmateriaal (lijm, schroeven...)' },
+  { waarde: 'dienst',             label: '🚚 Dienst (verzendkosten, ontwerp...) — geen voorraad' },
   { waarde: 'overig',             label: '📦 Overig' },
 ];
 const EENHEDEN = [
@@ -207,6 +211,9 @@ function TypeModal({ type, onClose, onSaved }) {
 }
 
 // ─── KalibratieModal — Flow Ratio, Max Volumetric Speed enz., per printer ─────
+// Op voorraadniveau (type + kleur) i.p.v. artikelniveau — kleur wordt bij de
+// voorraad toegekend en bepaalt mee de kalibratiewaarden (pigment beïnvloedt
+// flow/temperatuur), dus alle rollen van hetzelfde type+kleur delen 1 set.
 const KALIBRATIE_VELDEN = [
   'flow_ratio', 'max_volumetric_speed',
   'nozzle_temp_eerste_laag', 'nozzle_temp_overige_lagen',
@@ -214,13 +221,14 @@ const KALIBRATIE_VELDEN = [
   'pressure_advance', 'retractie_lengte', 'retractie_snelheid',
 ];
 
-function KalibratieModal({ type, onClose }) {
+function KalibratieModal({ groep, onClose }) {
   const [rijen, setRijen] = useState([]);
   const [geladen, setGeladen] = useState(false);
   const [savedId, setSavedId] = useState(null);
+  const kleur = groep.kleur || '';
 
   useEffect(() => {
-    api.get(`/kalibratie/type/${type.id}`).then(rows => {
+    api.get(`/kalibratie/type/${groep.filament_type_id}?kleur=${encodeURIComponent(kleur)}`).then(rows => {
       setRijen(rows.map(r => {
         const rij = { printer_id: r.printer_id, printer_naam: r.printer_naam, notities: r.notities ?? '' };
         KALIBRATIE_VELDEN.forEach(v => { rij[v] = r[v] ?? ''; });
@@ -228,7 +236,7 @@ function KalibratieModal({ type, onClose }) {
       }));
       setGeladen(true);
     });
-  }, [type.id]);
+  }, [groep.filament_type_id, kleur]);
 
   function setVeld(printerId, veld, waarde) {
     setRijen(rs => rs.map(r => r.printer_id === printerId ? { ...r, [veld]: waarde } : r));
@@ -236,7 +244,7 @@ function KalibratieModal({ type, onClose }) {
 
   async function bewaarRij(rij) {
     try {
-      await api.put('/kalibratie', { filament_type_id: type.id, printer_id: rij.printer_id, ...rij });
+      await api.put('/kalibratie', { filament_type_id: groep.filament_type_id, kleur, printer_id: rij.printer_id, ...rij });
       setSavedId(rij.printer_id);
       setTimeout(() => setSavedId(null), 2500);
     } catch (e) { alert(e.message); }
@@ -246,12 +254,16 @@ function KalibratieModal({ type, onClose }) {
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 640 }}>
         <div className="modal-header">
-          <h2>🎛 Kalibratie — {type.merk} {type.materiaal}</h2>
+          <h2 style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <KleurDot kleur={groep.kleur} hex={groep.kleur_hex} size={16} />
+            🎛 Kalibratie — {groep.merk} {groep.materiaal}{groep.kleur ? ` — ${groep.kleur}` : ''}
+          </h2>
           <button className="btn" onClick={onClose}>✕</button>
         </div>
 
         <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 12 }}>
           Waarden uit je slicerprofiel (Bambu Studio, Orca Slicer, Klipper...), per printer — nozzle en hotend kunnen immers per toestel verschillen.
+          {!groep.kleur && ' Dit is de algemene set (geen specifieke kleur toegekend).'}
         </p>
 
         {!geladen
@@ -655,7 +667,7 @@ export default function Filament() {
       if (!acc[key]) {
         acc[key] = {
           key, filament_type_id: r.filament_type_id, merk: r.merk, materiaal: r.materiaal,
-          kleur: r.kleur, kleur_hex: r.kleur_hex, eenheid: r.eenheid,
+          kleur: r.kleur, kleur_hex: r.kleur_hex, eenheid: r.eenheid, categorie: r.categorie,
           rollen: [], aantalActief: 0, aantalTotaal: 0,
           huidigTotaal: 0, startTotaal: 0, restwaardeTotaal: 0,
         };
@@ -811,9 +823,6 @@ export default function Filament() {
                       <td style={{ color: 'var(--muted)' }}>{t.leverancier || '—'}</td>
                       <td>
                         <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
-                          {(t.categorie || 'filament') === 'filament' && (
-                            <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} title="Kalibratie per printer" onClick={() => setKalibratieModal(t)}>🎛</button>
-                          )}
                           <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => setTypeModal(t)}>✏</button>
                           <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => deleteType(t)}>✕</button>
                         </div>
@@ -835,7 +844,7 @@ export default function Filament() {
       )}
       {kalibratieModal !== null && (
         <KalibratieModal
-          type={kalibratieModal}
+          groep={kalibratieModal}
           onClose={() => setKalibratieModal(null)}
         />
       )}
@@ -856,6 +865,7 @@ export default function Filament() {
           onNieuweRol={() => { setGroepModal(null); setRolModal({ filament_type_id: groepModal.filament_type_id, kleur: groepModal.kleur, kleur_hex: groepModal.kleur_hex }); }}
           onToggleActief={toggleRol}
           onDeleteRol={deleteRol}
+          onKalibratie={() => { setGroepModal(null); setKalibratieModal(groepModal); }}
         />
       )}
     </div>

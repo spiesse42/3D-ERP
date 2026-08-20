@@ -16,11 +16,13 @@ function naarGetal(v) {
   return isNaN(n) ? null : n;
 }
 
-// GET alle kalibraties voor 1 filament type — 1 rij per actieve printer
-// (ook printers zonder kalibratie worden meegegeven, met lege velden, zodat de
-// UI meteen een invulbare rij per printer kan tonen)
+// GET alle kalibraties voor 1 filament type + kleur (voorraadniveau) — 1 rij
+// per actieve printer (ook printers zonder kalibratie worden meegegeven, met
+// lege velden, zodat de UI meteen een invulbare rij per printer kan tonen).
+// kleur = '' (query-param leeg/afwezig) = de "algemene" set zonder kleur-onderscheid.
 r.get('/type/:filamentTypeId', (req, res) => {
   try {
+    const kleur = req.query.kleur || '';
     // Let op: geen "k.*" hier — k.printer_id/k.filament_type_id zouden anders de
     // hieronder gealiaste p.id/route-param overschrijven zodra ze null zijn
     // (LEFT JOIN zonder match), waardoor printers zonder kalibratie een kapotte
@@ -34,20 +36,21 @@ r.get('/type/:filamentTypeId', (req, res) => {
         k.notities, k.bijgewerkt_op
       FROM printers p
       LEFT JOIN filament_kalibraties k
-        ON k.printer_id = p.id AND k.filament_type_id = ?
+        ON k.printer_id = p.id AND k.filament_type_id = ? AND k.kleur = ?
       WHERE p.actief = 1
       ORDER BY p.id
-    `).all(req.params.filamentTypeId);
+    `).all(req.params.filamentTypeId, kleur);
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// PUT (upsert) — 1 kalibratieset voor een combinatie filament type + printer
+// PUT (upsert) — 1 kalibratieset voor een combinatie filament type + kleur + printer
 r.put('/', (req, res) => {
   const db = getDb();
   const { filament_type_id, printer_id, notities } = req.body;
+  const kleur = req.body.kleur || '';
   if (!filament_type_id || !printer_id) {
     return res.status(400).json({ error: 'filament_type_id en printer_id zijn verplicht' });
   }
@@ -56,14 +59,14 @@ r.put('/', (req, res) => {
   try {
     db.prepare(`
       INSERT INTO filament_kalibraties
-        (filament_type_id, printer_id, ${VELDEN.join(', ')}, notities, bijgewerkt_op)
+        (filament_type_id, kleur, printer_id, ${VELDEN.join(', ')}, notities, bijgewerkt_op)
       VALUES
-        (?, ?, ${VELDEN.map(() => '?').join(', ')}, ?, datetime('now'))
-      ON CONFLICT(filament_type_id, printer_id) DO UPDATE SET
+        (?, ?, ?, ${VELDEN.map(() => '?').join(', ')}, ?, datetime('now'))
+      ON CONFLICT(filament_type_id, kleur, printer_id) DO UPDATE SET
         ${VELDEN.map(v => `${v}=excluded.${v}`).join(', ')},
         notities=excluded.notities,
         bijgewerkt_op=excluded.bijgewerkt_op
-    `).run(filament_type_id, printer_id, ...VELDEN.map(v => waarden[v]), notities || null);
+    `).run(filament_type_id, kleur, printer_id, ...VELDEN.map(v => waarden[v]), notities || null);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

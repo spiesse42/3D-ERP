@@ -67,8 +67,15 @@ r.get('/:id', (req, res) => {
     JOIN filament_types ft ON ft.id = r.filament_type_id
     WHERE jm.job_id = ?
   `).all(req.params.id);
+  const diensten = db.prepare(`
+    SELECT jd.*, ft.merk, ft.materiaal, ft.eenheid
+    FROM job_diensten jd
+    JOIN filament_types ft ON ft.id = jd.filament_type_id
+    WHERE jd.job_id = ?
+    ORDER BY jd.id
+  `).all(req.params.id);
   const kosten = db.prepare('SELECT * FROM job_kosten WHERE job_id = ?').get(req.params.id);
-  res.json({ ...job, materialen, kosten });
+  res.json({ ...job, materialen, diensten, kosten });
 });
 
 r.post('/', (req, res) => {
@@ -78,7 +85,7 @@ r.post('/', (req, res) => {
   const jobType = type === 'dienst' ? 'dienst' : 'print';
   if (!naam) return res.status(400).json({ error: 'naam is verplicht' });
   if (jobType === 'print' && !printer_id) return res.status(400).json({ error: 'printer_id is verplicht voor een print-job' });
-  const jobStatus  = status || 'gepland';
+  const jobStatus  = status || 'in te plannen';
   const gestart    = gestart_op || (jobStatus === 'bezig' ? new Date().toISOString() : null);
   const volgnummer = volgendVolgnummer(db);
   const result = db.prepare(`
@@ -216,6 +223,62 @@ r.delete('/:jobId/materialen/:id', (req, res) => {
       .run(mat.gram_gebruikt, mat.filament_rol_id);
     db.prepare('DELETE FROM job_materialen WHERE id = ?').run(req.params.id);
   }
+  res.json({ ok: true });
+});
+
+// ── Diensten (bv. verzendkosten) — los van voorraad, geprijsd op typeniveau
+// met een per-job overschrijfbare prijs én aantal. In tegenstelling tot
+// materialen/artikelen hierboven wordt hier geen stock afgeboekt. ──────────
+
+r.get('/:id/diensten', (req, res) => {
+  const rows = getDb().prepare(`
+    SELECT jd.*, ft.merk, ft.materiaal, ft.eenheid
+    FROM job_diensten jd
+    JOIN filament_types ft ON ft.id = jd.filament_type_id
+    WHERE jd.job_id = ?
+    ORDER BY jd.id
+  `).all(req.params.id);
+  res.json(rows);
+});
+
+r.post('/:id/diensten', (req, res) => {
+  const db = getDb();
+  const { filament_type_id, aantal } = req.body;
+  if (!filament_type_id || !aantal || parseFloat(aantal) <= 0) {
+    return res.status(400).json({ error: 'filament_type_id en aantal (> 0) zijn verplicht' });
+  }
+  const job = db.prepare('SELECT id FROM jobs WHERE id = ?').get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job niet gevonden' });
+
+  let prijs = parseFloat(req.body.prijs_per_eenheid);
+  if (isNaN(prijs)) {
+    const ft = db.prepare('SELECT inkoop_prijs_per_kg FROM filament_types WHERE id = ?').get(filament_type_id);
+    if (!ft) return res.status(400).json({ error: 'Diensttype niet gevonden' });
+    prijs = ft.inkoop_prijs_per_kg || 0;
+  }
+  const result = db.prepare(
+    'INSERT INTO job_diensten (job_id, filament_type_id, aantal, prijs_per_eenheid) VALUES (?,?,?,?)'
+  ).run(req.params.id, filament_type_id, parseFloat(aantal), prijs);
+  res.status(201).json({ id: result.lastInsertRowid });
+});
+
+r.put('/:jobId/diensten/:id', (req, res) => {
+  const db = getDb();
+  const dienst = db.prepare('SELECT * FROM job_diensten WHERE id = ? AND job_id = ?').get(req.params.id, req.params.jobId);
+  if (!dienst) return res.status(404).json({ error: 'Niet gevonden' });
+
+  const nieuwAantal = req.body.aantal != null ? parseFloat(req.body.aantal) : dienst.aantal;
+  const nieuwePrijs = req.body.prijs_per_eenheid != null ? parseFloat(req.body.prijs_per_eenheid) : dienst.prijs_per_eenheid;
+  if (isNaN(nieuwAantal) || nieuwAantal <= 0) return res.status(400).json({ error: 'aantal moet groter dan 0 zijn' });
+  if (isNaN(nieuwePrijs) || nieuwePrijs < 0) return res.status(400).json({ error: 'prijs mag niet negatief zijn' });
+
+  db.prepare('UPDATE job_diensten SET aantal = ?, prijs_per_eenheid = ? WHERE id = ?')
+    .run(nieuwAantal, nieuwePrijs, req.params.id);
+  res.json({ ok: true });
+});
+
+r.delete('/:jobId/diensten/:id', (req, res) => {
+  getDb().prepare('DELETE FROM job_diensten WHERE id = ? AND job_id = ?').run(req.params.id, req.params.jobId);
   res.json({ ok: true });
 });
 

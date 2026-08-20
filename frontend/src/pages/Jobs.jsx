@@ -5,7 +5,14 @@ import { api } from '../lib/api.js';
 import KostenModal from '../components/KostenModal.jsx';
 import PrinterCard from '../components/PrinterCard.jsx';
 
-const STATUSSEN = ['gepland','bezig','voltooid','gecontroleerd','gefactureerd','betaald','gefaald','geannuleerd'];
+const STATUSSEN = ['in te plannen','gepland','bezig','voltooid','gecontroleerd','gefactureerd','betaald','gefaald','geannuleerd'];
+
+// Statuswaarden kunnen spaties bevatten (bv. "in te plannen") — CSS-classnamen
+// mogen geen spaties bevatten, dus voor de badge-klasse zetten we die om naar
+// koppeltekens. De zichtbare tekst blijft ongewijzigd.
+function statusKlasse(status) {
+  return (status || '').replace(/\s+/g, '-');
+}
 
 // Zet een lokaal bestandspad om naar een klikbare file://-link. Werkt enkel als
 // het veld het volledige pad bevat (map + bestandsnaam) en de pagina bekeken
@@ -29,7 +36,7 @@ const [form, setForm] = useState(job ? {
     aantal_kleuren: job.aantal_kleuren || '', print_uren_geschat: job.print_uren_geschat || '',
     print_uren_werkelijk: job.print_uren_werkelijk || '', stl_bestandsnaam: job.stl_bestandsnaam || '',
     notities: job.notities || '',
-  } : { printer_id: printers[0]?.id || '', naam:'', status:'gepland', type:'print', dienst_categorie:'', is_multicolor:false, aantal_kleuren:1, print_uren_geschat:'', notities:'' });  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  } : { printer_id: printers[0]?.id || '', naam:'', status:'in te plannen', type:'print', dienst_categorie:'', is_multicolor:false, aantal_kleuren:1, print_uren_geschat:'', notities:'' });  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const [categorieSuggesties, setCategorieSuggesties] = useState([]);
   useEffect(() => { api.get('/jobs/dienst-categorieen').then(setCategorieSuggesties).catch(() => {}); }, []);
   async function save() {
@@ -220,7 +227,7 @@ export default function Jobs() {
                     <td>{j.type === 'dienst'
                       ? (j.dienst_categorie || <span style={{ color:'var(--muted)' }}>—</span>)
                       : j.printer_naam}</td>
-                    <td><span className={`badge ${j.status}`}>{j.status}</span></td>
+                    <td><span className={`badge ${statusKlasse(j.status)}`}>{j.status}</span></td>
                     <td style={{ color:'var(--muted)' }}>
                       {(() => {
                         const u = j.print_uren_werkelijk ?? j.print_uren_geschat;

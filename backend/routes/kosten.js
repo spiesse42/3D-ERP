@@ -14,7 +14,7 @@ function buildPdfHtml(kosten, klant, extraInfo = {}) {
   const toon = v => `€${(v||0).toFixed(2)}`;
   const { voorbMin=15, nabMin=10, arbTarief=15, ontwerpMin=0, ontwerpTarief=15,
           nabExtraMin=0, nabExtraTarief=15, extraTotaal=0, extraOmschrijving='',
-          aantal=1, matDetails=[], btw=false } = extraInfo;
+          aantal=1, matDetails=[], dienstDetails=[], btw=false } = extraInfo;
   const btwBedrag = btw ? (kosten.verkoopprijs||0) * 0.21 : 0;
   const totaalInclBtw = (kosten.verkoopprijs||0) + btwBedrag;
 
@@ -24,6 +24,10 @@ function buildPdfHtml(kosten, klant, extraInfo = {}) {
     const deler = m.eenheid === 'gram' ? 1000 : 1;
     const aantalTxt = m.eenheid === 'stuk' ? Math.round(m.gram) : m.gram.toFixed(1);
     return `<tr><td>Materiaal — ${m.naam}</td><td>${aantalTxt} ${eenheidLabel(m.eenheid)}</td><td>${toon((m.gram/deler)*m.prijs*margeFactor)}</td></tr>`;
+  }).join('');
+  const dienstRijen = dienstDetails.map(d => {
+    const aantalTxt = d.eenheid === 'stuk' ? Math.round(d.aantal) : d.aantal.toFixed(1);
+    return `<tr><td>Dienst — ${d.naam}</td><td>${aantalTxt} ${eenheidLabel(d.eenheid)}</td><td>${toon(d.aantal*d.prijs_per_eenheid*margeFactor)}</td></tr>`;
   }).join('');
 
   return `<!DOCTYPE html>
@@ -70,6 +74,7 @@ ${klant ? `<div class="klant"><h3>Klant</h3>
     ${ontwerpMin > 0 ? `<tr><td>Ontwerp regie</td><td>${ontwerpMin} min</td><td>${toon((ontwerpMin/60)*ontwerpTarief*margeFactor)}</td></tr>` : ''}
     ${nabExtraMin > 0 ? `<tr><td>Nabewerking extra</td><td>${nabExtraMin} min</td><td>${toon((nabExtraMin/60)*nabExtraTarief*margeFactor)}</td></tr>` : ''}
     ${kosten.bmcu_slijtage > 0 ? `<tr><td>Multicolor (BMCU)</td><td>—</td><td>${toon(kosten.bmcu_slijtage*margeFactor)}</td></tr>` : ''}
+    ${dienstRijen}
     ${extraTotaal > 0 ? `<tr><td>Extra${extraOmschrijving ? ' — '+extraOmschrijving : ''}</td><td>—</td><td>${toon(extraTotaal*margeFactor)}</td></tr>` : ''}
   </tbody>
 </table>
@@ -158,6 +163,13 @@ r.post('/bereken/:jobId', (req, res) => {
 
   const materiaal_kost = filament_kost + artikel_kost;
 
+  const diensten = db.prepare(`
+    SELECT jd.aantal, jd.prijs_per_eenheid
+    FROM job_diensten jd
+    WHERE jd.job_id = ?
+  `).all(req.params.jobId);
+  const diensten_kost = diensten.reduce((sum, d) => sum + d.aantal * d.prijs_per_eenheid, 0);
+
   const energie_kost = parseFloat(kwh_verbruikt) * kwh_prijs;
   const machine_kost = uren * machineKostPerUur;
   const bmcu_slijtage = (is_multicolor && job.heeft_bmcu) ? bmcu_per_job : 0;
@@ -171,14 +183,14 @@ r.post('/bereken/:jobId', (req, res) => {
   const arbeid_totaal = arbeid_voorbereiding + arbeid_nabewerking + arbeid_ontwerp + arbeid_nabewerking_extra;
 
   const extra_totaal = (parseFloat(extra_per_stuk) * parseInt(aantal)) + parseFloat(extra_eenmalig);
-  const subtotaal = materiaal_kost + energie_kost + machine_kost + bmcu_slijtage + arbeid_totaal + extra_totaal;
+  const subtotaal = materiaal_kost + energie_kost + machine_kost + bmcu_slijtage + arbeid_totaal + extra_totaal + diensten_kost;
   const marge_pct = uren >= marge_grens_uur ? marge_groot_pct : marge_klein_pct;
   const verkoopprijs = subtotaal * (1 + marge_pct / 100);
 
   const ro = v => Math.round(v * 1000) / 1000;
   const kosten = {
     job_id: parseInt(req.params.jobId),
-    materiaal_kost: ro(materiaal_kost), filament_kost: ro(filament_kost), artikel_kost: ro(artikel_kost), energie_kost: ro(energie_kost),
+    materiaal_kost: ro(materiaal_kost), filament_kost: ro(filament_kost), artikel_kost: ro(artikel_kost), diensten_kost: ro(diensten_kost), energie_kost: ro(energie_kost),
     machine_kost: ro(machine_kost), bmcu_slijtage: ro(bmcu_slijtage),
     arbeid_kost: ro(arbeid_totaal), arbeid_voorbereiding: ro(arbeid_voorbereiding),
     arbeid_nabewerking: ro(arbeid_nabewerking), arbeid_ontwerp: ro(arbeid_ontwerp),
@@ -198,8 +210,8 @@ r.post('/bereken/:jobId', (req, res) => {
        faalfactor_pct,winstmarge_pct,totaal_kost,verkoopprijs,kwh_verbruikt,
        aantal,extra_per_stuk,extra_eenmalig,extra_omschrijving,
        voorbereiding_min,nabewerking_min,ontwerp_min,ontwerp_tarief,
-       nabewerking_extra_min,nabewerking_extra_tarief,berekend_op)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+       nabewerking_extra_min,nabewerking_extra_tarief,diensten_kost,berekend_op)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
     ON CONFLICT(job_id) DO UPDATE SET
       materiaal_kost=excluded.materiaal_kost,energie_kost=excluded.energie_kost,
       machine_kost=excluded.machine_kost,arbeid_kost=excluded.arbeid_kost,
@@ -211,13 +223,14 @@ r.post('/bereken/:jobId', (req, res) => {
       voorbereiding_min=excluded.voorbereiding_min,nabewerking_min=excluded.nabewerking_min,
       ontwerp_min=excluded.ontwerp_min,ontwerp_tarief=excluded.ontwerp_tarief,
       nabewerking_extra_min=excluded.nabewerking_extra_min,nabewerking_extra_tarief=excluded.nabewerking_extra_tarief,
+      diensten_kost=excluded.diensten_kost,
       berekend_op=datetime('now')
   `).run(kosten.job_id, kosten.materiaal_kost, kosten.energie_kost, kosten.machine_kost,
          kosten.arbeid_kost, kosten.bmcu_slijtage, kosten.faalfactor_pct, kosten.winstmarge_pct,
          kosten.totaal_kost, kosten.verkoopprijs, kosten.kwh_verbruikt,
          kosten.aantal, kosten.extra_per_stuk, kosten.extra_eenmalig, kosten.extra_omschrijving,
          kosten.voorbereiding_min, kosten.nabewerking_min, kosten.ontwerp_min, kosten.ontwerp_tarief,
-         kosten.nabewerking_extra_min, kosten.nabewerking_extra_tarief);
+         kosten.nabewerking_extra_min, kosten.nabewerking_extra_tarief, kosten.diensten_kost);
 
   if (opmerking) db.prepare('UPDATE jobs SET notities = ? WHERE id = ?').run(opmerking, req.params.jobId);
 
@@ -267,6 +280,12 @@ r.get('/pdf/:jobId', (req, res) => {
       FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id
       JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?
     `).all(req.params.jobId),
+    dienstDetails: db.prepare(`
+      SELECT jd.aantal, jd.prijs_per_eenheid, ft.eenheid,
+        ft.merk || ' ' || ft.materiaal as naam
+      FROM job_diensten jd JOIN filament_types ft ON ft.id = jd.filament_type_id
+      WHERE jd.job_id = ?
+    `).all(req.params.jobId),
   };
 
   const html = buildPdfHtml(volledigeKosten, klant, extraInfo);
@@ -305,6 +324,7 @@ r.post('/email/:jobId', async (req, res) => {
     aantal: extra_velden.aantal || kosten.aantal || 1,
     btw: btwEmail,
     matDetails: db.prepare(`SELECT jm.gram_gebruikt as gram, ft.eenheid, COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start, 0) * (CASE WHEN ft.eenheid = 'gram' THEN 1000.0 ELSE 1.0 END), ft.inkoop_prijs_per_kg) as prijs, ft.merk || ' ' || ft.materiaal || COALESCE(' ' || r.kleur, '') as naam FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?`).all(req.params.jobId),
+    dienstDetails: db.prepare(`SELECT jd.aantal, jd.prijs_per_eenheid, ft.eenheid, ft.merk || ' ' || ft.materiaal as naam FROM job_diensten jd JOIN filament_types ft ON ft.id = jd.filament_type_id WHERE jd.job_id = ?`).all(req.params.jobId),
   };
   const pdfHtml = buildPdfHtml(volledigeKosten, klant, extraInfo);
   try {

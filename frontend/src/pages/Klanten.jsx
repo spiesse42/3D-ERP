@@ -190,7 +190,7 @@ function KlantDetail({ klant, onClose, onEdit, onDeleted }) {
                     <tr key={j.id} style={{ borderBottom:'1px solid var(--border)' }}>
                       <td style={{ padding:'6px 8px', fontWeight:500 }}>{j.naam}</td>
                       <td style={{ padding:'6px 8px' }}>
-                        <span className={`badge ${j.status}`}>{j.status}</span>
+                        <span className={`badge ${(j.status || '').replace(/\s+/g,'-')}`}>{j.status}</span>
                       </td>
                       <td style={{ padding:'6px 8px', color:'var(--muted)' }}>
                         {j.aangemaakt_op ? new Date(j.aangemaakt_op).toLocaleDateString('nl-BE') : '—'}
