@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { KLEUREN, kleurHex, alleKleuren, normaliseerHexInvoer, registreerCustomKleuren } from '../lib/kleuren.js';
 import KleurDot from '../components/KleurDot.jsx';
+import FactuurUploadModal from '../components/FactuurUploadModal.jsx';
 
 function eenheidSuffix(eenheid) {
   if (eenheid === 'stuk') return ' stuk';
@@ -727,6 +728,7 @@ export default function Filament() {
   const [rolModal,  setRolModal]  = useState(null);
   const [groepModal, setGroepModal] = useState(null);
   const [kalibratieModal, setKalibratieModal] = useState(null);
+  const [factuurModal, setFactuurModal] = useState(false);
 
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get('highlight') ? parseInt(searchParams.get('highlight')) : null;
@@ -810,10 +812,19 @@ export default function Filament() {
       <div className="page-header">
         <h1>Artikelen</h1>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn" onClick={() => setFactuurModal(true)}>📄 Factuur inlezen</button>
           {tab === 'types'  && <button className="btn primary" onClick={() => setTypeModal({})}>+ Nieuw type</button>}
           {tab === 'rollen' && <button className="btn primary" onClick={() => setRolModal({})}>+ Nieuwe voorraad</button>}
         </div>
       </div>
+
+      {factuurModal && (
+        <FactuurUploadModal
+          types={types}
+          onClose={() => setFactuurModal(false)}
+          onDone={() => { setFactuurModal(false); load(); }}
+        />
+      )}
 
       <div style={{ display: 'flex', gap: 4, marginBottom: '1.25rem' }}>
         {['rollen', 'types'].map(t => (

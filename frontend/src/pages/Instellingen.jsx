@@ -15,6 +15,9 @@ export default function Instellingen() {
   const [haUrl, setHaUrl]             = useState('');
   const [haToken, setHaToken]         = useState('');
   const [tokenZichtbaar, setTokenZichtbaar] = useState(false);
+  const [geminiKey, setGeminiKey]     = useState('');
+  const [geminiKeyZichtbaar, setGeminiKeyZichtbaar] = useState(false);
+  const [geminiSaved, setGeminiSaved] = useState('');
   const [saved, setSaved]             = useState('');
   const [haTestStatus, setHaTestStatus] = useState('');
   const [resetConfirm, setResetConfirm] = useState('');
@@ -64,6 +67,7 @@ export default function Instellingen() {
       rows.forEach(r => { map[r.sleutel] = r.waarde; });
       setHaUrl(map.ha_url || 'http://192.168.0.105:8123');
       setHaToken(map.ha_token || '');
+      setGeminiKey(map.gemini_api_key || '');
       setBackupAutoActief(map.backup_auto_actief !== '0');
       setBackupAutoInterval(map.backup_auto_interval_uren || '24');
       setStartdatum(map.bedrijf_startdatum || '');
@@ -122,6 +126,12 @@ export default function Instellingen() {
     await api.put('/instellingen/ha_token', { waarde: haToken });
     setSaved('HA instellingen opgeslagen!');
     setTimeout(() => setSaved(''), 3000);
+  }
+
+  async function saveGeminiKey() {
+    await api.put('/instellingen/gemini_api_key', { waarde: geminiKey });
+    setGeminiSaved('Opgeslagen!');
+    setTimeout(() => setGeminiSaved(''), 3000);
   }
 
   async function testHaVerbinding() {
@@ -266,6 +276,42 @@ export default function Instellingen() {
               }}>
                 {haTestStatus}
               </p>
+            )}
+          </div>
+
+          {/* GEMINI API — factuurherkenning */}
+          <div className="card" style={{ marginTop:'1.5rem' }}>
+            <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.25rem' }}>Factuurherkenning (Gemini)</h2>
+            <p style={{ fontSize:11, color:'var(--muted)', marginBottom:'1rem' }}>
+              Nodig om geüploade facturen automatisch uit te lezen bij Artikelen. Gratis aan te maken via{' '}
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a>.
+            </p>
+
+            <div className="form-group">
+              <label>Gemini API-key</label>
+              <div style={{ display:'flex', gap:6 }}>
+                <input
+                  type={geminiKeyZichtbaar ? 'text' : 'password'}
+                  value={geminiKey}
+                  onChange={e => setGeminiKey(e.target.value)}
+                  placeholder="AIzaSy..."
+                  style={{ flex:1, fontFamily:'monospace', fontSize:11 }}
+                />
+                <button
+                  className="btn"
+                  style={{ flexShrink:0, fontSize:11, padding:'4px 10px' }}
+                  onClick={() => setGeminiKeyZichtbaar(v => !v)}
+                >
+                  {geminiKeyZichtbaar ? '🙈' : '👁'}
+                </button>
+              </div>
+            </div>
+
+            <button className="btn primary" style={{ width:'100%', marginTop:'0.75rem' }} onClick={saveGeminiKey}>
+              Opslaan
+            </button>
+            {geminiSaved && (
+              <p style={{ fontSize:12, marginTop:8, color:'var(--accent2)' }}>{geminiSaved}</p>
             )}
           </div>
         </div>

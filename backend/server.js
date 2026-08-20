@@ -17,6 +17,7 @@ import rapportage from './routes/rapportage.js';
 import reset from './routes/reset.js';
 import uitgaven from './routes/uitgaven.js';
 import kleuren from './routes/kleuren.js';
+import facturen from './routes/facturen.js';
 import { instellingen } from './routes/_combined.js';
 import { startSampler, energie } from './sampler.js';
 import { startAutoBackup } from './auto_backup.js';
@@ -49,6 +50,7 @@ app.use('/api/rapportage',   rapportage);
 app.use('/api/reset',        reset);
 app.use('/api/uitgaven',     uitgaven);
 app.use('/api/kleuren',      kleuren);
+app.use('/api/facturen',     facturen);
 const frontendPath = path.join(__dirname, '..', 'frontend', 'dist');
 app.use(express.static(frontendPath));
 app.get('*', (req, res) => {
