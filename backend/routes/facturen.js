@@ -8,9 +8,10 @@ import { getDb } from '../db.js';
 const r = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
-// Pas aan indien Google het model-id ondertussen wijzigt — de rest van deze
-// route hoeft dan niet te veranderen.
-const GEMINI_MODEL = 'gemini-3.7-flash';
+// Nieuwste model eerst; bij aanhoudende overbelasting (503) valt de route
+// terug op een ouder, stabieler model dat minder onder druk staat — voor het
+// uitlezen van factuurregels is dat verschil in praktijk verwaarloosbaar.
+const GEMINI_MODELLEN = ['gemini-3.7-flash', 'gemini-2.5-flash'];
 
 const RESPONSE_SCHEMA = {
   type: 'OBJECT',
@@ -53,11 +54,11 @@ const wachten = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // (rate limit) terug — dat is geen echte fout, gewoon even opnieuw proberen
 // lost het meestal op. Andere foutcodes (bv. 400/401/403) hebben geen zin om
 // te herhalen, die geven we meteen door.
-async function geminiGenerateContent(apiKey, body, pogingen = 3) {
+async function probeerModel(apiKey, model, body, pogingen = 3) {
   let laatsteRes;
   for (let poging = 1; poging <= pogingen; poging++) {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
@@ -67,6 +68,18 @@ async function geminiGenerateContent(apiKey, body, pogingen = 3) {
     if (res.ok || ![503, 429].includes(res.status) || poging === pogingen) return res;
     laatsteRes = res;
     await wachten(1000 * poging); // 1s, 2s, ...
+  }
+  return laatsteRes;
+}
+
+// Loopt de modellenlijst af (nieuwste eerst) — pas bij aanhoudende 503/429 op
+// het huidige model schakelt hij door naar het volgende, stabielere model.
+async function geminiGenerateContent(apiKey, body) {
+  let laatsteRes;
+  for (const model of GEMINI_MODELLEN) {
+    const res = await probeerModel(apiKey, model, body);
+    if (res.ok || ![503, 429].includes(res.status)) return res;
+    laatsteRes = res;
   }
   return laatsteRes;
 }
