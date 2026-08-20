@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api, BASE } from '../lib/api.js';
+import KlantModal from '../components/KlantModal.jsx';
 
 const STATUSSEN = ['concept','verstuurd','goedgekeurd','geannuleerd'];
 const BTW_OPTIES = [0, 6, 21];
@@ -96,7 +97,7 @@ const F = ({ label, children, style }) => (
 );
 
 // ── OfferteFormulier ──────────────────────────────────────────────────────────
-function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRollen, tarieven, onSaved, onCancel }) {
+function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRollen, tarieven, onSaved, onCancel, onKlantToegevoegd }) {
   const [form, setForm] = useState({
     klant_id:'', printer_id: printers[0]?.id || '',
     filament_type_id:'', filament_rol_id:'',
@@ -119,6 +120,7 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
   const [artikelen, setArtikelen] = useState(initForm.artikelen || []);
   const [artikelTypeId, setArtikelTypeId] = useState('');
   const [artikelAantal, setArtikelAantal] = useState('');
+  const [klantModal, setKlantModal] = useState(false);
   const set = useCallback((k, v) => setForm(f => ({ ...f, [k]: v })), []);
 
   // Extra artikelen (bv. verzendkosten) — alleen niet-filament types, prijs op
@@ -194,12 +196,17 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
       .catch(() => setRollenVoorType([]));
   }, [form.filament_type_id]);
 
-  // Printer wattage + machinekost bijwerken bij printerwijziging
+  // Printer wattage + machinekost bijwerken bij printerwijziging — het
+  // gemiddeld verbruik dat per printer is ingesteld (Instellingen-tab, zelfde
+  // waarde als KostenModal gebruikt voor de kWh-schatting) heeft voorrang;
+  // enkel als dat niet is ingevuld, valt terug op de oude generieke tarieven.
   useEffect(() => {
     const p = printers.find(p => p.id === parseInt(form.printer_id));
     if (p) {
       set('machine_kost_per_uur', p.machine_kost_per_uur || 0.13);
-      set('printer_watt', p.naam?.toLowerCase().includes('ender') ? (tarieven.ender_watt || 150) : (tarieven.bambu_watt || 120));
+      set('printer_watt', p.gem_verbruik_watt > 0
+        ? p.gem_verbruik_watt
+        : (p.naam?.toLowerCase().includes('ender') ? (tarieven.ender_watt || 150) : (tarieven.bambu_watt || 120)));
     }
   }, [form.printer_id]);
 
@@ -246,10 +253,14 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
         <Sec title="Klant & object">
           <div className="form-row" style={{ marginBottom:8 }}>
             <F label="Klant *">
-              <select value={form.klant_id} onChange={e => set('klant_id', e.target.value)}>
-                <option value="">— selecteer —</option>
-                {klanten.map(k => <option key={k.id} value={k.id}>{k.voornaam ? `${k.voornaam} ${k.naam}` : k.naam}</option>)}
-              </select>
+              <div style={{ display:'flex', gap:6 }}>
+                <select value={form.klant_id} onChange={e => set('klant_id', e.target.value)} style={{ flex:1 }}>
+                  <option value="">— selecteer —</option>
+                  {klanten.map(k => <option key={k.id} value={k.id}>{k.voornaam ? `${k.voornaam} ${k.naam}` : k.naam}</option>)}
+                </select>
+                <button type="button" className="btn" style={{ fontSize:11, padding:'0 8px' }}
+                  onClick={() => setKlantModal(true)} title="Nieuwe klant aanmaken">+ Nieuw</button>
+              </div>
             </F>
             <F label="Printer">
               <select value={form.printer_id} onChange={e => set('printer_id', e.target.value)}>
@@ -548,6 +559,17 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
           }
         </div>
       </div>
+
+      {klantModal && (
+        <KlantModal
+          onClose={() => setKlantModal(false)}
+          onSaved={(nieuweKlant) => {
+            setKlantModal(false);
+            set('klant_id', nieuweKlant.id);
+            onKlantToegevoegd?.(nieuweKlant);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -618,6 +640,7 @@ export default function Offertes() {
           initForm={isEdit ? editForm : {}}
           klanten={klanten} printers={printers} filamentTypes={filamentTypes}
           allRollen={allRollen} tarieven={tarieven}
+          onKlantToegevoegd={(k) => api.get('/klanten').then(setKlanten)}
           onSaved={async (updated) => {
             await load();
             if (isEdit) {
