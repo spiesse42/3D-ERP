@@ -34,6 +34,7 @@ function berekenOfferte(data, t) {
     aantal = 1,
     filament_prijs_per_kg = 0,
     printer_watt = 120,
+    artikelen_kost = 0,
   } = data;
 
   const arbeid_per_uur = t.arbeid_per_uur || 15;
@@ -51,7 +52,7 @@ function berekenOfferte(data, t) {
     + (parseInt(ontwerp_min) / 60 * parseFloat(ontwerp_tarief))
     + (parseInt(nabewerking_extra_min) / 60 * parseFloat(nabewerking_extra_tarief));
   const extra_totaal = parseFloat(extra_per_stuk) * parseInt(aantal) + parseFloat(extra_eenmalig);
-  const subtotaal = materiaal_kost + energie_kost_schat + machine_kost + arbeid_kost + extra_totaal + bmcu;
+  const subtotaal = materiaal_kost + energie_kost_schat + machine_kost + arbeid_kost + extra_totaal + bmcu + parseFloat(artikelen_kost || 0);
 
   const marge_grens = t.marge_grens_uur || 4;
   const marge_pct = totale_tijd_u >= marge_grens ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
@@ -63,16 +64,85 @@ function berekenOfferte(data, t) {
     machine_kost: Math.round(machine_kost * 1000) / 1000,
     arbeid_kost: Math.round(arbeid_kost * 1000) / 1000,
     extra_totaal: Math.round(extra_totaal * 1000) / 1000,
+    artikelen_kost: Math.round((parseFloat(artikelen_kost) || 0) * 1000) / 1000,
     subtotaal: Math.round(subtotaal * 1000) / 1000,
     marge_pct,
     verkoopprijs: Math.round(verkoopprijs * 100) / 100,
   };
 }
 
-function buildOfferteHtml(offerte, klant, berekening, filamentType, printer) {
+// Prijs van 1 artikelregel — zelfde eenheid-logica als kosten.js (job-werkbon):
+// 'gram' wordt per kg geprijsd (dus /1000), 'stuk'/'ml' rechtstreeks per eenheid.
+function kostPerArtikelRegel(a) {
+  const deler = a.eenheid === 'gram' ? 1000 : 1;
+  return (parseFloat(a.aantal) / deler) * (parseFloat(a.inkoop_prijs_per_kg) || 0);
+}
+
+function haalArtikelen(db, offerteId) {
+  return db.prepare(`
+    SELECT oa.id, oa.filament_type_id, oa.aantal,
+      ft.merk, ft.materiaal, ft.eenheid, ft.categorie, ft.inkoop_prijs_per_kg
+    FROM offerte_artikelen oa
+    JOIN filament_types ft ON ft.id = oa.filament_type_id
+    WHERE oa.offerte_id = ?
+    ORDER BY oa.id
+  `).all(offerteId);
+}
+
+function berekenArtikelenKost(db, offerteId) {
+  return haalArtikelen(db, offerteId).reduce((som, a) => som + kostPerArtikelRegel(a), 0);
+}
+
+// Herberekent en bewaart de volledige offerte-totalen (bv. na een artikel toe
+// te voegen/wijzigen/verwijderen) — zelfde berekening als POST/PUT, maar dan
+// op basis van de reeds opgeslagen offerte-velden i.p.v. een nieuwe req.body.
+function herbereken(db, offerteId) {
+  const t = getTarieven(db);
+  const offerte = db.prepare('SELECT * FROM offertes_v2 WHERE id = ?').get(offerteId);
+  if (!offerte) return null;
+
+  let filament_prijs_per_kg = 0;
+  if (offerte.filament_type_id) {
+    const ft = db.prepare('SELECT inkoop_prijs_per_kg FROM filament_types WHERE id = ?').get(offerte.filament_type_id);
+    filament_prijs_per_kg = ft?.inkoop_prijs_per_kg || 0;
+  }
+  let printer_watt = 120;
+  if (offerte.printer_id) {
+    const p = db.prepare('SELECT naam FROM printers WHERE id = ?').get(offerte.printer_id);
+    printer_watt = p?.naam?.toLowerCase().includes('ender') ? (t.ender_watt || 150) : (t.bambu_watt || 120);
+  }
+
+  const artikelen_kost = berekenArtikelenKost(db, offerteId);
+  const ber = berekenOfferte({ ...offerte, filament_prijs_per_kg, printer_watt, artikelen_kost }, t);
+  const btw_bedrag = Math.round(ber.verkoopprijs * (parseFloat(offerte.btw_pct) || 0)) / 100;
+  const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
+
+  db.prepare(`
+    UPDATE offertes_v2 SET
+      materiaal_kost=?, energie_kost_schat=?, arbeid_kost=?, machine_kost=?,
+      extra_totaal=?, artikelen_kost=?, subtotaal=?, marge_pct=?, verkoopprijs=?,
+      btw_bedrag=?, totaal=?
+    WHERE id=?
+  `).run(
+    ber.materiaal_kost, ber.energie_kost_schat, ber.arbeid_kost, ber.machine_kost,
+    ber.extra_totaal, ber.artikelen_kost, ber.subtotaal, ber.marge_pct, ber.verkoopprijs,
+    btw_bedrag, totaal, offerteId
+  );
+
+  return { ...ber, btw_bedrag, totaal };
+}
+
+function buildOfferteHtml(offerte, klant, berekening, filamentType, printer, artikelen = []) {
   const nu = new Date().toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const totaleUren = (offerte.geschatte_tijd_u || 0) + (offerte.geschatte_tijd_min || 0) / 60;
   const margeFactor = 1 + (berekening.marge_pct || 0) / 100;
+  const eenheidLabel = e => e === 'stuk' ? 'stuks' : e === 'ml' ? 'ml' : 'g';
+  const artikelRijen = artikelen.map(a => {
+    const deler = a.eenheid === 'gram' ? 1000 : 1;
+    const aantalTxt = a.eenheid === 'stuk' ? Math.round(a.aantal) : parseFloat(a.aantal).toFixed(1);
+    const naam = `${a.merk || ''} ${a.materiaal || ''}`.trim();
+    return `<tr><td>${naam}</td><td>${aantalTxt} ${eenheidLabel(a.eenheid)}</td><td>€${((a.aantal/deler)*(a.inkoop_prijs_per_kg||0)*margeFactor).toFixed(2)}</td></tr>`;
+  }).join('');
 
   return `<!DOCTYPE html>
 <html lang="nl">
@@ -157,6 +227,7 @@ function buildOfferteHtml(offerte, klant, berekening, filamentType, printer) {
     ${offerte.ontwerp_min > 0 ? `<tr><td>Ontwerp regie</td><td>${offerte.ontwerp_min} min</td><td>€${((offerte.ontwerp_min / 60) * offerte.ontwerp_tarief * margeFactor).toFixed(2)}</td></tr>` : ''}
     ${offerte.nabewerking_extra_min > 0 ? `<tr><td>Nabewerking extra</td><td>${offerte.nabewerking_extra_min} min</td><td>€${((offerte.nabewerking_extra_min / 60) * offerte.nabewerking_extra_tarief * margeFactor).toFixed(2)}</td></tr>` : ''}
     ${berekening.extra_totaal > 0 ? `<tr><td>Extra${offerte.extra_omschrijving ? ' — ' + offerte.extra_omschrijving : ''}</td><td>—</td><td>€${(berekening.extra_totaal*margeFactor).toFixed(2)}</td></tr>` : ''}
+    ${artikelRijen}
   </tbody>
 </table>
 
@@ -201,7 +272,46 @@ r.get('/:id', (req, res) => {
     WHERE o.id = ?
   `).get(req.params.id);
   if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
-  res.json(offerte);
+  res.json({ ...offerte, artikelen: haalArtikelen(db, req.params.id) });
+});
+
+// GET artikelen van een offerte
+r.get('/:id/artikelen', (req, res) => {
+  res.json(haalArtikelen(getDb(), req.params.id));
+});
+
+// POST artikel toevoegen aan offerte (bv. verzendkosten, ringetjes...)
+r.post('/:id/artikelen', (req, res) => {
+  const db = getDb();
+  const { filament_type_id, aantal } = req.body;
+  if (!filament_type_id || !aantal || parseFloat(aantal) <= 0) {
+    return res.status(400).json({ error: 'filament_type_id en aantal (> 0) zijn verplicht' });
+  }
+  const offerte = db.prepare('SELECT id FROM offertes_v2 WHERE id = ?').get(req.params.id);
+  if (!offerte) return res.status(404).json({ error: 'Offerte niet gevonden' });
+  db.prepare('INSERT INTO offerte_artikelen (offerte_id, filament_type_id, aantal) VALUES (?,?,?)')
+    .run(req.params.id, filament_type_id, parseFloat(aantal));
+  const berekening = herbereken(db, req.params.id);
+  res.status(201).json({ artikelen: haalArtikelen(db, req.params.id), ...berekening });
+});
+
+// PUT artikel bijwerken (aantal aanpassen)
+r.put('/:id/artikelen/:artikelId', (req, res) => {
+  const db = getDb();
+  const { aantal } = req.body;
+  if (!aantal || parseFloat(aantal) <= 0) return res.status(400).json({ error: 'aantal (> 0) is verplicht' });
+  db.prepare('UPDATE offerte_artikelen SET aantal = ? WHERE id = ? AND offerte_id = ?')
+    .run(parseFloat(aantal), req.params.artikelId, req.params.id);
+  const berekening = herbereken(db, req.params.id);
+  res.json({ artikelen: haalArtikelen(db, req.params.id), ...berekening });
+});
+
+// DELETE artikel verwijderen
+r.delete('/:id/artikelen/:artikelId', (req, res) => {
+  const db = getDb();
+  db.prepare('DELETE FROM offerte_artikelen WHERE id = ? AND offerte_id = ?').run(req.params.artikelId, req.params.id);
+  const berekening = herbereken(db, req.params.id);
+  res.json({ artikelen: haalArtikelen(db, req.params.id), ...berekening });
 });
 
 // POST nieuwe offerte
@@ -316,6 +426,9 @@ r.put('/:id', (req, res) => {
     aantal: parseInt(data.aantal) || 1,
     filament_prijs_per_kg,
     printer_watt,
+    // Bewaar de artikelen-bijdrage (verzendkosten enz.) — anders zou het
+    // hoofd-'Opslaan' hier de bijdrage van reeds toegevoegde artikelen wissen.
+    artikelen_kost: berekenArtikelenKost(db, req.params.id),
   };
 
   const ber = berekenOfferte(berData, t);
@@ -331,7 +444,7 @@ r.put('/:id', (req, res) => {
       nabewerking_extra_min=?, nabewerking_extra_tarief=?, is_multicolor=?,
       extra_per_stuk=?, extra_eenmalig=?, extra_omschrijving=?, aantal=?,
       materiaal_kost=?, energie_kost_schat=?, arbeid_kost=?, machine_kost=?,
-      extra_totaal=?, subtotaal=?, marge_pct=?, verkoopprijs=?,
+      extra_totaal=?, artikelen_kost=?, subtotaal=?, marge_pct=?, verkoopprijs=?,
       btw_pct=?, btw_bedrag=?, totaal=?, geldig_tot=?, notities=?
     WHERE id=?
   `).run(
@@ -342,7 +455,7 @@ r.put('/:id', (req, res) => {
     berData.nabewerking_extra_min, berData.nabewerking_extra_tarief, berData.is_multicolor,
     berData.extra_per_stuk, berData.extra_eenmalig, data.extra_omschrijving||null, berData.aantal,
     ber.materiaal_kost, ber.energie_kost_schat, ber.arbeid_kost, ber.machine_kost, ber.extra_totaal,
-    ber.subtotaal, ber.marge_pct, ber.verkoopprijs, btw_pct, btw_bedrag, totaal,
+    ber.artikelen_kost, ber.subtotaal, ber.marge_pct, ber.verkoopprijs, btw_pct, btw_bedrag, totaal,
     data.geldig_tot||null, data.notities||null, req.params.id
   );
 
@@ -404,7 +517,7 @@ r.get('/:id/pdf', (req, res) => {
     arbeid_per_uur: t.arbeid_per_uur || 15
   };
 
-  const html = buildOfferteHtml(offerte, klant, ber, ft, printer);
+  const html = buildOfferteHtml(offerte, klant, ber, ft, printer, haalArtikelen(db, req.params.id));
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="offerte-${offerte.nummer}.html"`);
   res.send(html);

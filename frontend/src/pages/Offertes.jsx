@@ -8,6 +8,8 @@ function statusKleur(s) {
   return { concept:'#f59e0b', verstuurd:'#60a5fa', goedgekeurd:'#22c55e', geannuleerd:'#6b7280' }[s] || '#6b7280';
 }
 
+const eenheidLabel = e => e === 'stuk' ? 'stuk(s)' : e === 'ml' ? 'ml' : 'g';
+
 // Stabiele string-state voor elk invoerveld — cursor springt nooit weg
 function useField(init) {
   const [val, setVal] = useState(String(init ?? ''));
@@ -26,7 +28,7 @@ function useField(init) {
   };
 }
 
-function berekenLive(form, tarieven, rollen) {
+function berekenLive(form, tarieven, rollen, artikelenKost = 0) {
   if (!form.filament_rol_id || !form.geschat_gewicht_g) return null;
 
   const rol = rollen.find(r => r.id === parseInt(form.filament_rol_id));
@@ -66,13 +68,14 @@ function berekenLive(form, tarieven, rollen) {
     + (parseInt(form.nabewerking_extra_min) || 0) / 60 * (parseFloat(form.nabewerking_extra_tarief) || 15);
   const bmcu  = form.is_multicolor ? (t.bmcu_per_job || 0.10) : 0;
   const extra = (parseFloat(form.extra_per_stuk) || 0) * aantal + (parseFloat(form.extra_eenmalig) || 0);
+  const artikelen = parseFloat(artikelenKost) || 0;
 
-  const sub   = mat + ener + mach + arb + extra + bmcu;
+  const sub   = mat + ener + mach + arb + extra + bmcu + artikelen;
   const margeGrns = t.marge_grens_uur || 4;
   const marge = totU >= margeGrns ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
   const vkp   = sub * (1 + marge / 100);
 
-  return { mat, ener, mach, arb, extra, bmcu, sub, marge, vkp, aantal, prijsPerKg };
+  return { mat, ener, mach, arb, extra, bmcu, artikelen, sub, marge, vkp, aantal, prijsPerKg };
 }
 
 // Op moduleniveau gedefinieerd (niet binnen OfferteFormulier) — anders krijgen
@@ -113,7 +116,42 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
   });
   const [saving, setSaving] = useState(false);
   const [rollenVoorType, setRollenVoorType] = useState([]);
+  const [artikelen, setArtikelen] = useState(initForm.artikelen || []);
+  const [artikelTypeId, setArtikelTypeId] = useState('');
+  const [artikelAantal, setArtikelAantal] = useState('');
   const set = useCallback((k, v) => setForm(f => ({ ...f, [k]: v })), []);
+
+  // Extra artikelen (bv. verzendkosten) — alleen niet-filament types, prijs op
+  // TYPE-niveau net als het hoofdfilament: een offerte reserveert geen stock.
+  const artikelTypes = filamentTypes.filter(f => (f.categorie || 'filament') !== 'filament');
+  const artikelenKost = artikelen.reduce((som, a) => {
+    const deler = a.eenheid === 'gram' ? 1000 : 1;
+    return som + (parseFloat(a.aantal) / deler) * (parseFloat(a.inkoop_prijs_per_kg) || 0);
+  }, 0);
+
+  async function voegArtikelToe() {
+    if (!artikelTypeId || !artikelAantal) return alert('Selecteer een artikel en geef een aantal op');
+    try {
+      const r = await api.post(`/offertes2/${form.id}/artikelen`, { filament_type_id: artikelTypeId, aantal: parseFloat(artikelAantal) });
+      setArtikelen(r.artikelen);
+      setArtikelTypeId(''); setArtikelAantal('');
+    } catch(e) { alert(e.message); }
+  }
+
+  async function wijzigArtikelAantal(artikelId, nieuwAantal) {
+    if (isNaN(nieuwAantal) || nieuwAantal <= 0) return;
+    try {
+      const r = await api.put(`/offertes2/${form.id}/artikelen/${artikelId}`, { aantal: nieuwAantal });
+      setArtikelen(r.artikelen);
+    } catch(e) { alert(e.message); }
+  }
+
+  async function verwijderArtikel(artikelId) {
+    try {
+      const r = await api.delete(`/offertes2/${form.id}/artikelen/${artikelId}`);
+      setArtikelen(r.artikelen);
+    } catch(e) { alert(e.message); }
+  }
 
   // Lokale string-states voor alle numerieke velden
   const gewichtF    = useField(form.geschat_gewicht_g);
@@ -170,7 +208,7 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
     ? parseFloat(form.geschat_gewicht_g) > gekozenRol.gewicht_gram_huidig
     : false;
 
-  const preview = berekenLive(form, tarieven, allRollen);
+  const preview = berekenLive(form, tarieven, allRollen, artikelenKost);
 
   function addFilamentRol() {
     set('filament_rollen', [...(form.filament_rollen || []), { filament_type_id: form.filament_type_id || '', filament_rol_id: '', gram: '' }]);
@@ -196,7 +234,7 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
       let r;
       if (form.id) r = await api.put(`/offertes2/${form.id}`, form);
       else r = await api.post('/offertes2', form);
-      onSaved(r);
+      onSaved({ ...form, ...r });
     } catch(e) { alert(e.message); }
     finally { setSaving(false); }
   }
@@ -384,6 +422,60 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
           </F>
         </Sec>
 
+        {/* EXTRA ARTIKELEN — bv. verzendkosten, uit voorraad (niet-filament types) */}
+        <Sec title="📦 Extra artikelen">
+          {!form.id
+            ? <div style={{ fontSize:11, color:'var(--muted)' }}>
+                Sla de offerte eerst op — daarna kan je hier extra artikelen zoals verzendkosten toevoegen.
+              </div>
+            : <>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 90px auto', gap:6, alignItems:'end', marginBottom:8 }}>
+                  <select value={artikelTypeId} onChange={e => setArtikelTypeId(e.target.value)} style={{ fontSize:12 }}>
+                    <option value="">— selecteer artikel —</option>
+                    {artikelTypes.map(f => (
+                      <option key={f.id} value={f.id}>
+                        {f.merk} {f.materiaal} — €{(f.inkoop_prijs_per_kg || 0).toFixed(2)}/{eenheidLabel(f.eenheid).replace('(s)','')}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number" min="0.1" step="0.1"
+                    placeholder={artikelTypes.find(f => f.id === parseInt(artikelTypeId))?.eenheid === 'gram' ? 'gram' : 'aantal'}
+                    value={artikelAantal} onChange={e => setArtikelAantal(e.target.value)} style={{ fontSize:12 }}
+                  />
+                  <button className="btn primary" style={{ fontSize:11 }} onClick={voegArtikelToe}>+ Voeg toe</button>
+                </div>
+
+                {artikelTypes.length === 0 && (
+                  <div style={{ fontSize:11, color:'var(--muted)' }}>
+                    Geen extra artikelen beschikbaar — voeg eerst een type toe via de Artikelen-tab.
+                  </div>
+                )}
+
+                {artikelen.map(a => {
+                  const deler = a.eenheid === 'gram' ? 1000 : 1;
+                  return (
+                    <div key={a.id} style={{ background:'var(--bg2)', borderRadius:6, padding:'6px 10px', marginBottom:4, fontSize:12 }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                        <span style={{ fontWeight:500, flex:1 }}>{a.merk} {a.materiaal}</span>
+                        <input
+                          type="number" min="0.1" step="0.1"
+                          defaultValue={a.eenheid === 'stuk' ? Math.round(a.aantal) : a.aantal}
+                          style={{ width:70, fontSize:12 }}
+                          onBlur={e => wijzigArtikelAantal(a.id, parseFloat(e.target.value))}
+                        />
+                        <span style={{ color:'var(--muted)', minWidth:90, fontSize:11 }}>
+                          {eenheidLabel(a.eenheid)} · €{((a.aantal / deler) * (a.inkoop_prijs_per_kg || 0)).toFixed(2)}
+                        </span>
+                        <button onClick={() => verwijderArtikel(a.id)} style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer', fontSize:12 }}>✕</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+          }
+        </Sec>
+
         {/* OFFERTE DETAILS */}
         <Sec title="Offerte details">
           <div className="form-row" style={{ marginBottom:6 }}>
@@ -423,6 +515,7 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
                 ['Arbeid', preview.arb],
                 ...(preview.bmcu > 0 ? [['BMCU', preview.bmcu]] : []),
                 ...(preview.extra > 0 ? [['Extra', preview.extra]] : []),
+                ...(preview.artikelen > 0 ? [['Artikelen', preview.artikelen]] : []),
               ].map(([label, val]) => (
                 <div key={label} style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
                   <span style={{ color:'var(--muted)' }}>{label}</span>
@@ -525,10 +618,15 @@ export default function Offertes() {
           initForm={isEdit ? editForm : {}}
           klanten={klanten} printers={printers} filamentTypes={filamentTypes}
           allRollen={allRollen} tarieven={tarieven}
-          onSaved={async () => {
+          onSaved={async (updated) => {
             await load();
-            if (isEdit) { const u = await api.get(`/offertes2/${editForm.id}`); setDetail(u); setView('detail'); }
-            else setView('lijst');
+            if (isEdit) {
+              const u = await api.get(`/offertes2/${editForm.id}`); setDetail(u); setView('detail');
+            } else {
+              // Meteen naar bewerk-modus met het echte id, zodat extra artikelen
+              // (bv. verzendkosten) meteen na aanmaak toegevoegd kunnen worden.
+              setEditForm(updated); setView('bewerk');
+            }
           }}
           onCancel={() => isEdit ? setView('detail') : setView('lijst')}
         />
@@ -616,6 +714,7 @@ export default function Offertes() {
               ['Machine', detail.machine_kost],
               ['Arbeid', detail.arbeid_kost],
               ...(detail.extra_totaal > 0 ? [['Extra', detail.extra_totaal]] : []),
+              ...(detail.artikelen_kost > 0 ? [['Artikelen', detail.artikelen_kost]] : []),
             ].map(([l, v]) => (
               <div key={l} style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
                 <span style={{ color:'var(--muted)' }}>{l}</span><span>€{(v || 0).toFixed(2)}</span>
