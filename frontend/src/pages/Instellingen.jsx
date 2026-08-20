@@ -165,6 +165,10 @@ export default function Instellingen() {
         machine_kost_per_uur: nieuwePrinter.machine_kost_per_uur || 0.13,
         heeft_bmcu:           nieuwePrinter.heeft_bmcu ? 1 : 0,
         gem_verbruik_watt:    nieuwePrinter.gem_verbruik_watt || null,
+        pause_entity:         nieuwePrinter.pause_entity  || null,
+        resume_entity:        nieuwePrinter.resume_entity || null,
+        cancel_entity:        nieuwePrinter.cancel_entity || null,
+        camera_entity:        nieuwePrinter.camera_entity || null,
       });
       setNieuwePrinter(null);
       setPrinters(await api.get('/printers'));
@@ -323,6 +327,30 @@ export default function Instellingen() {
                   placeholder="bv. 300" />
               </div>
 
+              <h3 style={{ fontSize:12, fontWeight:600, marginTop:'1rem', marginBottom:4, color:'var(--muted)' }}>
+                Bediening & live view <span style={{ fontWeight:400 }}>— optioneel, enkel invullen wat je HA-integratie aanbiedt</span>
+              </h3>
+              <div className="form-group">
+                <label>Pauzeer-knop entity</label>
+                <input value={nieuwePrinter.pause_entity || ''} onChange={e => setNieuw('pause_entity', e.target.value)}
+                  placeholder="button.anycubic_printer_pause_print" />
+              </div>
+              <div className="form-group">
+                <label>Hervat-knop entity</label>
+                <input value={nieuwePrinter.resume_entity || ''} onChange={e => setNieuw('resume_entity', e.target.value)}
+                  placeholder="button.anycubic_printer_resume_print" />
+              </div>
+              <div className="form-group">
+                <label>Annuleer-knop entity</label>
+                <input value={nieuwePrinter.cancel_entity || ''} onChange={e => setNieuw('cancel_entity', e.target.value)}
+                  placeholder="button.anycubic_printer_cancel_print" />
+              </div>
+              <div className="form-group">
+                <label>Camera entity</label>
+                <input value={nieuwePrinter.camera_entity || ''} onChange={e => setNieuw('camera_entity', e.target.value)}
+                  placeholder="camera.anycubic_s1_printer_camera" />
+              </div>
+
               <div style={{ display:'flex', gap:8 }}>
                 <button className="btn" style={{ flex:1 }} onClick={() => setNieuwePrinter(null)}>Annuleer</button>
                 <button className="btn primary" style={{ flex:1 }} onClick={maakPrinter}>Toevoegen</button>
@@ -375,6 +403,30 @@ export default function Instellingen() {
                 <p style={{ fontSize:10, color:'var(--muted)', marginTop:4 }}>
                   Gebruikt als schatting voor energiekost wanneer er geen live kWh-meting is (bv. cloud-only printers).
                 </p>
+              </div>
+
+              <h3 style={{ fontSize:12, fontWeight:600, marginTop:'1rem', marginBottom:4, color:'var(--muted)' }}>
+                Bediening & live view <span style={{ fontWeight:400 }}>— optioneel, enkel invullen wat je HA-integratie aanbiedt</span>
+              </h3>
+              <div className="form-group">
+                <label>Pauzeer-knop entity</label>
+                <input value={p.pause_entity || ''} onChange={e => setPrinter(p.id, 'pause_entity', e.target.value)}
+                  placeholder="button.anycubic_printer_pause_print" />
+              </div>
+              <div className="form-group">
+                <label>Hervat-knop entity</label>
+                <input value={p.resume_entity || ''} onChange={e => setPrinter(p.id, 'resume_entity', e.target.value)}
+                  placeholder="button.anycubic_printer_resume_print" />
+              </div>
+              <div className="form-group">
+                <label>Annuleer-knop entity</label>
+                <input value={p.cancel_entity || ''} onChange={e => setPrinter(p.id, 'cancel_entity', e.target.value)}
+                  placeholder="button.anycubic_printer_cancel_print" />
+              </div>
+              <div className="form-group">
+                <label>Camera entity</label>
+                <input value={p.camera_entity || ''} onChange={e => setPrinter(p.id, 'camera_entity', e.target.value)}
+                  placeholder="camera.anycubic_s1_printer_camera" />
               </div>
 
               <button className="btn primary" style={{ width:'100%' }} onClick={() => savePrinter(p)}>

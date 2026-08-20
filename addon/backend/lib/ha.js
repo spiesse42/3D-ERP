@@ -33,3 +33,27 @@ export async function haGet(path) {
 export function haGetState(entity) {
   return haGet(`states/${entity}`);
 }
+
+// POST-variant voor service calls (bv. button.press, light.toggle).
+export async function haPost(path, body) {
+  const { url, token } = getHaConfig();
+  const res = await fetch(`${url}/api/${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  if (!res.ok) throw new Error(`HA HTTP ${res.status}`);
+  const text = await res.text();
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+// Rauwe fetch (geen JSON-parse) — nodig om bv. een MJPEG-camerastream 1-op-1
+// door te geven aan de browser zonder het HA-token daarbij bloot te geven.
+export async function haFetchRaw(path) {
+  const { url, token } = getHaConfig();
+  const res = await fetch(`${url}/api/${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HA HTTP ${res.status}`);
+  return res;
+}

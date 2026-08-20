@@ -199,6 +199,10 @@ export default function Jobs() {
             klanten={klanten}
             onJobCreated={loadJobs}
             bestaandeJobs={jobs}
+            pauseEntity={p.pause_entity}
+            resumeEntity={p.resume_entity}
+            cancelEntity={p.cancel_entity}
+            cameraEntity={p.camera_entity}
           />
         ))}
       </div>

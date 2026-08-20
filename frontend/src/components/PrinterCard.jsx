@@ -3,7 +3,7 @@
 // dubbel in beide bestanden — dat is hoe StatusDot ooit uit sync raakte tussen
 // de twee pagina's. Nu is er nog maar 1 bron.
 import { useState } from 'react';
-import { api } from '../lib/api.js';
+import { api, BASE } from '../lib/api.js';
 
 function StatusDot({ status }) {
   const colors = {
@@ -30,7 +30,8 @@ function ProgressRing({ pct, color, size=80 }) {
   );
 }
 
-export default function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJobs, autoJobAanmaken, onConfigChanged }) {
+export default function PrinterCard({ printerId, naam, data, klanten, onJobCreated, bestaandeJobs, autoJobAanmaken, onConfigChanged,
+  pauseEntity, resumeEntity, cancelEntity, cameraEntity }) {
   const name      = naam || data?.naam || '—';
   const status    = data?.status || 'unavailable';
   const isRunning = ['running','printing'].includes(status.toLowerCase());
@@ -52,6 +53,18 @@ export default function PrinterCard({ printerId, naam, data, klanten, onJobCreat
   const [gewichtGeschat, setGewichtGeschat] = useState('');
   const [rolFilter,    setRolFilter]    = useState('');
   const [autoBusy,     setAutoBusy]     = useState(false);
+  const [knopBusy,     setKnopBusy]     = useState('');
+  const [liveViewOpen, setLiveViewOpen] = useState(false);
+
+  async function drukKnop(entity, label) {
+    if (!entity || knopBusy) return;
+    if (!window.confirm(`${label} — weet je het zeker?`)) return;
+    setKnopBusy(entity);
+    try {
+      await api.post('/ha/press-button', { entity_id: entity });
+    } catch (e) { alert(e.message); }
+    finally { setKnopBusy(''); }
+  }
 
   async function toggleAutoJob() {
     setAutoBusy(true);
@@ -190,6 +203,48 @@ export default function PrinterCard({ printerId, naam, data, klanten, onJobCreat
           </div>
         ))}
       </div>
+
+      {(pauseEntity || resumeEntity || cancelEntity || cameraEntity) && (
+        <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)' }}>
+          {(pauseEntity || resumeEntity || cancelEntity) && (
+            <div style={{ display:'flex', gap:6, marginBottom: cameraEntity ? 8 : 0 }}>
+              {pauseEntity && (
+                <button className="btn" style={{ flex:1, fontSize:11, padding:'4px 6px' }}
+                  disabled={!!knopBusy} onClick={() => drukKnop(pauseEntity, 'Print pauzeren')}>
+                  ⏸ Pauzeer
+                </button>
+              )}
+              {resumeEntity && (
+                <button className="btn" style={{ flex:1, fontSize:11, padding:'4px 6px' }}
+                  disabled={!!knopBusy} onClick={() => drukKnop(resumeEntity, 'Print hervatten')}>
+                  ▶ Hervat
+                </button>
+              )}
+              {cancelEntity && (
+                <button className="btn" style={{ flex:1, fontSize:11, padding:'4px 6px', color:'#ef4444', borderColor:'#ef4444' }}
+                  disabled={!!knopBusy} onClick={() => drukKnop(cancelEntity, 'Print annuleren')}>
+                  ✕ Annuleer
+                </button>
+              )}
+            </div>
+          )}
+          {cameraEntity && (
+            <div>
+              <button className="btn" style={{ width:'100%', fontSize:11, padding:'4px 6px' }}
+                onClick={() => setLiveViewOpen(v => !v)}>
+                🎥 {liveViewOpen ? 'Live view verbergen' : 'Live view tonen'}
+              </button>
+              {liveViewOpen && (
+                <img
+                  src={`${BASE}/ha/camera-stream/${cameraEntity}?t=${Date.now()}`}
+                  alt="Live camerabeeld"
+                  style={{ width:'100%', marginTop:6, borderRadius:6, display:'block', background:'#000' }}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {showJobForm && (
         <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid var(--border)' }}>

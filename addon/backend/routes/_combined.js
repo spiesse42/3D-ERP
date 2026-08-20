@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db.js';
-import { haGet } from '../lib/ha.js';
+import { haGet, haPost, haFetchRaw } from '../lib/ha.js';
 
 // --- TARIEVEN ---
 export const tarieven = Router();
@@ -61,6 +61,47 @@ ha.get('/state/:entity', async (req, res) => {
   try {
     const data = await haGet(`states/${req.params.entity}`);
     res.json({ entity_id: data.entity_id, state: data.state, attributes: data.attributes });
+  } catch (e) {
+    res.status(502).json({ error: 'HA niet bereikbaar', detail: e.message });
+  }
+});
+
+// Knop indrukken vanuit de printerkaart (pauzeer/hervat/annuleer). Bewust
+// beperkt tot het "button"-domein — dit endpoint mag geen algemene achterpoort
+// naar willekeurige HA-services worden.
+ha.post('/press-button', async (req, res) => {
+  const { entity_id } = req.body || {};
+  if (!entity_id || !/^button\./.test(entity_id)) {
+    return res.status(400).json({ error: 'entity_id moet een button.*-entiteit zijn' });
+  }
+  try {
+    await haPost('services/button/press', { entity_id });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(502).json({ error: 'HA niet bereikbaar', detail: e.message });
+  }
+});
+
+// Live camerabeeld doorgeven (MJPEG-stream via HA's camera_proxy_stream) —
+// zo blijft het HA-token in de backend en bereikt het nooit de browser.
+ha.get('/camera-stream/:entity', async (req, res) => {
+  const { entity } = req.params;
+  if (!/^camera\./.test(entity)) {
+    return res.status(400).json({ error: 'entity moet een camera.*-entiteit zijn' });
+  }
+  try {
+    const upstream = await haFetchRaw(`camera_proxy_stream/${entity}`);
+    res.status(upstream.status);
+    const ct = upstream.headers.get('content-type');
+    if (ct) res.setHeader('Content-Type', ct);
+    const reader = upstream.body.getReader();
+    req.on('close', () => reader.cancel().catch(() => {}));
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(value);
+    }
+    res.end();
   } catch (e) {
     res.status(502).json({ error: 'HA niet bereikbaar', detail: e.message });
   }
