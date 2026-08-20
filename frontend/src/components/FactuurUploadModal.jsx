@@ -1,7 +1,9 @@
 // frontend/src/components/FactuurUploadModal.jsx — factuur (PDF) uploaden,
-// laten uitlezen via Gemini (backend: /api/facturen/analyseer), en per regel
-// kiezen: voorraad aanvullen (bestaand of nieuw artikeltype), registreren als
-// kost (uitgaven, geen voorraad-impact), of negeren.
+// laten uitlezen via Gemini (backend: /api/facturen/analyseer). Elke regel
+// wordt standaard als kost geregistreerd (uitgaven — dit is een aankoopfactuur,
+// dus alles is een kost tenzij je 'm negeert); daarbovenop kan je per regel
+// apart aanvinken dat 'm ook de voorraad moet aanvullen (bestaand of nieuw
+// artikeltype).
 import { useState } from 'react';
 import { api, BASE } from '../lib/api.js';
 
@@ -35,17 +37,24 @@ function gokType(omschrijving, types) {
   return besteScore > 0 ? beste.id : '';
 }
 
+// Regels als verzendkosten/verpakking zijn zelden een voorraaditem — daar zet
+// het vinkje "ook voorraad aanvullen" standaard uit, de rest standaard aan.
+function gokIsGeenVoorraad(omschrijving) {
+  return /verzend|verpakking|shipping|transport|leverings?kost/i.test(omschrijving || '');
+}
+
 function nieuweRegelState(r, types) {
   const eenheid = ['gram', 'stuk', 'ml'].includes(r.eenheid_gok) ? r.eenheid_gok : 'stuk';
   const typeId = gokType(r.omschrijving, types);
+  const isVoorraad = !gokIsGeenVoorraad(r.omschrijving);
   return {
     omschrijving: r.omschrijving || '',
     aantal: r.aantal ?? '',
     totaal: r.totaal ?? '',
-    actie: 'voorraad',
+    voorraad: isVoorraad,
     typeId: typeId || 'nieuw',
     nieuwType: { merk: '', materiaal: r.omschrijving || '', categorie: 'overig', eenheid },
-    kostCategorie: 'overig',
+    kostCategorie: isVoorraad ? 'materiaal' : 'overig',
     negeer: false,
   };
 }
@@ -93,7 +102,17 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
         if (r.negeer) continue;
         const aantal = parseFloat(r.aantal) || 0;
         const totaal = parseFloat(r.totaal) || 0;
-        if (r.actie === 'voorraad') {
+
+        // Elke niet-genegeerde regel is een kost — dit is een aankoopfactuur.
+        await api.post('/uitgaven', {
+          datum: datum || undefined,
+          categorie: r.kostCategorie,
+          omschrijving: `${r.omschrijving}${leverancier ? ' — ' + leverancier : ''}`,
+          bedrag: totaal || aantal,
+        });
+
+        // Optioneel: daarbovenop ook de voorraad aanvullen.
+        if (r.voorraad) {
           if (aantal <= 0) throw new Error(`Aantal ontbreekt/ongeldig bij "${r.omschrijving}"`);
           let filamentTypeId = r.typeId;
           if (filamentTypeId === 'nieuw') {
@@ -116,13 +135,6 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
             gewicht_gram_huidig: aantal,
             aankoopprijs_eur: totaal || null,
             gekocht_op: datum || undefined,
-          });
-        } else if (r.actie === 'kost') {
-          await api.post('/uitgaven', {
-            datum: datum || undefined,
-            categorie: r.kostCategorie,
-            omschrijving: `${r.omschrijving}${leverancier ? ' — ' + leverancier : ''}`,
-            bedrag: totaal || aantal,
           });
         }
       }
@@ -203,21 +215,21 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
 
                 {!r.negeer && (
                   <>
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                      {['voorraad', 'kost'].map(a => (
-                        <button
-                          key={a}
-                          type="button"
-                          className={`btn${r.actie === a ? ' primary' : ''}`}
-                          style={{ fontSize: 11, padding: '3px 10px' }}
-                          onClick={() => setRegel(i, { actie: a })}
-                        >
-                          {a === 'voorraad' ? '📦 Voorraad aanvullen' : '💶 Kost (geen voorraad)'}
-                        </button>
-                      ))}
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>💶 Wordt geregistreerd als kost, categorie:</span>
+                      <select
+                        style={{ fontSize: 12 }}
+                        value={r.kostCategorie} onChange={e => setRegel(i, { kostCategorie: e.target.value })}
+                      >
+                        {UITGAVEN_CATEGORIEEN.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, marginLeft: 'auto' }}>
+                        <input type="checkbox" checked={r.voorraad} onChange={e => setRegel(i, { voorraad: e.target.checked })} />
+                        📦 Ook voorraad aanvullen
+                      </label>
                     </div>
 
-                    {r.actie === 'voorraad' && (
+                    {r.voorraad && (
                       <div>
                         <select
                           value={r.typeId}
@@ -255,15 +267,6 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
                           </div>
                         )}
                       </div>
-                    )}
-
-                    {r.actie === 'kost' && (
-                      <select
-                        style={{ fontSize: 12 }}
-                        value={r.kostCategorie} onChange={e => setRegel(i, { kostCategorie: e.target.value })}
-                      >
-                        {UITGAVEN_CATEGORIEEN.map(c => <option key={c} value={c}>{c}</option>)}
-                      </select>
                     )}
                   </>
                 )}
