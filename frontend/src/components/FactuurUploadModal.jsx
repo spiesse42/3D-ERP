@@ -94,10 +94,24 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
     setRegels(rs => rs.map((r, idx) => idx === i ? { ...r, nieuwType: { ...r.nieuwType, ...patch } } : r));
   }
 
+  async function zorgLeverancierBestaat() {
+    const naam = leverancier.trim();
+    if (!naam) return;
+    const bestaande = await api.get('/bestellingen/leveranciers');
+    const gevonden = bestaande.find(l => l.naam.trim().toLowerCase() === naam.toLowerCase());
+    if (!gevonden) {
+      await api.post('/bestellingen/leveranciers', { naam });
+    }
+  }
+
   async function bevestig() {
     setFout('');
     setStap('opslaan');
     try {
+      // Leverancier op de factuur: bestaat die al in de Leveranciers-lijst
+      // (Bestellingen)? Zo niet, meteen aanmaken — één keer per factuur.
+      await zorgLeverancierBestaat();
+
       for (const r of regels) {
         if (r.negeer) continue;
         const aantal = parseFloat(r.aantal) || 0;
