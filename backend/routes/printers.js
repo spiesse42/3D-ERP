@@ -17,6 +17,7 @@ r.get('/config', (req, res) => {
     const prefix = p.ha_entity_prefix || '';
     const isBambu = p.naam.toLowerCase().includes('bambu') || prefix.includes('a1mini');
     const isEnder = p.naam.toLowerCase().includes('ender') || prefix.includes('ender');
+    const isKobra = p.naam.toLowerCase().includes('kobra') || prefix.includes('kobra');
 
     let entities = {};
     if (isBambu && prefix) {
@@ -49,12 +50,38 @@ r.get('/config', (req, res) => {
         kwh:         p.kwh_entity || '',
         watt:        p.watt_entity || '',
       };
+    } else if (isKobra && prefix) {
+      // Anycubic S1 MQTT Bridge (community HA-addon): print_state/print_layer/
+      // material_usage zijn een rechtstreekse doorgave van wat de printer zelf
+      // rapporteert. "done" = print voltooid, "free"/"stoped" = geen actieve job
+      // (bevestigd via de broncode van de addon) — de exacte "actief printen"-
+      // waarde (vermoedelijk "printing") wordt pas zeker bij een live test.
+      entities = {
+        status:      `${prefix}print_state`,
+        progress:    `${prefix}print_progress`,
+        filename:    `${prefix}print_filename`,
+        remaining:   `${prefix}print_time_remaining`,   // minuten
+        duration:    `${prefix}print_time_elapsed`,     // minuten
+        layer_raw:   `${prefix}print_layer`,            // reeds "cur / tot"
+        filament:    `${prefix}material_usage`,         // mm
+        bed_temp:    `${prefix}hotbed_temperature`,
+        nozzle_temp: `${prefix}nozzle_temperature`,
+        kwh:         p.kwh_entity || '',
+        watt:        p.watt_entity || '',
+      };
+    } else {
+      // Onbekend/generiek type — geen kant-en-klare statusmapping, maar de
+      // handmatig ingestelde kWh/Watt-entiteiten mogen nooit verloren gaan.
+      entities = {
+        kwh:  p.kwh_entity || '',
+        watt: p.watt_entity || '',
+      };
     }
 
     return {
       id:                  p.id,
       naam:                p.naam,
-      type:                isBambu ? 'bambu' : isEnder ? 'ender' : 'generic',
+      type:                isBambu ? 'bambu' : isEnder ? 'ender' : isKobra ? 'kobra' : 'generic',
       heeft_bmcu:          p.heeft_bmcu,
       machine_kost_per_uur: p.machine_kost_per_uur,
       ha_entity_prefix:    prefix,

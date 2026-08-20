@@ -58,7 +58,9 @@ export function usePrinterData() {
 
         const statusLower = (s.status || '').toLowerCase();
         const isActief = ['running','printing','prepare'].includes(statusLower);
-        const isIdle   = ['idle','standby','finish','complete','offline','unavailable','failed','cancelled'].includes(statusLower);
+        // 'free' en 'stoped' (sic) zijn de Kobra/Anycubic S1 MQTT Bridge-termen
+        // voor "geen actieve job" — bevestigd via de broncode van de addon.
+        const isIdle   = ['idle','standby','finish','complete','offline','unavailable','failed','cancelled','free','stoped'].includes(statusLower);
 
         if (p.type === 'bambu') {
           // Enkel live doortellen zolang de printer effectief actief is. De
@@ -85,6 +87,11 @@ export function usePrinterData() {
             if (diff > 0) remaining = diff;
           }
           filamentG = (parseFloat(s.filament) || 0) * 2.98; // PLA 1.75mm: 2.98 g/m
+
+        } else if (p.type === 'kobra') {
+          elapsed   = (parseFloat(s.duration)  || 0) * 60; // minuten -> seconden
+          remaining = (parseFloat(s.remaining) || 0) * 60; // minuten -> seconden
+          filamentG = (parseFloat(s.filament)  || 0) / 1000 * 2.98; // mm -> m -> gram (PLA 1.75mm)
         }
 
         const wattVal = parseFloat(s.watt);
@@ -147,7 +154,8 @@ export function usePrinterData() {
                         _lastPoll[p.id] = now;
 
         // Auto-status: robuust, niet afhankelijk van vorige poll-status
-        const isDone   = ['finish','complete','success'].includes(statusLower);
+        // 'done' = Kobra/Anycubic S1 MQTT Bridge (bevestigd via broncode).
+        const isDone   = ['finish','complete','success','done'].includes(statusLower);
         const isFailed = statusLower === 'failed' || statusLower === 'cancelled';
         const wasBusy  = _prevStatus[p.id];
 
@@ -231,7 +239,7 @@ export function usePrinterData() {
           remaining_sec: remaining,
           filament:    `${filamentG.toFixed(1)} g`,
           filament_g:  filamentG,
-          layer:       `${s.layer_cur || '0'} / ${s.layer_tot || '0'}`,
+          layer:       p.type === 'kobra' ? (s.layer_raw || '0 / 0') : `${s.layer_cur || '0'} / ${s.layer_tot || '0'}`,
           bed_temp:    bedTemp,
           nozzle_temp: nozzleTemp,
           kwh_start:   kwhStart,
