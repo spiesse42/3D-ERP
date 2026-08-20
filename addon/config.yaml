@@ -1,6 +1,6 @@
 name: "3D Print ERP"
 description: "ERP systeem voor 3D print hobbyisten — jobs, klanten, kosten, offertes"
-version: "2.0.183"
+version: "2.0.182"
 slug: "3d_print_erp"
 init: false
 arch:
@@ -9,6 +9,7 @@ homeassistant_api: true
 hassio_api: true
 ingress: true
 ingress_port: 3000
+ingress_stream: true
 panel_icon: mdi:printer-3d
 panel_title: "3D Print ERP"
 options:
