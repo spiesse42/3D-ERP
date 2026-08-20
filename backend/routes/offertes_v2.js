@@ -8,6 +8,16 @@ function getTarieven(db) {
   return Object.fromEntries(rows.map(r => [r.sleutel, r.waarde]));
 }
 
+// Valt terug op de standaardwaarde enkel als er écht niets bruikbaars werd
+// meegegeven — niet bij een bewust ingevulde 0 (bv. "geen voorbereidingstijd
+// nodig"). Met een gewone `||`-fallback ging zo'n ingevulde 0 altijd verloren
+// en werd bij elke volgende opslag/heropening stilzwijgend de standaardwaarde
+// teruggezet.
+function getalOfDefault(v, fallback) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function nextNummer(db) {
   const jaar = new Date().getFullYear();
   const last = db.prepare(`SELECT nummer FROM offertes_v2 WHERE nummer LIKE ? ORDER BY id DESC LIMIT 1`)
@@ -428,15 +438,15 @@ r.post('/', (req, res) => {
     geschat_gewicht_g: parseFloat(geschat_gewicht_g) || 0,
     geschatte_tijd_u: parseInt(geschatte_tijd_u) || 0,
     geschatte_tijd_min: parseInt(geschatte_tijd_min) || 0,
-    voorbereiding_min: parseInt(voorbereiding_min) || (t.voorbereiding_min || 15),
-    nabewerking_min: parseInt(nabewerking_min) || (t.nabewerking_min || 10),
-    ontwerp_min: parseInt(ontwerp_min) || 0,
-    ontwerp_tarief: parseFloat(ontwerp_tarief) || (t.ontwerp_tarief || 15),
-    nabewerking_extra_min: parseInt(nabewerking_extra_min) || 0,
-    nabewerking_extra_tarief: parseFloat(nabewerking_extra_tarief) || (t.nabewerking_tarief || 15),
+    voorbereiding_min: getalOfDefault(voorbereiding_min, t.voorbereiding_min || 15),
+    nabewerking_min: getalOfDefault(nabewerking_min, t.nabewerking_min || 10),
+    ontwerp_min: getalOfDefault(ontwerp_min, 0),
+    ontwerp_tarief: getalOfDefault(ontwerp_tarief, t.ontwerp_tarief || 15),
+    nabewerking_extra_min: getalOfDefault(nabewerking_extra_min, 0),
+    nabewerking_extra_tarief: getalOfDefault(nabewerking_extra_tarief, t.nabewerking_tarief || 15),
     is_multicolor: parseInt(is_multicolor) || 0,
-    extra_per_stuk: parseFloat(extra_per_stuk) || 0,
-    extra_eenmalig: parseFloat(extra_eenmalig) || 0,
+    extra_per_stuk: getalOfDefault(extra_per_stuk, 0),
+    extra_eenmalig: getalOfDefault(extra_eenmalig, 0),
     aantal: parseInt(aantal) || 1,
     filament_prijs_per_kg,
     printer_watt,
@@ -506,15 +516,15 @@ r.put('/:id', (req, res) => {
     geschat_gewicht_g: parseFloat(data.geschat_gewicht_g) || 0,
     geschatte_tijd_u: parseInt(data.geschatte_tijd_u) || 0,
     geschatte_tijd_min: parseInt(data.geschatte_tijd_min) || 0,
-    voorbereiding_min: parseInt(data.voorbereiding_min) || (t.voorbereiding_min || 15),
-    nabewerking_min: parseInt(data.nabewerking_min) || (t.nabewerking_min || 10),
-    ontwerp_min: parseInt(data.ontwerp_min) || 0,
-    ontwerp_tarief: parseFloat(data.ontwerp_tarief) || (t.ontwerp_tarief || 15),
-    nabewerking_extra_min: parseInt(data.nabewerking_extra_min) || 0,
-    nabewerking_extra_tarief: parseFloat(data.nabewerking_extra_tarief) || (t.nabewerking_tarief || 15),
+    voorbereiding_min: getalOfDefault(data.voorbereiding_min, t.voorbereiding_min || 15),
+    nabewerking_min: getalOfDefault(data.nabewerking_min, t.nabewerking_min || 10),
+    ontwerp_min: getalOfDefault(data.ontwerp_min, 0),
+    ontwerp_tarief: getalOfDefault(data.ontwerp_tarief, t.ontwerp_tarief || 15),
+    nabewerking_extra_min: getalOfDefault(data.nabewerking_extra_min, 0),
+    nabewerking_extra_tarief: getalOfDefault(data.nabewerking_extra_tarief, t.nabewerking_tarief || 15),
     is_multicolor: parseInt(data.is_multicolor) || 0,
-    extra_per_stuk: parseFloat(data.extra_per_stuk) || 0,
-    extra_eenmalig: parseFloat(data.extra_eenmalig) || 0,
+    extra_per_stuk: getalOfDefault(data.extra_per_stuk, 0),
+    extra_eenmalig: getalOfDefault(data.extra_eenmalig, 0),
     aantal: parseInt(data.aantal) || 1,
     filament_prijs_per_kg,
     printer_watt,

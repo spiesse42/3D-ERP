@@ -212,9 +212,14 @@ function TypeModal({ type, onClose, onSaved }) {
             </select>
           </div>
           <div className="form-group">
-            <label>Marge (%) <span style={{ color:'var(--muted)', fontWeight:400, fontSize:11 }}>leeg = globale marge</span></label>
-            <input value={margeStr} onChange={e => setMargeStr(e.target.value)} placeholder="bv. 30" />
+            <label>Inkoopprijs (€/{form.eenheid === 'gram' ? 'kg' : form.eenheid === 'ml' ? 'ml' : 'stuk'}) *</label>
+            <input value={prijsStr} onChange={e => setPrijsStr(e.target.value)} placeholder={form.eenheid === 'gram' ? 'bv. 18.00' : 'bv. 6.50'} />
           </div>
+        </div>
+
+        <div className="form-group">
+          <label>Marge (%) <span style={{ color:'var(--muted)', fontWeight:400, fontSize:11 }}>leeg = globale marge</span></label>
+          <input value={margeStr} onChange={e => setMargeStr(e.target.value)} placeholder="bv. 30" />
         </div>
 
         {isFilament && (
