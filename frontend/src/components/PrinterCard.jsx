@@ -55,6 +55,7 @@ export default function PrinterCard({ printerId, naam, data, klanten, onJobCreat
   const [autoBusy,     setAutoBusy]     = useState(false);
   const [knopBusy,     setKnopBusy]     = useState('');
   const [liveViewOpen, setLiveViewOpen] = useState(false);
+  const [streamTs,     setStreamTs]     = useState(null);
 
   async function drukKnop(entity, label) {
     if (!entity || knopBusy) return;
@@ -231,12 +232,16 @@ export default function PrinterCard({ printerId, naam, data, klanten, onJobCreat
           {cameraEntity && (
             <div>
               <button className="btn" style={{ width:'100%', fontSize:11, padding:'4px 6px' }}
-                onClick={() => setLiveViewOpen(v => !v)}>
+                onClick={() => setLiveViewOpen(v => {
+                  const next = !v;
+                  if (next) setStreamTs(Date.now());
+                  return next;
+                })}>
                 🎥 {liveViewOpen ? 'Live view verbergen' : 'Live view tonen'}
               </button>
-              {liveViewOpen && (
+              {liveViewOpen && streamTs && (
                 <img
-                  src={`${BASE}/ha/camera-stream/${cameraEntity}?t=${Date.now()}`}
+                  src={`${BASE}/ha/camera-stream/${cameraEntity}?t=${streamTs}`}
                   alt="Live camerabeeld"
                   style={{ width:'100%', marginTop:6, borderRadius:6, display:'block', background:'#000' }}
                 />
