@@ -79,12 +79,14 @@ function berekenLive(form, tarieven, rollen, artikelenKost = 0) {
   return { mat, ener, mach, arb, extra, bmcu, artikelen, sub, marge, vkp, aantal, prijsPerKg };
 }
 
-// Op moduleniveau gedefinieerd (niet binnen OfferteFormulier) — anders krijgen
+// Op moduleniveau gedefinieerd (niet binnen OfferteModal) — anders krijgen
 // deze bij elke toetsaanslag een nieuwe component-identiteit, waardoor React
 // het onderliggende <input> unmount/remount en de cursor/focus verloren gaat.
+// Zelfde kaartjes-stijl (achtergrond + titel met emoji) als de Werkbon-modal
+// (KostenModal) bij Jobs, voor een uniforme uitstraling doorheen de app.
 const Sec = ({ title, children }) => (
-  <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.85rem', marginBottom:'0.85rem' }}>
-    <p style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em', color:'var(--muted)', marginBottom:8 }}>{title}</p>
+  <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
+    <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>{title}</p>
     {children}
   </div>
 );
@@ -96,8 +98,11 @@ const F = ({ label, children, style }) => (
   </div>
 );
 
-// ── OfferteFormulier ──────────────────────────────────────────────────────────
-function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRollen, tarieven, onSaved, onCancel, onKlantToegevoegd }) {
+// ── OfferteModal ──────────────────────────────────────────────────────────────
+// Pop-up venster in dezelfde stijl/interactiepatroon als KlantModal en
+// KostenModal (Werkbon) — i.p.v. een aparte volle pagina, zodat het
+// offerteformulier overal in de app hetzelfde aanvoelt.
+function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, tarieven, onClose, onSaved, onKlantToegevoegd }) {
   const [form, setForm] = useState({
     klant_id:'', printer_id: printers[0]?.id || '',
     filament_type_id:'', filament_rol_id:'',
@@ -113,15 +118,16 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
     aantal:1, btw_pct:21, geldig_tot:'', notities:'',
     machine_kost_per_uur: '',
     printer_watt: 120,
-    ...initForm
+    ...offerte
   });
   const [saving, setSaving] = useState(false);
   const [rollenVoorType, setRollenVoorType] = useState([]);
-  const [artikelen, setArtikelen] = useState(initForm.artikelen || []);
+  const [artikelen, setArtikelen] = useState(offerte.artikelen || []);
   const [artikelTypeId, setArtikelTypeId] = useState('');
   const [artikelAantal, setArtikelAantal] = useState('');
   const [klantModal, setKlantModal] = useState(false);
   const set = useCallback((k, v) => setForm(f => ({ ...f, [k]: v })), []);
+  const isEdit = !!form.id;
 
   // Extra artikelen (bv. verzendkosten) — alleen niet-filament types, prijs op
   // TYPE-niveau net als het hoofdfilament: een offerte reserveert geen stock.
@@ -191,7 +197,7 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
         setRollenVoorType(r);
         // Auto-select als er maar 1 rol is
         if (r.length === 1) set('filament_rol_id', r[0].id);
-        else set('filament_rol_id', '');
+        else if (!r.some(x => x.id === parseInt(form.filament_rol_id))) set('filament_rol_id', '');
       })
       .catch(() => setRollenVoorType([]));
   }, [form.filament_type_id]);
@@ -238,19 +244,34 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
       return alert('Selecteer voor elke kleur een filamentrol');
     setSaving(true);
     try {
-      let r;
-      if (form.id) r = await api.put(`/offertes2/${form.id}`, form);
-      else r = await api.post('/offertes2', form);
-      onSaved({ ...form, ...r });
+      if (form.id) {
+        // Bewerken van een bestaande offerte — na opslaan terug naar detail.
+        const r = await api.put(`/offertes2/${form.id}`, form);
+        onSaved({ ...form, ...r });
+        onClose();
+      } else {
+        // Nieuwe offerte — venster blijft open (nu in "bewerk"-toestand) zodat
+        // meteen extra artikelen (bv. verzendkosten) toegevoegd kunnen worden.
+        const r = await api.post('/offertes2', form);
+        setForm(f => ({ ...f, id: r.id, nummer: r.nummer }));
+        onSaved({ ...form, ...r });
+      }
     } catch(e) { alert(e.message); }
     finally { setSaving(false); }
   }
 
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'1fr 270px', gap:'1.25rem', alignItems:'start' }}>
-      <div>
+    <div className="modal-overlay" onClick={e => {
+      if (e.target === e.currentTarget && confirm('Offerte sluiten? Niet-opgeslagen wijzigingen kunnen verloren gaan.')) onClose();
+    }}>
+      <div className="modal" style={{ width:620, maxHeight:'93vh', overflowY:'auto' }}>
+        <div className="modal-header">
+          <h2 style={{ fontSize:14 }}>{isEdit ? `Offerte bewerken — ${form.nummer}` : 'Nieuwe offerte'}</h2>
+          <button className="btn" onClick={onClose}>✕</button>
+        </div>
+
         {/* KLANT & OBJECT */}
-        <Sec title="Klant & object">
+        <Sec title="👤 Klant & object">
           <div className="form-row" style={{ marginBottom:8 }}>
             <F label="Klant *">
               <div style={{ display:'flex', gap:6 }}>
@@ -276,8 +297,8 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
           </F>
         </Sec>
 
-        {/* SLICER DATA */}
-        <Sec title="Slicer data">
+        {/* FILAMENT */}
+        <Sec title="🧵 Filament">
           <div className="form-row" style={{ marginBottom:8 }}>
             <F label="Filamenttype (hoofd)">
               <select value={form.filament_type_id || ''} onChange={e => set('filament_type_id', e.target.value)}>
@@ -376,20 +397,18 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
         </Sec>
 
         {/* ARBEID */}
-        <Sec title="Arbeid">
+        <Sec title="👷 Arbeid">
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:8 }}>
-            <F label="Voorbereiding (min)">
-              <input type="number" min="0" {...voorbF.props} />
-              <div style={{ fontSize:10, color:'var(--muted)', marginTop:2 }}>
-                → €{(voorbF.num() / 60 * (tarieven.arbeid_per_uur || 15)).toFixed(2)}
-              </div>
-            </F>
-            <F label="Nabewerking (min)">
-              <input type="number" min="0" {...nabF.props} />
-              <div style={{ fontSize:10, color:'var(--muted)', marginTop:2 }}>
-                → €{(nabF.num() / 60 * (tarieven.arbeid_per_uur || 15)).toFixed(2)}
-              </div>
-            </F>
+            <div style={{ background:'var(--bg2)', borderRadius:6, padding:'8px 10px' }}>
+              <label style={{ fontSize:11, color:'var(--muted)', display:'block', marginBottom:4 }}>Voorbereiding (min)</label>
+              <input type="number" min="0" {...voorbF.props} style={{ marginBottom:4 }} />
+              <div style={{ fontSize:10, color:'var(--accent2)' }}>→ €{(voorbF.num() / 60 * (tarieven.arbeid_per_uur || 15)).toFixed(2)}</div>
+            </div>
+            <div style={{ background:'var(--bg2)', borderRadius:6, padding:'8px 10px' }}>
+              <label style={{ fontSize:11, color:'var(--muted)', display:'block', marginBottom:4 }}>Nabewerking (min)</label>
+              <input type="number" min="0" {...nabF.props} style={{ marginBottom:4 }} />
+              <div style={{ fontSize:10, color:'var(--accent2)' }}>→ €{(nabF.num() / 60 * (tarieven.arbeid_per_uur || 15)).toFixed(2)}</div>
+            </div>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 60px', gap:6, marginBottom:6 }}>
             <F label="Ontwerp regie (min)">
@@ -416,7 +435,7 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
         </Sec>
 
         {/* EXTRA */}
-        <Sec title="Extra kosten">
+        <Sec title="➕ Extra kosten">
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginBottom:6 }}>
             <F label="Aantal stuks">
               <input type="number" min="1" {...aantalF.props} />
@@ -488,7 +507,7 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
         </Sec>
 
         {/* OFFERTE DETAILS */}
-        <Sec title="Offerte details">
+        <Sec title="📝 Offerte details">
           <div className="form-row" style={{ marginBottom:6 }}>
             <F label="Geldig tot">
               <input type="date" value={form.geldig_tot || ''} onChange={e => set('geldig_tot', e.target.value)} />
@@ -504,20 +523,13 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
           </F>
         </Sec>
 
-        <div style={{ display:'flex', gap:8 }}>
-          <button className="btn" style={{ flex:1 }} onClick={onCancel}>Annuleer</button>
-          <button className="btn primary" style={{ flex:2 }} onClick={save} disabled={saving}>
-            {saving ? 'Bezig...' : form.id ? '💾 Bijwerken' : '📋 Offerte aanmaken'}
-          </button>
-        </div>
-      </div>
-
-      {/* LIVE PREVIEW */}
-      <div style={{ position:'sticky', top:0 }}>
-        <div className="card" style={{ padding:'1rem' }}>
-          <h2 style={{ fontSize:13, fontWeight:600, marginBottom:'0.75rem' }}>📊 Live prijsoverzicht</h2>
+        {/* LIVE PRIJSOVERZICHT — zelfde kaartje-stijl als het kostprijsoverzicht
+            in de Werkbon-modal, nu inline i.p.v. in een aparte zijbalk (die op
+            smalle vensters buiten beeld kon vallen). */}
+        <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'1rem', marginBottom:'0.75rem' }}>
+          <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>📊 Live prijsoverzicht</p>
           {!preview
-            ? <p style={{ color:'var(--muted)', fontSize:12 }}>Selecteer filamenttype, rol en gewicht</p>
+            ? <p style={{ color:'var(--muted)', fontSize:12, margin:0 }}>Selecteer filamenttype, rol en gewicht</p>
             : <>
               {[
                 ['Materiaal', preview.mat],
@@ -528,35 +540,40 @@ function OfferteFormulier({ initForm, klanten, printers, filamentTypes, allRolle
                 ...(preview.extra > 0 ? [['Extra', preview.extra]] : []),
                 ...(preview.artikelen > 0 ? [['Artikelen', preview.artikelen]] : []),
               ].map(([label, val]) => (
-                <div key={label} style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
+                <div key={label} style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
                   <span style={{ color:'var(--muted)' }}>{label}</span>
                   <span>€{(val || 0).toFixed(2)}</span>
                 </div>
               ))}
-              <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:11, color:'var(--muted)' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid var(--border)', fontSize:11, color:'var(--muted)' }}>
                 <span>Subtotaal</span><span>€{preview.sub.toFixed(2)}</span>
               </div>
-              <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:11, color:'var(--muted)' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid var(--border)', fontSize:11, color:'var(--muted)' }}>
                 <span>Marge ({preview.marge}%)</span><span>€{(preview.vkp - preview.sub).toFixed(2)}</span>
               </div>
-              <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0 2px', fontWeight:700 }}>
-                <span style={{ fontSize:13 }}>Verkoopprijs{preview.aantal > 1 ? ` (${preview.aantal}×)` : ''}</span>
-                <span style={{ fontSize:20, color:'var(--accent2)' }}>€{preview.vkp.toFixed(2)}</span>
+              <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0 4px', fontWeight:700 }}>
+                <span>Verkoopprijs{preview.aantal > 1 ? ` (${preview.aantal}×)` : ''}</span>
+                <span style={{ fontSize:22, color:'var(--accent2)' }}>€{preview.vkp.toFixed(2)}</span>
               </div>
+              {preview.aantal > 1 && <div style={{ textAlign:'right', fontSize:11, color:'var(--muted)' }}>€{(preview.vkp / preview.aantal).toFixed(2)}/stuk</div>}
               {form.btw_pct > 0 && (
-                <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'var(--muted)', paddingTop:4 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', fontSize:12, color:'var(--muted)' }}>
                   <span>+ BTW {form.btw_pct}%</span>
                   <span>€{(preview.vkp * form.btw_pct / 100).toFixed(2)}</span>
                 </div>
-              )}
-              {preview.aantal > 1 && (
-                <div style={{ textAlign:'right', fontSize:11, color:'var(--muted)' }}>€{(preview.vkp / preview.aantal).toFixed(2)}/stuk</div>
               )}
               <div style={{ fontSize:10, color:'var(--muted)', marginTop:6, borderTop:'1px solid var(--border)', paddingTop:6 }}>
                 Rolprijs: €{preview.prijsPerKg.toFixed(2)}/kg
               </div>
             </>
           }
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn" onClick={onClose}>{isEdit ? 'Sluiten' : 'Annuleer'}</button>
+          <button className="btn primary" onClick={save} disabled={saving}>
+            {saving ? 'Bezig...' : isEdit ? '💾 Bijwerken' : '📋 Offerte aanmaken'}
+          </button>
         </div>
       </div>
 
@@ -582,9 +599,8 @@ export default function Offertes() {
   const [filamentTypes,setFilamentTypes]= useState([]);
   const [allRollen,    setAllRollen]    = useState([]);
   const [tarieven,     setTarieven]     = useState({});
-  const [view,         setView]         = useState('lijst');
   const [detail,       setDetail]       = useState(null);
-  const [editForm,     setEditForm]     = useState(null);
+  const [offerteModal, setOfferteModal] = useState(null); // null = dicht, {} = nieuw, object = bewerken
   const [jobStatus,    setJobStatus]    = useState('');
 
   const load = () => api.get('/offertes2').then(setOffertes);
@@ -600,7 +616,7 @@ export default function Offertes() {
 
   async function openDetail(id) {
     const d = await api.get(`/offertes2/${id}`);
-    setDetail(d); setView('detail'); setJobStatus('');
+    setDetail(d); setJobStatus('');
   }
 
   async function updateStatus(id, status) {
@@ -624,47 +640,18 @@ export default function Offertes() {
     try {
       await api.delete(`/offertes2/${id}`);
       load();
-      if (view === 'detail') { setDetail(null); setView('lijst'); }
+      if (detail?.id === id) setDetail(null);
     } catch(e) { alert(e.message); }
-  }
-
-  if (view === 'nieuw' || (view === 'bewerk' && editForm)) {
-    const isEdit = view === 'bewerk';
-    return (
-      <div>
-        <div className="page-header">
-          <h1>{isEdit ? `Offerte bewerken — ${editForm.nummer}` : 'Nieuwe offerte'}</h1>
-          <button className="btn" onClick={() => isEdit ? setView('detail') : setView('lijst')}>← Terug</button>
-        </div>
-        <OfferteFormulier
-          initForm={isEdit ? editForm : {}}
-          klanten={klanten} printers={printers} filamentTypes={filamentTypes}
-          allRollen={allRollen} tarieven={tarieven}
-          onKlantToegevoegd={(k) => api.get('/klanten').then(setKlanten)}
-          onSaved={async (updated) => {
-            await load();
-            if (isEdit) {
-              const u = await api.get(`/offertes2/${editForm.id}`); setDetail(u); setView('detail');
-            } else {
-              // Meteen naar bewerk-modus met het echte id, zodat extra artikelen
-              // (bv. verzendkosten) meteen na aanmaak toegevoegd kunnen worden.
-              setEditForm(updated); setView('bewerk');
-            }
-          }}
-          onCancel={() => isEdit ? setView('detail') : setView('lijst')}
-        />
-      </div>
-    );
   }
 
   return (
     <div>
       <div className="page-header">
         <h1>Offertes</h1>
-        <button className="btn primary" onClick={() => setView('nieuw')}>+ Nieuwe offerte</button>
+        <button className="btn primary" onClick={() => setOfferteModal({})}>+ Nieuwe offerte</button>
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns: detail && view === 'detail' ? '1fr 380px' : '1fr', gap:'1rem' }}>
+      <div style={{ display:'grid', gridTemplateColumns: detail ? '1fr 380px' : '1fr', gap:'1rem' }}>
         <div>
           {offertes.length === 0
             ? <div className="empty"><p>Nog geen offertes</p><p style={{ fontSize:12, color:'var(--muted)', marginTop:8 }}>Klik op "+ Nieuwe offerte" om te starten</p></div>
@@ -698,13 +685,13 @@ export default function Offertes() {
           }
         </div>
 
-        {detail && view === 'detail' && (
+        {detail && (
           <div className="card" style={{ position:'sticky', top:0, maxHeight:'90vh', overflowY:'auto' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.75rem' }}>
               <h2 style={{ fontSize:15, fontWeight:700 }}>{detail.nummer}</h2>
               <div style={{ display:'flex', gap:6 }}>
-                <button className="btn" style={{ fontSize:11 }} onClick={() => { setEditForm({...detail}); setView('bewerk'); }}>✏</button>
-                <button className="btn" onClick={() => { setDetail(null); setView('lijst'); }}>✕</button>
+                <button className="btn" style={{ fontSize:11 }} onClick={() => setOfferteModal({...detail})}>✏</button>
+                <button className="btn" onClick={() => setDetail(null)}>✕</button>
               </div>
             </div>
 
@@ -715,46 +702,54 @@ export default function Offertes() {
               {detail.object_link && <a href={detail.object_link} target="_blank" rel="noreferrer" style={{ fontSize:11, color:'var(--accent)' }}>🔗 Link</a>}
             </div>
 
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5, fontSize:12, marginBottom:'0.75rem' }}>
-              {[
-                ['Printer', detail.printer_naam || '—'],
-                ['Filament', detail.filament_merk ? `${detail.filament_merk} ${detail.filament_materiaal}` : '—'],
-                ['Gewicht', detail.geschat_gewicht_g ? `${detail.geschat_gewicht_g}g` : '—'],
-                ['Tijd', `${detail.geschatte_tijd_u || 0}u ${detail.geschatte_tijd_min || 0}min`],
-                ['Aantal', detail.aantal || 1],
-                ['Multicolor', detail.is_multicolor ? 'Ja' : 'Nee'],
-              ].map(([l, v]) => (
-                <div key={l} style={{ padding:'3px 0', borderBottom:'1px solid var(--border)' }}>
-                  <div style={{ color:'var(--muted)', fontSize:10 }}>{l}</div>
-                  <div style={{ fontWeight:500 }}>{v}</div>
-                </div>
-              ))}
+            {/* Zelfde kaartjes-stijl als de Werkbon (KostenModal): 🧵 Filament sectie */}
+            <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
+              <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>🧵 Filament{detail.is_multicolor ? ' — multicolor' : ''}</p>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5, fontSize:12 }}>
+                {[
+                  ['Printer', detail.printer_naam || '—'],
+                  ['Type', detail.filament_merk ? `${detail.filament_merk} ${detail.filament_materiaal}` : '—'],
+                  ['Rol', detail.rol_lotnummer || detail.rol_kleur ? `${detail.rol_lotnummer || ''} ${detail.rol_kleur ? `(${detail.rol_kleur})` : ''}`.trim() : '—'],
+                  ['Gewicht', detail.geschat_gewicht_g ? `${detail.geschat_gewicht_g}g` : '—'],
+                  ['Tijd', `${detail.geschatte_tijd_u || 0}u ${detail.geschatte_tijd_min || 0}min`],
+                  ['Aantal', detail.aantal || 1],
+                ].map(([l, v]) => (
+                  <div key={l} style={{ padding:'3px 0', borderBottom:'1px solid var(--border)' }}>
+                    <div style={{ color:'var(--muted)', fontSize:10 }}>{l}</div>
+                    <div style={{ fontWeight:500 }}>{v}</div>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            {[
-              ['Materiaal', detail.materiaal_kost],
-              ['Energie', detail.energie_kost_schat],
-              ['Machine', detail.machine_kost],
-              ['Arbeid', detail.arbeid_kost],
-              ...(detail.extra_totaal > 0 ? [['Extra', detail.extra_totaal]] : []),
-              ...(detail.artikelen_kost > 0 ? [['Artikelen', detail.artikelen_kost]] : []),
-            ].map(([l, v]) => (
-              <div key={l} style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
-                <span style={{ color:'var(--muted)' }}>{l}</span><span>€{(v || 0).toFixed(2)}</span>
+            {/* 📊 Prijsoverzicht — zelfde stijl als het kostprijsoverzicht in de Werkbon */}
+            <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'0.75rem', marginBottom:'0.75rem' }}>
+              <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>📊 Prijsoverzicht</p>
+              {[
+                ['Materiaal', detail.materiaal_kost],
+                ['Energie', detail.energie_kost_schat],
+                ['Machine', detail.machine_kost],
+                ['Arbeid', detail.arbeid_kost],
+                ...(detail.extra_totaal > 0 ? [['Extra', detail.extra_totaal]] : []),
+                ...(detail.artikelen_kost > 0 ? [['Artikelen', detail.artikelen_kost]] : []),
+              ].map(([l, v]) => (
+                <div key={l} style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:12 }}>
+                  <span style={{ color:'var(--muted)' }}>{l}</span><span>€{(v || 0).toFixed(2)}</span>
+                </div>
+              ))}
+              <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:11, color:'var(--muted)' }}>
+                <span>Subtotaal</span><span>€{detail.subtotaal?.toFixed(2)}</span>
               </div>
-            ))}
-            <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 0', borderBottom:'1px solid var(--border)', fontSize:11, color:'var(--muted)' }}>
-              <span>Subtotaal</span><span>€{detail.subtotaal?.toFixed(2)}</span>
-            </div>
-            <div style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', fontWeight:700, fontSize:15, marginBottom: detail.btw_pct > 0 ? 0 : '0.75rem' }}>
-              <span>Verkoopprijs</span><span style={{ color:'var(--accent2)' }}>€{detail.verkoopprijs?.toFixed(2)}</span>
-            </div>
-            {detail.btw_pct > 0 && (
-              <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, color:'var(--muted)', marginBottom:'0.75rem' }}>
-                <span>+ BTW {detail.btw_pct}%</span>
-                <span>€{detail.btw_bedrag?.toFixed(2)}</span>
+              <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0 4px', fontWeight:700, fontSize:15 }}>
+                <span>Verkoopprijs</span><span style={{ color:'var(--accent2)' }}>€{detail.verkoopprijs?.toFixed(2)}</span>
               </div>
-            )}
+              {detail.btw_pct > 0 && (
+                <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, color:'var(--muted)' }}>
+                  <span>+ BTW {detail.btw_pct}%</span>
+                  <span>€{detail.btw_bedrag?.toFixed(2)}</span>
+                </div>
+              )}
+            </div>
 
             <div className="form-group" style={{ marginBottom:'0.75rem' }}>
               <label style={{ fontSize:11 }}>Status</label>
@@ -781,6 +776,22 @@ export default function Offertes() {
           </div>
         )}
       </div>
+
+      {offerteModal !== null && (
+        <OfferteModal
+          offerte={offerteModal}
+          klanten={klanten} printers={printers} filamentTypes={filamentTypes}
+          allRollen={allRollen} tarieven={tarieven}
+          onKlantToegevoegd={(k) => api.get('/klanten').then(setKlanten)}
+          onSaved={async (updated) => {
+            await load();
+            if (detail && String(detail.id) === String(updated.id)) {
+              const u = await api.get(`/offertes2/${updated.id}`); setDetail(u);
+            }
+          }}
+          onClose={() => setOfferteModal(null)}
+        />
+      )}
     </div>
   );
 }

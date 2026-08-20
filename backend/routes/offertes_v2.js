@@ -116,6 +116,24 @@ function berekenMultiMateriaalKost(db, filamentRollen, faalfactor, aantal) {
   return som * (parseInt(aantal) || 1);
 }
 
+// Bepaalt de materiaal_kost_override voor één offerte: bij multicolor de som
+// per kleur (zie hierboven); anders — indien een specifieke rol gekozen is —
+// de effectieve rolprijs van die rol i.p.v. de generieke typeprijs. Geeft
+// null terug als er niets specifieks gekozen is, zodat de normale
+// typeprijs-berekening in berekenOfferte() als fallback dient.
+function bepaalMateriaalKostOverride(db, { is_multicolor, filament_rollen, filament_rol_id, geschat_gewicht_g, aantal }, faalfactor) {
+  if (parseInt(is_multicolor)) {
+    return berekenMultiMateriaalKost(db, filament_rollen, faalfactor, aantal);
+  }
+  if (filament_rol_id) {
+    const prijs = haalRolEffectievePrijs(db, filament_rol_id);
+    if (prijs > 0) {
+      return (parseFloat(geschat_gewicht_g) / 1000) * prijs * faalfactor * (parseInt(aantal) || 1);
+    }
+  }
+  return null;
+}
+
 // Prijs van 1 artikelregel — zelfde eenheid-logica als kosten.js (job-werkbon):
 // 'gram' wordt per kg geprijsd (dus /1000), 'stuk'/'ml' rechtstreeks per eenheid.
 function kostPerArtikelRegel(a) {
@@ -160,9 +178,7 @@ function herbereken(db, offerteId) {
   const faalfactor = 1 + (t.faalfactor_pct || 10) / 100;
   let filament_rollen = [];
   try { filament_rollen = JSON.parse(offerte.filament_rollen_json || '[]'); } catch { filament_rollen = []; }
-  const materiaal_kost_override = offerte.is_multicolor
-    ? berekenMultiMateriaalKost(db, filament_rollen, faalfactor, offerte.aantal)
-    : null;
+  const materiaal_kost_override = bepaalMateriaalKostOverride(db, { ...offerte, filament_rollen }, faalfactor);
 
   const artikelen_kost = berekenArtikelenKost(db, offerteId);
   const arbeid_per_uur = t.arbeid_per_uur || 15;
@@ -322,11 +338,12 @@ r.get('/:id', (req, res) => {
     SELECT o.*, k.naam as klant_naam, k.voornaam as klant_voornaam,
       k.email, k.straat, k.huisnummer, k.postcode, k.gemeente, k.btw_nummer,
       p.naam as printer_naam, ft.merk as filament_merk, ft.materiaal as filament_materiaal,
-      ft.inkoop_prijs_per_kg
+      ft.inkoop_prijs_per_kg, fr.kleur as rol_kleur, fr.lotnummer as rol_lotnummer
     FROM offertes_v2 o
     JOIN klanten k ON k.id = o.klant_id
     LEFT JOIN printers p ON p.id = o.printer_id
     LEFT JOIN filament_types ft ON ft.id = o.filament_type_id
+    LEFT JOIN filament_rollen fr ON fr.id = o.filament_rol_id
     WHERE o.id = ?
   `).get(req.params.id);
   if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
@@ -379,7 +396,7 @@ r.post('/', (req, res) => {
   const db = getDb();
   const t = getTarieven(db);
   const {
-    klant_id, object_naam, object_link, printer_id, filament_type_id,
+    klant_id, object_naam, object_link, printer_id, filament_type_id, filament_rol_id,
     geschat_gewicht_g, geschatte_tijd_u = 0, geschatte_tijd_min = 0,
     voorbereiding_min, nabewerking_min, ontwerp_min = 0, ontwerp_tarief,
     nabewerking_extra_min = 0, nabewerking_extra_tarief,
@@ -403,9 +420,9 @@ r.post('/', (req, res) => {
   }
 
   const faalfactor = 1 + (t.faalfactor_pct || 10) / 100;
-  const materiaal_kost_override = parseInt(is_multicolor)
-    ? berekenMultiMateriaalKost(db, filament_rollen, faalfactor, aantal)
-    : null;
+  const materiaal_kost_override = bepaalMateriaalKostOverride(
+    db, { is_multicolor, filament_rollen, filament_rol_id, geschat_gewicht_g, aantal }, faalfactor
+  );
 
   const berData = {
     geschat_gewicht_g: parseFloat(geschat_gewicht_g) || 0,
@@ -434,7 +451,7 @@ r.post('/', (req, res) => {
 
   const result = db.prepare(`
     INSERT INTO offertes_v2 (
-      klant_id, nummer, object_naam, object_link, printer_id, filament_type_id,
+      klant_id, nummer, object_naam, object_link, printer_id, filament_type_id, filament_rol_id,
       geschat_gewicht_g, geschatte_tijd_u, geschatte_tijd_min,
       voorbereiding_min, nabewerking_min, ontwerp_min, ontwerp_tarief,
       nabewerking_extra_min, nabewerking_extra_tarief, is_multicolor, filament_rollen_json,
@@ -442,9 +459,9 @@ r.post('/', (req, res) => {
       materiaal_kost, energie_kost_schat, arbeid_kost, machine_kost, extra_totaal,
       subtotaal, marge_pct, verkoopprijs, btw_pct, btw_bedrag, totaal,
       geldig_tot, notities, arbeid_per_uur
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(
-    klant_id, nummer, object_naam||null, object_link||null, printer_id||null, filament_type_id||null,
+    klant_id, nummer, object_naam||null, object_link||null, printer_id||null, filament_type_id||null, filament_rol_id||null,
     berData.geschat_gewicht_g, berData.geschatte_tijd_u, berData.geschatte_tijd_min,
     berData.voorbereiding_min, berData.nabewerking_min, berData.ontwerp_min, berData.ontwerp_tarief,
     berData.nabewerking_extra_min, berData.nabewerking_extra_tarief, berData.is_multicolor,
@@ -481,9 +498,9 @@ r.put('/:id', (req, res) => {
 
   const filament_rollen = Array.isArray(data.filament_rollen) ? data.filament_rollen : [];
   const faalfactor = 1 + (t.faalfactor_pct || 10) / 100;
-  const materiaal_kost_override = parseInt(data.is_multicolor)
-    ? berekenMultiMateriaalKost(db, filament_rollen, faalfactor, data.aantal)
-    : null;
+  const materiaal_kost_override = bepaalMateriaalKostOverride(
+    db, { is_multicolor: data.is_multicolor, filament_rollen, filament_rol_id: data.filament_rol_id, geschat_gewicht_g: data.geschat_gewicht_g, aantal: data.aantal }, faalfactor
+  );
 
   const berData = {
     geschat_gewicht_g: parseFloat(data.geschat_gewicht_g) || 0,
@@ -515,7 +532,7 @@ r.put('/:id', (req, res) => {
 
   db.prepare(`
     UPDATE offertes_v2 SET
-      klant_id=?, object_naam=?, object_link=?, printer_id=?, filament_type_id=?,
+      klant_id=?, object_naam=?, object_link=?, printer_id=?, filament_type_id=?, filament_rol_id=?,
       geschat_gewicht_g=?, geschatte_tijd_u=?, geschatte_tijd_min=?,
       voorbereiding_min=?, nabewerking_min=?, ontwerp_min=?, ontwerp_tarief=?,
       nabewerking_extra_min=?, nabewerking_extra_tarief=?, is_multicolor=?, filament_rollen_json=?,
@@ -526,7 +543,7 @@ r.put('/:id', (req, res) => {
     WHERE id=?
   `).run(
     data.klant_id, data.object_naam||null, data.object_link||null,
-    data.printer_id||null, data.filament_type_id||null,
+    data.printer_id||null, data.filament_type_id||null, data.filament_rol_id||null,
     berData.geschat_gewicht_g, berData.geschatte_tijd_u, berData.geschatte_tijd_min,
     berData.voorbereiding_min, berData.nabewerking_min, berData.ontwerp_min, berData.ontwerp_tarief,
     berData.nabewerking_extra_min, berData.nabewerking_extra_tarief, berData.is_multicolor,
@@ -546,7 +563,10 @@ r.patch('/:id/status', (req, res) => {
   res.json({ ok: true });
 });
 
-// POST maak werkbon job van offerte
+// POST maak werkbon job van offerte — neemt ALLE relevante offertegegevens
+// over (filament, arbeid, extra kosten, artikelen) zodat de Werkbon
+// (KostenModal) bij het openen al volledig ingevuld staat i.p.v. leeg, en
+// niets dubbel ingegeven moet worden.
 r.post('/:id/maak-job', (req, res) => {
   const db = getDb();
   const offerte = db.prepare('SELECT * FROM offertes_v2 WHERE id = ?').get(req.params.id);
@@ -555,20 +575,71 @@ r.post('/:id/maak-job', (req, res) => {
 
   const totaleUren = (offerte.geschatte_tijd_u || 0) + (offerte.geschatte_tijd_min || 0) / 60;
 
-  const result = db.prepare(`
-    INSERT INTO jobs (klant_id, printer_id, naam, status, print_uren_geschat, is_multicolor, notities, offerte_id)
-    VALUES (?,?,?,?,?,?,?,?)
-  `).run(
-    offerte.klant_id, offerte.printer_id,
-    offerte.object_naam || `Job van offerte ${offerte.nummer}`,
-    'gepland', totaleUren, offerte.is_multicolor,
-    `Werkbon van offerte ${offerte.nummer}`, offerte.id
-  );
+  let filament_rollen = [];
+  try { filament_rollen = JSON.parse(offerte.filament_rollen_json || '[]'); } catch { filament_rollen = []; }
 
-  db.prepare('UPDATE offertes_v2 SET job_id = ?, status = ? WHERE id = ?')
-    .run(result.lastInsertRowid, 'goedgekeurd', offerte.id);
+  const gewichtGeschat = offerte.is_multicolor
+    ? filament_rollen.reduce((s, fr) => s + (parseFloat(fr.gram) || 0), 0)
+    : (offerte.geschat_gewicht_g || 0);
 
-  res.status(201).json({ job_id: result.lastInsertRowid });
+  try {
+    const jobId = db.transaction(() => {
+      const result = db.prepare(`
+        INSERT INTO jobs (klant_id, printer_id, naam, status, print_uren_geschat, is_multicolor, gewicht_geschat, notities, offerte_id)
+        VALUES (?,?,?,?,?,?,?,?,?)
+      `).run(
+        offerte.klant_id, offerte.printer_id,
+        offerte.object_naam || `Job van offerte ${offerte.nummer}`,
+        'gepland', totaleUren, offerte.is_multicolor, gewichtGeschat || null,
+        `Werkbon van offerte ${offerte.nummer}`, offerte.id
+      );
+      const id = result.lastInsertRowid;
+
+      // Arbeid/extra — 1-op-1 overname naar job_kosten (de echte materiaal-
+      // /energie-/machinekost wordt door de Werkbon zelf herberekend zodra
+      // die opent, op basis van de hieronder overgenomen materialen/diensten).
+      db.prepare(`
+        INSERT INTO job_kosten (
+          job_id, aantal, voorbereiding_min, nabewerking_min,
+          ontwerp_min, ontwerp_tarief, nabewerking_extra_min, nabewerking_extra_tarief,
+          extra_per_stuk, extra_eenmalig, extra_omschrijving
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      `).run(
+        id, offerte.aantal || 1, offerte.voorbereiding_min || 0, offerte.nabewerking_min || 0,
+        offerte.ontwerp_min || 0, offerte.ontwerp_tarief || 15,
+        offerte.nabewerking_extra_min || 0, offerte.nabewerking_extra_tarief || 15,
+        offerte.extra_per_stuk || 0, offerte.extra_eenmalig || 0, offerte.extra_omschrijving || null
+      );
+
+      // Filament → job_materialen
+      if (offerte.is_multicolor) {
+        for (const fr of filament_rollen) {
+          const gram = parseFloat(fr.gram);
+          if (gram > 0 && fr.filament_rol_id) {
+            db.prepare('INSERT INTO job_materialen (job_id, filament_rol_id, gram_gebruikt) VALUES (?,?,?)')
+              .run(id, fr.filament_rol_id, gram);
+          }
+        }
+      } else if (offerte.filament_rol_id && offerte.geschat_gewicht_g > 0) {
+        db.prepare('INSERT INTO job_materialen (job_id, filament_rol_id, gram_gebruikt) VALUES (?,?,?)')
+          .run(id, offerte.filament_rol_id, offerte.geschat_gewicht_g);
+      }
+
+      // Offerte-artikelen (bv. verzendkosten) → job_diensten, zelfde model
+      // (prijs op typeniveau, geen voorraadreservering)
+      for (const a of haalArtikelen(db, offerte.id)) {
+        db.prepare('INSERT INTO job_diensten (job_id, filament_type_id, aantal, prijs_per_eenheid) VALUES (?,?,?,?)')
+          .run(id, a.filament_type_id, a.aantal, a.inkoop_prijs_per_kg || 0);
+      }
+
+      db.prepare('UPDATE offertes_v2 SET job_id = ?, status = ? WHERE id = ?').run(id, 'goedgekeurd', offerte.id);
+      return id;
+    })();
+
+    res.status(201).json({ job_id: jobId });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // GET PDF
