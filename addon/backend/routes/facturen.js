@@ -38,13 +38,37 @@ const RESPONSE_SCHEMA = {
 const PROMPT = `Dit is een factuur of kasticket van een aankoop. Lijst alle effectief aangekochte artikelen (regels) op.
 Geef per regel: omschrijving, aantal, je beste gok voor de eenheid (stuk/gram/ml), eenheidsprijs en totaalprijs van die regel.
 Belangrijk voor "aantal": geef dit altijd in de eenheid die je zelf koos bij "eenheid_gok". Bv. een rol filament van 1kg → eenheid_gok "gram", aantal 1000 (niet 1). Een fles lijm van 500ml → eenheid_gok "ml", aantal 500. Losse stuks (bv. 5 sleutelhangers) → eenheid_gok "stuk", aantal 5.
-Negeer subtotalen, btw-regels, kortingen en het eindtotaal zelf — enkel de losse productregels.
+Negeer enkel subtotalen, btw-samenvattingen, kortingen en het eindtotaal zelf. Regels zoals "verpakking en verzending", "verzendkosten" of andere leveringskosten zijn WEL gewone regels om op te nemen (zet eenheid_gok dan op "stuk", aantal 1) — behandel elke rij die in de artikeltabel van de factuur staat als een op te nemen regel, tenzij het duidelijk een samenvattende/totaalregel is.
 Geef ook de naam van de leverancier/winkel en de factuur- of aankoopdatum (YYYY-MM-DD) indien zichtbaar.
 Antwoord uitsluitend met JSON volgens het opgegeven schema, geen extra tekst.`;
 
 function getGeminiKey(db) {
   const row = db.prepare("SELECT waarde FROM instellingen WHERE sleutel = 'gemini_api_key'").get();
   return row?.waarde || '';
+}
+
+const wachten = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Gemini geeft bij drukte af en toe een tijdelijke 503 (overbelast) of 429
+// (rate limit) terug — dat is geen echte fout, gewoon even opnieuw proberen
+// lost het meestal op. Andere foutcodes (bv. 400/401/403) hebben geen zin om
+// te herhalen, die geven we meteen door.
+async function geminiGenerateContent(apiKey, body, pogingen = 3) {
+  let laatsteRes;
+  for (let poging = 1; poging <= pogingen; poging++) {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify(body),
+      }
+    );
+    if (res.ok || ![503, 429].includes(res.status) || poging === pogingen) return res;
+    laatsteRes = res;
+    await wachten(1000 * poging); // 1s, 2s, ...
+  }
+  return laatsteRes;
 }
 
 r.post('/analyseer', upload.single('factuur'), async (req, res) => {
@@ -74,18 +98,14 @@ r.post('/analyseer', upload.single('factuur'), async (req, res) => {
       },
     };
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        body: JSON.stringify(body),
-      }
-    );
+    const geminiRes = await geminiGenerateContent(apiKey, body);
 
     if (!geminiRes.ok) {
       const detail = await geminiRes.text().catch(() => '');
-      return res.status(502).json({ error: `Gemini API-fout (${geminiRes.status})`, detail });
+      const uitleg = [503, 429].includes(geminiRes.status)
+        ? ' — Gemini is tijdelijk overbelast, probeer het over een minuutje opnieuw.'
+        : '';
+      return res.status(502).json({ error: `Gemini API-fout (${geminiRes.status})${uitleg}`, detail });
     }
 
     const data = await geminiRes.json();
