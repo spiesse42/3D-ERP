@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db.js';
 import { LOGO_DATA_URI } from '../lib/logo.js';
+import { renderHtmlNaarPdf } from '../lib/pdf.js';
 
 const r = Router();
 
@@ -741,7 +742,7 @@ r.post('/:id/maak-job', (req, res) => {
 });
 
 // GET PDF
-r.get('/:id/pdf', (req, res) => {
+r.get('/:id/pdf', async (req, res) => {
   const db = getDb();
   const offerte = db.prepare(`
     SELECT o.*, k.naam as klant_naam, k.voornaam, k.email, k.straat, k.huisnummer,
@@ -768,9 +769,14 @@ r.get('/:id/pdf', (req, res) => {
   };
 
   const html = buildOfferteHtml(offerte, klant, ber, ft, haalArtikelen(db, req.params.id), getBedrijfsgegevens(db));
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="offerte-${offerte.nummer}.html"`);
-  res.send(html);
+  try {
+    const pdfBuffer = await renderHtmlNaarPdf(html);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="offerte-${offerte.nummer}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (e) {
+    res.status(500).json({ error: `PDF genereren mislukt: ${e.message}` });
+  }
 });
 
 // DELETE offerte — verbreek eerst alle koppelingen

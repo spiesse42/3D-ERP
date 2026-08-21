@@ -22,7 +22,7 @@ function getTransporter() {
   return transporter;
 }
 
-export async function sendPdfEmail({ to, subject, html, pdfHtml, filename }) {
+export async function sendPdfEmail({ to, subject, html, pdfBuffer, filename }) {
   if (!to) {
     throw new Error('Geen ontvanger opgegeven — vul een e-mailadres in.');
   }
@@ -43,10 +43,10 @@ export async function sendPdfEmail({ to, subject, html, pdfHtml, filename }) {
       to,
       subject,
       html,
-      attachments: pdfHtml ? [{
-        filename: filename || 'werkbon.html',
-        content: pdfHtml,
-        contentType: 'text/html',
+      attachments: pdfBuffer ? [{
+        filename: filename || 'werkbon.pdf',
+        content: pdfBuffer,
+        contentType: 'application/pdf',
       }] : [],
     });
   } catch (e) {

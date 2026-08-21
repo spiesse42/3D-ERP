@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../db.js';
 import { sendPdfEmail } from '../email.js';
 import { LOGO_DATA_URI } from '../lib/logo.js';
+import { renderHtmlNaarPdf } from '../lib/pdf.js';
 
 const r = Router();
 
@@ -293,7 +294,7 @@ r.get('/job/:jobId', (req, res) => {
   res.json(k);
 });
 
-r.get('/pdf/:jobId', (req, res) => {
+r.get('/pdf/:jobId', async (req, res) => {
   const db = getDb();
   const kosten = db.prepare('SELECT * FROM job_kosten WHERE job_id = ?').get(req.params.jobId);
   if (!kosten) return res.status(404).json({ error: 'Geen berekening' });
@@ -339,9 +340,14 @@ r.get('/pdf/:jobId', (req, res) => {
   };
 
   const html = buildPdfHtml(volledigeKosten, klant, extraInfo, getBedrijfsgegevens(db));
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="werkbon-${(job?.naam||'print').replace(/\s+/g,'-')}.html"`);
-  res.send(html);
+  try {
+    const pdfBuffer = await renderHtmlNaarPdf(html);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="werkbon-${(job?.naam||'print').replace(/\s+/g,'-')}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (e) {
+    res.status(500).json({ error: `PDF genereren mislukt: ${e.message}` });
+  }
 });
 
 r.post('/email/:jobId', async (req, res) => {
@@ -379,9 +385,10 @@ r.post('/email/:jobId', async (req, res) => {
   };
   const pdfHtml = buildPdfHtml(volledigeKosten, klant, extraInfo, getBedrijfsgegevens(db));
   try {
+    const pdfBuffer = await renderHtmlNaarPdf(pdfHtml);
     await sendPdfEmail({ to: emailTo, subject: `Werkbon — ${job?.naam||'print'}`,
       html: `<p>Beste${klant ? ` ${klant.voornaam||''} ${klant.naam}` : ''},</p><p>Hierbij de werkbon voor <strong>${job?.naam||'uw print'}</strong>.</p><p>Verkoopprijs: <strong>€${(kosten.verkoopprijs||0).toFixed(2)}</strong>${btwEmail ? `<br>BTW 21%: <strong>€${btwBedragEmail.toFixed(2)}</strong><br>Totaal incl. BTW: <strong>€${((kosten.verkoopprijs||0)+btwBedragEmail).toFixed(2)}</strong>` : ''}</p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
-      pdfHtml, filename: `werkbon-${(job?.naam||'print').replace(/\s+/g,'-')}.html` });
+      pdfBuffer, filename: `werkbon-${(job?.naam||'print').replace(/\s+/g,'-')}.pdf` });
     res.json({ ok: true, to: emailTo });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
