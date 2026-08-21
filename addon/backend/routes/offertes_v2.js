@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db.js';
+import { LOGO_DATA_URI } from '../lib/logo.js';
 
 const r = Router();
 
@@ -292,7 +293,7 @@ function buildOfferteHtml(offerte, klant, berekening, filamentType, artikelen = 
 <style>
   body{font-family:'Segoe UI',Arial,sans-serif;background:#fff;color:#1a1a1a;margin:0;padding:40px}
   .header{display:flex;justify-content:space-between;border-bottom:3px solid #5b8dee;padding-bottom:20px;margin-bottom:28px}
-  .logo{font-size:1.6rem;font-weight:900;color:#5b8dee;letter-spacing:2px}
+  .logo img{height:64px;width:auto;display:block}
   .doc-nr{font-size:1.1rem;font-weight:bold}
   .klant{background:#f8f9fa;border-radius:8px;padding:14px 18px;margin-bottom:20px}
   .klant h3{margin:0 0 6px;font-size:.7rem;text-transform:uppercase;letter-spacing:1.5px;color:#5b8dee}
@@ -312,7 +313,7 @@ function buildOfferteHtml(offerte, klant, berekening, filamentType, artikelen = 
 </head>
 <body>
 <div class="header">
-  <div class="logo">▲ 3D PRINT ERP</div>
+  <div class="logo"><img src="${LOGO_DATA_URI}" alt="3D Plezier"></div>
   <div style="text-align:right;color:#666;font-size:.85rem">
     <div class="doc-nr">OFFERTE ${offerte.nummer}</div>
     <div>${nu}</div>

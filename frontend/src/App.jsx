@@ -11,6 +11,7 @@ import Statistieken from './pages/Statistieken.jsx';
 import Instellingen from './pages/Instellingen.jsx';
 import { api } from './lib/api.js';
 import { registreerCustomKleuren } from './lib/kleuren.js';
+import logo from './assets/logo.png';
 import './App.css';
 
 const NAV = [
@@ -69,7 +70,7 @@ export default function App() {
       <div className="app-shell">
         <nav className="sidebar">
           <div className="sidebar-brand">
-            <span className="brand-icon">▲</span>
+            <img src={logo} alt="3D Plezier" className="brand-logo" />
             <span className="brand-name">3D Print ERP</span>
           </div>
           <ul>
