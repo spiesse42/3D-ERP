@@ -33,7 +33,12 @@ function buildPdfHtml(kosten, klant, extraInfo = {}, bedrijf = {}) {
   const { voorbMin=15, nabMin=10, arbTarief=15, ontwerpMin=0, ontwerpTarief=15,
           nabExtraMin=0, nabExtraTarief=15, extraTotaal=0, extraOmschrijving='',
           aantal=1, matDetails=[], dienstDetails=[], btw=false } = extraInfo;
-  const btwBedrag = btw ? (kosten.verkoopprijs||0) * 0.21 : 0;
+  // BTW enkel op het marge-gebaseerde deel — het vast_prijs_totaal-deel (bv.
+  // verzendkosten met "vaste prijs, geen marge, incl. BTW") is per definitie
+  // al incl. BTW en telt dus niet nogmaals mee in de grondslag. Zelfde
+  // principe als bij offertes (offertes_v2.js, verkoopprijs_basis).
+  const btwGrondslag = (kosten.verkoopprijs||0) - (kosten.vast_prijs_totaal||0);
+  const btwBedrag = btw ? btwGrondslag * 0.21 : 0;
   const totaalInclBtw = (kosten.verkoopprijs||0) + btwBedrag;
 
   const margeFactor = 1 + (kosten.winstmarge_pct || 0) / 100;
@@ -45,7 +50,10 @@ function buildPdfHtml(kosten, klant, extraInfo = {}, bedrijf = {}) {
   }).join('');
   const dienstRijen = dienstDetails.map(d => {
     const aantalTxt = d.eenheid === 'stuk' ? Math.round(d.aantal) : d.aantal.toFixed(1);
-    return `<tr><td>Dienst — ${d.naam}</td><td>${aantalTxt} ${eenheidLabel(d.eenheid)}</td><td>${toon(d.aantal*d.prijs_per_eenheid*margeFactor)}</td></tr>`;
+    // "Vaste prijs, geen marge" diensten (bv. verzendkosten) krijgen geen
+    // margeFactor — zelfde per-regel check als offertes (offerteRegels()).
+    const factor = d.vaste_prijs ? 1 : margeFactor;
+    return `<tr><td>Dienst — ${d.naam}</td><td>${aantalTxt} ${eenheidLabel(d.eenheid)}</td><td>${toon(d.aantal*d.prijs_per_eenheid*factor)}</td></tr>`;
   }).join('');
 
   return `<!DOCTYPE html>
@@ -194,11 +202,17 @@ r.post('/bereken/:jobId', (req, res) => {
   const materiaal_kost = filament_kost + artikel_kost;
 
   const diensten = db.prepare(`
-    SELECT jd.aantal, jd.prijs_per_eenheid
-    FROM job_diensten jd
+    SELECT jd.aantal, jd.prijs_per_eenheid, ft.vaste_prijs
+    FROM job_diensten jd JOIN filament_types ft ON ft.id = jd.filament_type_id
     WHERE jd.job_id = ?
   `).all(req.params.jobId);
-  const diensten_kost = diensten.reduce((sum, d) => sum + d.aantal * d.prijs_per_eenheid, 0);
+  // Zelfde marge/vaste-prijs-splitsing als offertes (offertes_v2.js): een
+  // dienst met "vaste prijs, geen marge, incl. BTW" (bv. verzendkosten) krijgt
+  // GEEN marge en wordt als reeds-incl.-BTW eindprijs bijgeteld ná de marge —
+  // in plaats van mee te tellen in het marge-gebaseerde subtotaal.
+  const diensten_kost_marge = diensten.filter(d => !d.vaste_prijs).reduce((sum, d) => sum + d.aantal * d.prijs_per_eenheid, 0);
+  const diensten_kost_vast = diensten.filter(d => d.vaste_prijs).reduce((sum, d) => sum + d.aantal * d.prijs_per_eenheid, 0);
+  const diensten_kost = diensten_kost_marge + diensten_kost_vast;
 
   const energie_kost = parseFloat(kwh_verbruikt) * kwh_prijs;
   const machine_kost = uren * machineKostPerUur;
@@ -213,9 +227,14 @@ r.post('/bereken/:jobId', (req, res) => {
   const arbeid_totaal = arbeid_voorbereiding + arbeid_nabewerking + arbeid_ontwerp + arbeid_nabewerking_extra;
 
   const extra_totaal = (parseFloat(extra_per_stuk) * parseInt(aantal)) + parseFloat(extra_eenmalig);
-  const subtotaal = materiaal_kost + energie_kost + machine_kost + bmcu_slijtage + arbeid_totaal + extra_totaal + diensten_kost;
+  const subtotaal = materiaal_kost + energie_kost + machine_kost + bmcu_slijtage + arbeid_totaal + extra_totaal + diensten_kost_marge;
   const marge_pct = uren >= marge_grens_uur ? marge_groot_pct : marge_klein_pct;
-  const verkoopprijs = subtotaal * (1 + marge_pct / 100);
+  // verkoopprijs_basis = alles waar marge op wordt toegepast (excl. de
+  // vast-geprijsde diensten — bv. verzendkosten — die krijgen bewust GEEN
+  // marge en worden 1-op-1 als reeds-incl.-BTW eindprijs bijgeteld. Zelfde
+  // principe als artikelen_vast_kost bij offertes (offertes_v2.js).
+  const verkoopprijs_basis = subtotaal * (1 + marge_pct / 100);
+  const verkoopprijs = verkoopprijs_basis + diensten_kost_vast;
 
   const ro = v => Math.round(v * 1000) / 1000;
   const kosten = {
@@ -225,7 +244,8 @@ r.post('/bereken/:jobId', (req, res) => {
     arbeid_kost: ro(arbeid_totaal), arbeid_voorbereiding: ro(arbeid_voorbereiding),
     arbeid_nabewerking: ro(arbeid_nabewerking), arbeid_ontwerp: ro(arbeid_ontwerp),
     extra_totaal: ro(extra_totaal), faalfactor_pct, winstmarge_pct: marge_pct,
-    totaal_kost: ro(subtotaal), verkoopprijs: Math.round(verkoopprijs * 100) / 100,
+    totaal_kost: ro(subtotaal), verkoopprijs_basis: Math.round(verkoopprijs_basis * 100) / 100,
+    vast_prijs_totaal: ro(diensten_kost_vast), verkoopprijs: Math.round(verkoopprijs * 100) / 100,
     kwh_verbruikt: parseFloat(kwh_verbruikt), aantal: parseInt(aantal) || 1,
     extra_per_stuk: parseFloat(extra_per_stuk) || 0, extra_eenmalig: parseFloat(extra_eenmalig) || 0,
     extra_omschrijving, voorbereiding_min: totale_voorb_min, nabewerking_min: parseFloat(nabewerking_min) || 0,
@@ -240,8 +260,8 @@ r.post('/bereken/:jobId', (req, res) => {
        faalfactor_pct,winstmarge_pct,totaal_kost,verkoopprijs,kwh_verbruikt,
        aantal,extra_per_stuk,extra_eenmalig,extra_omschrijving,
        voorbereiding_min,nabewerking_min,ontwerp_min,ontwerp_tarief,
-       nabewerking_extra_min,nabewerking_extra_tarief,diensten_kost,berekend_op)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+       nabewerking_extra_min,nabewerking_extra_tarief,diensten_kost,vast_prijs_totaal,berekend_op)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
     ON CONFLICT(job_id) DO UPDATE SET
       materiaal_kost=excluded.materiaal_kost,energie_kost=excluded.energie_kost,
       machine_kost=excluded.machine_kost,arbeid_kost=excluded.arbeid_kost,
@@ -253,14 +273,14 @@ r.post('/bereken/:jobId', (req, res) => {
       voorbereiding_min=excluded.voorbereiding_min,nabewerking_min=excluded.nabewerking_min,
       ontwerp_min=excluded.ontwerp_min,ontwerp_tarief=excluded.ontwerp_tarief,
       nabewerking_extra_min=excluded.nabewerking_extra_min,nabewerking_extra_tarief=excluded.nabewerking_extra_tarief,
-      diensten_kost=excluded.diensten_kost,
+      diensten_kost=excluded.diensten_kost,vast_prijs_totaal=excluded.vast_prijs_totaal,
       berekend_op=datetime('now')
   `).run(kosten.job_id, kosten.materiaal_kost, kosten.energie_kost, kosten.machine_kost,
          kosten.arbeid_kost, kosten.bmcu_slijtage, kosten.faalfactor_pct, kosten.winstmarge_pct,
          kosten.totaal_kost, kosten.verkoopprijs, kosten.kwh_verbruikt,
          kosten.aantal, kosten.extra_per_stuk, kosten.extra_eenmalig, kosten.extra_omschrijving,
          kosten.voorbereiding_min, kosten.nabewerking_min, kosten.ontwerp_min, kosten.ontwerp_tarief,
-         kosten.nabewerking_extra_min, kosten.nabewerking_extra_tarief, kosten.diensten_kost);
+         kosten.nabewerking_extra_min, kosten.nabewerking_extra_tarief, kosten.diensten_kost, kosten.vast_prijs_totaal);
 
   if (opmerking) db.prepare('UPDATE jobs SET notities = ? WHERE id = ?').run(opmerking, req.params.jobId);
 
@@ -311,7 +331,7 @@ r.get('/pdf/:jobId', (req, res) => {
       JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?
     `).all(req.params.jobId),
     dienstDetails: db.prepare(`
-      SELECT jd.aantal, jd.prijs_per_eenheid, ft.eenheid,
+      SELECT jd.aantal, jd.prijs_per_eenheid, ft.eenheid, ft.vaste_prijs,
         ft.merk || ' ' || ft.materiaal as naam
       FROM job_diensten jd JOIN filament_types ft ON ft.id = jd.filament_type_id
       WHERE jd.job_id = ?
@@ -340,7 +360,8 @@ r.post('/email/:jobId', async (req, res) => {
   const volledigeKosten = { ...kosten, job_naam:job?.naam, printer_naam:job?.printer_naam, opmerking:job?.notities||'', volgnummer:job?.volgnummer||'', type:job?.type||'print', dienst_categorie:job?.dienst_categorie||'' };
   const klantTypeEmail = job?.klant_id ? db.prepare('SELECT type FROM klanten WHERE id = ?').get(job.klant_id)?.type : null;
   const btwEmail = extra_velden.btw != null ? !!extra_velden.btw : klantTypeEmail === 'zakelijk';
-  const btwBedragEmail = btwEmail ? (kosten.verkoopprijs||0) * 0.21 : 0;
+  const btwGrondslagEmail = (kosten.verkoopprijs||0) - (kosten.vast_prijs_totaal||0);
+  const btwBedragEmail = btwEmail ? btwGrondslagEmail * 0.21 : 0;
   const extraInfo = {
     voorbMin: kosten.voorbereiding_min ?? (t.voorbereiding_min||15),
     nabMin: kosten.nabewerking_min ?? (t.nabewerking_min||10),
@@ -354,7 +375,7 @@ r.post('/email/:jobId', async (req, res) => {
     aantal: extra_velden.aantal || kosten.aantal || 1,
     btw: btwEmail,
     matDetails: db.prepare(`SELECT jm.gram_gebruikt as gram, ft.eenheid, COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start, 0) * (CASE WHEN ft.eenheid = 'gram' THEN 1000.0 ELSE 1.0 END), ft.inkoop_prijs_per_kg) as prijs, ft.merk || ' ' || ft.materiaal || COALESCE(' ' || r.kleur, '') as naam FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?`).all(req.params.jobId),
-    dienstDetails: db.prepare(`SELECT jd.aantal, jd.prijs_per_eenheid, ft.eenheid, ft.merk || ' ' || ft.materiaal as naam FROM job_diensten jd JOIN filament_types ft ON ft.id = jd.filament_type_id WHERE jd.job_id = ?`).all(req.params.jobId),
+    dienstDetails: db.prepare(`SELECT jd.aantal, jd.prijs_per_eenheid, ft.eenheid, ft.vaste_prijs, ft.merk || ' ' || ft.materiaal as naam FROM job_diensten jd JOIN filament_types ft ON ft.id = jd.filament_type_id WHERE jd.job_id = ?`).all(req.params.jobId),
   };
   const pdfHtml = buildPdfHtml(volledigeKosten, klant, extraInfo, getBedrijfsgegevens(db));
   try {

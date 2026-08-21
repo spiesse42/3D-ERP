@@ -765,18 +765,26 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
               <span style={{ fontSize:22, color: isBezig ? 'var(--warn)' : 'var(--accent2)' }}>{isBezig ? '~' : ''}€{result.verkoopprijs?.toFixed(2)}</span>
             </div>
             {aantal > 1 && <div style={{ textAlign:'right', fontSize:11, color:'var(--muted)' }}>€{(result.verkoopprijs / aantal).toFixed(2)}/stuk</div>}
-            {btw && (
-              <>
-                <div style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', fontSize:12, color:'var(--muted)' }}>
-                  <span>BTW 21%</span>
-                  <span>€{(result.verkoopprijs * 0.21).toFixed(2)}</span>
-                </div>
-                <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0 4px', fontWeight:700, borderTop:'1px solid var(--border)' }}>
-                  <span>Totaal incl. BTW</span>
-                  <span style={{ fontSize:22, color:'var(--accent2)' }}>€{(result.verkoopprijs * 1.21).toFixed(2)}</span>
-                </div>
-              </>
-            )}
+            {btw && (() => {
+              // BTW enkel op het marge-gebaseerde deel — vast_prijs_totaal (bv.
+              // verzendkosten "vaste prijs, geen marge, incl. BTW") is al incl.
+              // BTW en telt dus niet nogmaals mee in de grondslag. Zelfde
+              // principe als bij offertes.
+              const btwGrondslag = (result.verkoopprijs||0) - (result.vast_prijs_totaal||0);
+              const btwBedrag = btwGrondslag * 0.21;
+              return (
+                <>
+                  <div style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', fontSize:12, color:'var(--muted)' }}>
+                    <span>BTW 21%</span>
+                    <span>€{btwBedrag.toFixed(2)}</span>
+                  </div>
+                  <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0 4px', fontWeight:700, borderTop:'1px solid var(--border)' }}>
+                    <span>Totaal incl. BTW</span>
+                    <span style={{ fontSize:22, color:'var(--accent2)' }}>€{((result.verkoopprijs||0) + btwBedrag).toFixed(2)}</span>
+                  </div>
+                </>
+              );
+            })()}
 
             {/* STATUS ACTIES */}
             <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:6 }}>

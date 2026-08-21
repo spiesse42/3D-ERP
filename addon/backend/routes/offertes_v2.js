@@ -62,6 +62,7 @@ function berekenOfferte(data, t) {
     aantal = 1,
     filament_prijs_per_kg = 0,
     printer_watt = 120,
+    machine_kost_per_uur = null,
     artikelen_kost = 0,
     artikelen_vast_kost = 0,
     materiaal_kost_override = null,
@@ -82,7 +83,11 @@ function berekenOfferte(data, t) {
     : (parseFloat(geschat_gewicht_g) / 1000) * parseFloat(filament_prijs_per_kg) * faalfactor * parseInt(aantal);
   const kwh_schat = (printer_watt / 1000) * totale_tijd_u * parseInt(aantal);
   const energie_kost_schat = kwh_schat * kwh_prijs;
-  const machine_kost = totale_tijd_u * (t.machine_per_uur || 0.13) * parseInt(aantal);
+  // Machinekost: het tarief van de SPECIFIEK gekozen printer heeft voorrang
+  // (zelfde bron als de job/werkbon-berekening in kosten.js) — enkel als er
+  // geen printer gekozen is of die geen eigen tarief heeft, valt terug op het
+  // globale tarief uit Instellingen.
+  const machine_kost = totale_tijd_u * (machine_kost_per_uur != null ? machine_kost_per_uur : (t.machine_per_uur || 0.13)) * parseInt(aantal);
   const arbeid_kost = ((parseInt(voorbereiding_min) + parseInt(nabewerking_min)) / 60 * arbeid_per_uur)
     + (parseInt(ontwerp_min) / 60 * parseFloat(ontwerp_tarief))
     + (parseInt(nabewerking_extra_min) / 60 * parseFloat(nabewerking_extra_tarief));
@@ -213,9 +218,11 @@ function herbereken(db, offerteId) {
     filament_prijs_per_kg = ft?.inkoop_prijs_per_kg || 0;
   }
   let printer_watt = 120;
+  let machine_kost_per_uur = null;
   if (offerte.printer_id) {
-    const p = db.prepare('SELECT naam, gem_verbruik_watt FROM printers WHERE id = ?').get(offerte.printer_id);
+    const p = db.prepare('SELECT naam, gem_verbruik_watt, machine_kost_per_uur FROM printers WHERE id = ?').get(offerte.printer_id);
     printer_watt = bepaalPrinterWatt(p, t);
+    machine_kost_per_uur = p?.machine_kost_per_uur > 0 ? p.machine_kost_per_uur : null;
   }
 
   const faalfactor = 1 + (t.faalfactor_pct || 10) / 100;
@@ -225,7 +232,7 @@ function herbereken(db, offerteId) {
 
   const artKost = berekenArtikelenKost(db, offerteId);
   const arbeid_per_uur = t.arbeid_per_uur || 15;
-  const ber = berekenOfferte({ ...offerte, filament_prijs_per_kg, printer_watt, artikelen_kost: artKost.marge, artikelen_vast_kost: artKost.vast, materiaal_kost_override }, t);
+  const ber = berekenOfferte({ ...offerte, filament_prijs_per_kg, printer_watt, machine_kost_per_uur, artikelen_kost: artKost.marge, artikelen_vast_kost: artKost.vast, materiaal_kost_override }, t);
   const btw_bedrag = Math.round(ber.verkoopprijs_basis * (parseFloat(offerte.btw_pct) || 0)) / 100;
   const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
 
@@ -495,9 +502,11 @@ r.post('/', (req, res) => {
   }
 
   let printer_watt = 120;
+  let machine_kost_per_uur = null;
   if (printer_id) {
-    const p = db.prepare('SELECT naam, gem_verbruik_watt FROM printers WHERE id = ?').get(printer_id);
+    const p = db.prepare('SELECT naam, gem_verbruik_watt, machine_kost_per_uur FROM printers WHERE id = ?').get(printer_id);
     printer_watt = bepaalPrinterWatt(p, t);
+    machine_kost_per_uur = p?.machine_kost_per_uur > 0 ? p.machine_kost_per_uur : null;
   }
 
   const faalfactor = 1 + (t.faalfactor_pct || 10) / 100;
@@ -521,6 +530,7 @@ r.post('/', (req, res) => {
     aantal: parseInt(aantal) || 1,
     filament_prijs_per_kg,
     printer_watt,
+    machine_kost_per_uur,
     materiaal_kost_override,
   };
 
@@ -572,9 +582,11 @@ r.put('/:id', (req, res) => {
   }
 
   let printer_watt = 120;
+  let machine_kost_per_uur = null;
   if (data.printer_id) {
-    const p = db.prepare('SELECT naam, gem_verbruik_watt FROM printers WHERE id = ?').get(data.printer_id);
+    const p = db.prepare('SELECT naam, gem_verbruik_watt, machine_kost_per_uur FROM printers WHERE id = ?').get(data.printer_id);
     printer_watt = bepaalPrinterWatt(p, t);
+    machine_kost_per_uur = p?.machine_kost_per_uur > 0 ? p.machine_kost_per_uur : null;
   }
 
   const filament_rollen = Array.isArray(data.filament_rollen) ? data.filament_rollen : [];
@@ -599,6 +611,7 @@ r.put('/:id', (req, res) => {
     aantal: parseInt(data.aantal) || 1,
     filament_prijs_per_kg,
     printer_watt,
+    machine_kost_per_uur,
     materiaal_kost_override,
   };
   // Bewaar de artikelen-bijdrage (verzendkosten enz.) — anders zou het
