@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api } from '../lib/api.js';
+import { api, BASE } from '../lib/api.js';
 import { KLEUREN, kleurHex, alleKleuren, normaliseerHexInvoer, registreerCustomKleuren } from '../lib/kleuren.js';
 import KleurDot from '../components/KleurDot.jsx';
 import FactuurUploadModal from '../components/FactuurUploadModal.jsx';
@@ -742,6 +742,7 @@ function RolModal({ types, rol, onClose, onSaved }) {
 export default function Filament() {
   const [types,     setTypes]     = useState([]);
   const [rollen,    setRollen]    = useState([]);
+  const [facturen,  setFacturen]  = useState([]);
   const [tab,       setTab]       = useState('rollen');
   const [typeModal, setTypeModal] = useState(null);
   const [rolModal,  setRolModal]  = useState(null);
@@ -756,7 +757,16 @@ export default function Filament() {
   const load = () => {
     api.get('/filament/types').then(setTypes);
     api.get('/filament/rollen').then(setRollen);
+    api.get('/facturen').then(setFacturen);
   };
+
+  async function verwijderFactuur(f) {
+    if (!confirm(`Factuur/bonnetje van "${f.leverancier || 'onbekende leverancier'}" verwijderen? Het bestand wordt van de schijf verwijderd; gekoppelde voorraad/uitgaven blijven gewoon bestaan.`)) return;
+    try {
+      await api.delete(`/facturen/${f.id}`);
+      load();
+    } catch (e) { alert(e.message); }
+  }
   useEffect(() => { load(); }, [tab]);
 
   useEffect(() => {
@@ -846,9 +856,9 @@ export default function Filament() {
       )}
 
       <div style={{ display: 'flex', gap: 4, marginBottom: '1.25rem' }}>
-        {['rollen', 'types'].map(t => (
+        {['rollen', 'types', 'facturen'].map(t => (
           <button key={t} className={`btn${tab === t ? ' primary' : ''}`} onClick={() => setTab(t)}>
-            {t === 'rollen' ? 'Voorraad' : 'Artikeltypes'}
+            {t === 'rollen' ? 'Voorraad' : t === 'types' ? 'Artikeltypes' : 'Aankoopfacturen'}
           </button>
         ))}
       </div>
@@ -944,6 +954,41 @@ export default function Filament() {
                     </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+      )}
+
+      {tab === 'facturen' && (
+        facturen.length === 0
+          ? <div className="empty">Nog geen facturen/bonnetjes geüpload</div>
+          : <div className="card" style={{ padding: 0 }}>
+              <table>
+                <thead><tr><th>Type</th><th>Leverancier</th><th>Datum</th><th>Factuurnummer</th><th>Totaal</th><th>Gekoppeld</th><th>Acties</th></tr></thead>
+                <tbody>
+                  {facturen.map(f => (
+                    <tr key={f.id}>
+                      <td style={{ fontSize: 12 }}>{f.type === 'bonnetje' ? '🧾 Bonnetje' : '📄 Factuur'}</td>
+                      <td style={{ fontWeight: 500 }}>{f.leverancier || <span style={{ color: 'var(--muted)' }}>—</span>}</td>
+                      <td style={{ color: 'var(--muted)' }}>{f.datum || '—'}</td>
+                      <td style={{ color: 'var(--muted)' }}>{f.factuurnummer || '—'}</td>
+                      <td>{f.totaal_bedrag != null ? `€${parseFloat(f.totaal_bedrag).toFixed(2)}` : '—'}</td>
+                      <td style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        {f.aantal_rollen > 0 ? `${f.aantal_rollen}× voorraad` : ''}
+                        {f.aantal_rollen > 0 && f.aantal_uitgaven > 0 ? ', ' : ''}
+                        {f.aantal_uitgaven > 0 ? `${f.aantal_uitgaven}× uitgave` : ''}
+                        {!f.aantal_rollen && !f.aantal_uitgaven ? '—' : ''}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {f.bestandspad
+                            ? <a className="btn" style={{ fontSize: 11, padding: '4px 8px' }} href={`${BASE}/facturen/${f.id}/bestand`} target="_blank" rel="noopener noreferrer" title="Bekijken/downloaden">⬇</a>
+                            : <span style={{ fontSize: 11, color: 'var(--muted)' }} title="Bestand niet bewaard">—</span>}
+                          <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => verwijderFactuur(f)}>✕</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

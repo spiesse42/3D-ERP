@@ -1,9 +1,12 @@
-// frontend/src/components/FactuurUploadModal.jsx — factuur (PDF) uploaden,
-// laten uitlezen via Gemini (backend: /api/facturen/analyseer). Elke regel
-// wordt standaard als kost geregistreerd (uitgaven — dit is een aankoopfactuur,
-// dus alles is een kost tenzij je 'm negeert); daarbovenop kan je per regel
-// apart aanvinken dat 'm ook de voorraad moet aanvullen (bestaand of nieuw
-// artikeltype).
+// frontend/src/components/FactuurUploadModal.jsx — factuur (PDF) of bonnetje
+// (foto) uploaden, laten uitlezen via Gemini (backend: /api/facturen/analyseer).
+// Elke regel wordt standaard als kost geregistreerd (uitgaven — dit is een
+// aankoopfactuur, dus alles is een kost tenzij je 'm negeert); daarbovenop
+// kan je per regel apart aanvinken dat 'm ook de voorraad moet aanvullen
+// (bestaand of nieuw artikeltype). Bij bevestigen wordt het bestand zelf ook
+// blijvend bewaard (backend: /api/facturen/opslaan, map 'aankoopfacturen')
+// en krijgt elke aangemaakte uitgave/voorraadrol een interne koppeling
+// (factuur_id) naar dat bewijsstuk — terug te vinden via "Aankoopfacturen".
 import { useState } from 'react';
 import { api, BASE } from '../lib/api.js';
 
@@ -65,10 +68,11 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
   const [fout, setFout] = useState('');
   const [leverancier, setLeverancier] = useState('');
   const [datum, setDatum] = useState('');
+  const [factuurnummer, setFactuurnummer] = useState('');
   const [regels, setRegels] = useState([]);
 
   async function analyseer() {
-    if (!bestand) { setFout('Kies eerst een PDF-bestand'); return; }
+    if (!bestand) { setFout('Kies eerst een PDF of foto'); return; }
     setFout('');
     setStap('laden');
     try {
@@ -79,6 +83,7 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       setLeverancier(data.leverancier || '');
       setDatum(data.datum || new Date().toISOString().split('T')[0]);
+      setFactuurnummer(data.factuurnummer || '');
       setRegels((data.regels || []).map(r => nieuweRegelState(r, types)));
       setStap('controle');
     } catch (e) {
@@ -104,6 +109,25 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
     }
   }
 
+  // Bewaart het geüploade bestand blijvend + legt de factuur-rij aan (map
+  // 'aankoopfacturen', zie backend/routes/facturen.js) en geeft het factuur_id
+  // terug — enkel op dit moment (na bevestigen), zodat annuleren op de
+  // review-stap geen wees-bestand achterlaat. Foto's tellen als 'bonnetje',
+  // PDF's als 'factuur'.
+  async function slaFactuurOp(totaalBedrag) {
+    const fd = new FormData();
+    fd.append('factuur', bestand);
+    fd.append('leverancier', leverancier || '');
+    fd.append('datum', datum || '');
+    fd.append('factuurnummer', factuurnummer || '');
+    fd.append('type', bestand?.type?.startsWith('image/') ? 'bonnetje' : 'factuur');
+    fd.append('totaal_bedrag', totaalBedrag || '');
+    const res = await fetch(`${BASE}/facturen/opslaan`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data.id;
+  }
+
   async function bevestig() {
     setFout('');
     setStap('opslaan');
@@ -112,17 +136,23 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
       // (Bestellingen)? Zo niet, meteen aanmaken — één keer per factuur.
       await zorgLeverancierBestaat();
 
+      const totaalBedrag = regels.reduce((s, r) => r.negeer ? s : s + (parseFloat(r.totaal) || 0), 0);
+      const factuurId = await slaFactuurOp(totaalBedrag);
+
       for (const r of regels) {
         if (r.negeer) continue;
         const aantal = parseFloat(r.aantal) || 0;
         const totaal = parseFloat(r.totaal) || 0;
 
         // Elke niet-genegeerde regel is een kost — dit is een aankoopfactuur.
+        // factuur_id is een interne koppeling (traceerbaarheid/boekhouding),
+        // verschijnt nergens op documenten die naar klanten gaan.
         await api.post('/uitgaven', {
           datum: datum || undefined,
           categorie: r.kostCategorie,
           omschrijving: `${r.omschrijving}${leverancier ? ' — ' + leverancier : ''}`,
           bedrag: totaal || aantal,
+          factuur_id: factuurId,
         });
 
         // Optioneel: daarbovenop ook de voorraad aanvullen.
@@ -149,6 +179,7 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
             gewicht_gram_huidig: aantal,
             aankoopprijs_eur: totaal || null,
             gekocht_op: datum || undefined,
+            factuur_id: factuurId,
           });
         }
       }
@@ -172,11 +203,11 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
         {stap === 'upload' && (
           <>
             <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
-              Upload een PDF-factuur — de regels worden automatisch herkend (via Gemini) en je koppelt ze nadien zelf aan je voorraad.
+              Upload een PDF-factuur of een foto van een bonnetje/kasticket — de regels worden automatisch herkend (via Gemini) en je koppelt ze nadien zelf aan je voorraad. Het bestand zelf wordt bewaard onder "Aankoopfacturen".
             </p>
             <div className="form-group">
-              <label>PDF-factuur</label>
-              <input type="file" accept="application/pdf" onChange={e => setBestand(e.target.files?.[0] || null)} />
+              <label>PDF-factuur of foto van bonnetje</label>
+              <input type="file" accept="application/pdf,image/*" capture="environment" onChange={e => setBestand(e.target.files?.[0] || null)} />
             </div>
             {fout && <div style={{ color: 'var(--danger)', fontSize: 12, marginBottom: 8 }}>{fout}</div>}
             <div className="modal-footer">
@@ -192,7 +223,7 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
 
         {(stap === 'controle' || stap === 'opslaan') && (
           <>
-            <div className="form-row" style={{ marginBottom: 12 }}>
+            <div className="form-row" style={{ marginBottom: 12, gridTemplateColumns: '1fr 1fr 1fr' }}>
               <div className="form-group">
                 <label>Leverancier</label>
                 <input value={leverancier} onChange={e => setLeverancier(e.target.value)} />
@@ -200,6 +231,10 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
               <div className="form-group">
                 <label>Datum</label>
                 <input type="date" value={datum} onChange={e => setDatum(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Factuur-/ticketnummer</label>
+                <input value={factuurnummer} onChange={e => setFactuurnummer(e.target.value)} placeholder="(optioneel)" />
               </div>
             </div>
 

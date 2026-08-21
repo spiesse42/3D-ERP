@@ -39,16 +39,22 @@ r.post('/', (req, res) => {
   const fout = valideer(req.body);
   if (fout) return res.status(400).json({ error: fout });
   try {
-    const { datum, categorie, omschrijving, bedrag, terugkerend } = req.body;
+    const { datum, categorie, omschrijving, bedrag, terugkerend, factuur_id } = req.body;
+    // factuur_id: interne koppeling naar de aankoopfactuur/het bonnetje
+    // waaruit deze uitgave ontstond (zie backend/routes/facturen.js) — enkel
+    // voor traceerbaarheid/boekhouding in het systeem, verschijnt nergens op
+    // documenten die naar klanten gaan.
+    const factuurId = (factuur_id !== undefined && factuur_id !== '' && factuur_id != null) ? parseInt(factuur_id) : null;
     const result = getDb().prepare(`
-      INSERT INTO uitgaven (datum, categorie, omschrijving, bedrag, terugkerend)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO uitgaven (datum, categorie, omschrijving, bedrag, terugkerend, factuur_id)
+      VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       datum || new Date().toISOString().slice(0, 10),
       categorie,
       omschrijving || null,
       parseFloat(bedrag),
       terugkerend ? 1 : 0,
+      factuurId,
     );
     res.status(201).json({ id: result.lastInsertRowid });
   } catch (e) {

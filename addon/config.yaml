@@ -1,6 +1,6 @@
 name: "3D Print ERP"
 description: "ERP systeem voor 3D print hobbyisten — jobs, klanten, kosten, offertes"
-version: "2.0.209"
+version: "2.0.210"
 slug: "3d_print_erp"
 init: false
 arch:

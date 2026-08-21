@@ -216,7 +216,7 @@ r.get('/rollen/next-lot/:type_id', (req, res) => {
 r.post('/rollen', (req, res) => {
   const db = getDb();
   try {
-    const { filament_type_id, kleur, kleur_hex, gewicht_gram_start, locatie, gekocht_op, aankoopprijs_eur, lotnummer } = req.body;
+    const { filament_type_id, kleur, kleur_hex, gewicht_gram_start, locatie, gekocht_op, aankoopprijs_eur, lotnummer, factuur_id } = req.body;
     if (!filament_type_id) return res.status(400).json({ error: 'filament_type_id is verplicht' });
     const gram = parseFloat(gewicht_gram_start);
     if (!gram || isNaN(gram) || gram <= 0) return res.status(400).json({ error: 'Aantal/gewicht is verplicht en moet groter zijn dan 0' });
@@ -226,12 +226,17 @@ r.post('/rollen', (req, res) => {
     const prijsRaw = (aankoopprijs_eur !== undefined && aankoopprijs_eur !== '') ? parseFloat(aankoopprijs_eur) : null;
     const prijs = (prijsRaw != null && !isNaN(prijsRaw) && prijsRaw > 0) ? prijsRaw : null;
     const lot   = lotnummer || nextLotnummer(db, filament_type_id);
+    // factuur_id: interne koppeling naar de aankoopfactuur/het bonnetje
+    // waaruit deze rol/dit artikel ontstond (zie backend/routes/facturen.js)
+    // — enkel voor traceerbaarheid in het systeem, verschijnt nergens op
+    // documenten die naar klanten gaan.
+    const factuurId = (factuur_id !== undefined && factuur_id !== '' && factuur_id != null) ? parseInt(factuur_id) : null;
     const result = db.prepare(
-      'INSERT INTO filament_rollen (filament_type_id,kleur,kleur_hex,gewicht_gram_start,gewicht_gram_huidig,locatie,gekocht_op,aankoopprijs_eur,lotnummer) VALUES (?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO filament_rollen (filament_type_id,kleur,kleur_hex,gewicht_gram_start,gewicht_gram_huidig,locatie,gekocht_op,aankoopprijs_eur,lotnummer,factuur_id) VALUES (?,?,?,?,?,?,?,?,?,?)'
     ).run(
       filament_type_id, kleur || null, kleur_hex || null, gram, huidigGram,
       locatie || null, gekocht_op || new Date().toISOString().split('T')[0],
-      prijs, lot
+      prijs, lot, factuurId
     );
     res.status(201).json({ id: result.lastInsertRowid, lotnummer: lot });
   } catch (e) {
