@@ -392,7 +392,7 @@ ${offerte.object_naam || offerte.object_link ? `
 
 ${offerte.notities ? `<div class="opmerking">📝 ${offerte.notities}</div>` : ''}
 <div class="footer">
-  Offerte ${offerte.nummer} &nbsp;|&nbsp; ${nu} &nbsp;|&nbsp; Geldig ${offerte.geldig_tot || '30 dagen'} &nbsp;|&nbsp; Vrijgesteld van BTW — art. 56bis BTW-wetboek
+  Vrijgesteld van BTW — art. 56bis BTW-wetboek
   ${bedrijf.iban ? `<br>IBAN: ${bedrijf.iban}` : ''}
 </div>
 </body></html>`;
