@@ -139,22 +139,33 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
   // die kunnen intussen gewijzigd zijn, wat anders een verwarrend verschil
   // toont terwijl er in feite niets fout is. Pas zodra je zelf iets aanpast
   // (of een artikel toevoegt/wijzigt/verwijdert) schakelt de preview over
-  // naar de live herberekening. mountingRef voorkomt dat de vele
-  // veld-sync-effects hieronder (die bij het openen 1x set() aanroepen om de
-  // lokale string-state naar het form te syncen) dit meteen als "gewijzigd"
-  // laten tellen.
-  const mountingRef = useRef(true);
+  // naar de live herberekening — zie set() vs. setSilent() hieronder voor
+  // hoe puur afgeleide/hydratie-updates dit NIET als "gewijzigd" laten tellen.
   const [dirty, setDirty] = useState(false);
-  // Let op: de rollen-loader hieronder doet een async fetch — die callback
-  // vuurt pas ná de synchrone mount-effects af, dus dan staat mountingRef al
-  // op false. Zonder de f[k]===v-check zou een auto-select die toevallig
-  // dezelfde rol herbevestigt (het normale geval bij het heropenen van een
-  // offerte) de preview dus onterecht als "gewijzigd" markeren. Door enkel
-  // een echte waardewijziging als "dirty" te tellen, blijft dat geval veilig.
+  // setSilent: wijzigt het form ZONDER dirty te markeren. Bedoeld voor puur
+  // afgeleide/hydratie-effects (rollen-auto-select, printer-wattage) die bij
+  // het openen van een bestaande offerte 1x de "berekenings-only" velden
+  // (filament_rol_id-default, machine_kost_per_uur, printer_watt — geen van
+  // allen opgeslagen op de offerte zelf) invullen op basis van externe data
+  // (printer-/rollenlijst). We probeerden dit eerder via een "mountingRef"
+  // (true tijdens het mounten, false erna) binnen de gewone set()-functie,
+  // maar dat bleek onbetrouwbaar: React voert de functionele setState-
+  // updater van de EERSTE setForm-aanroep in een synchrone batch meteen uit
+  // (eager bailout), maar stelt élke volgende setForm-aanroep in diezelfde
+  // batch uit tot de eigenlijke re-render — op dat moment had een later
+  // effect (dat mountingRef al op false zette) al gedraaid, waardoor
+  // bijvoorbeeld de TWEEDE set()-aanroep in hetzelfde effect (printer_watt,
+  // na machine_kost_per_uur) toch als "gewijzigd" telde. Vandaar: deze
+  // hydratie-effects gebruiken expliciet setSilent i.p.v. set(), volledig
+  // los van zulke timing-afhankelijke aannames. Echte gebruikersinvoer (bv.
+  // de <select> voor filamentrol) blijft via set() lopen en telt dus wel.
+  const setSilent = useCallback((k, v) => {
+    setForm(f => (f[k] === v ? f : { ...f, [k]: v }));
+  }, []);
   const set = useCallback((k, v) => {
     setForm(f => {
       if (f[k] === v) return f;
-      if (!mountingRef.current) setDirty(true);
+      setDirty(true);
       return { ...f, [k]: v };
     });
   }, []);
@@ -264,15 +275,19 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
   useEffect(() => { set('extra_per_stuk',           extraStukF.num());}, [extraStukF.val]);
   useEffect(() => { set('extra_eenmalig',           extraEenF.num());}, [extraEenF.val]);
 
-  // Laad rollen wanneer filamenttype wijzigt
+  // Laad rollen wanneer filamenttype wijzigt — dit is een AFGELEIDE reset/
+  // auto-select (setSilent): de echte "dirty"-markering gebeurt al bij de
+  // <select> voor filamenttype zelf (die roept wél set() aan); deze cascade
+  // hoeft dat niet nogmaals te doen, en mag dat bij het openen (mount) zeker
+  // niet doen — vandaar setSilent i.p.v. set().
   useEffect(() => {
-    if (!form.filament_type_id) { setRollenVoorType([]); set('filament_rol_id', ''); return; }
+    if (!form.filament_type_id) { setRollenVoorType([]); setSilent('filament_rol_id', ''); return; }
     api.get(`/filament/rollen/by-type/${form.filament_type_id}`)
       .then(r => {
         setRollenVoorType(r);
         // Auto-select als er maar 1 rol is
-        if (r.length === 1) set('filament_rol_id', r[0].id);
-        else if (!r.some(x => x.id === parseInt(form.filament_rol_id))) set('filament_rol_id', '');
+        if (r.length === 1) setSilent('filament_rol_id', r[0].id);
+        else if (!r.some(x => x.id === parseInt(form.filament_rol_id))) setSilent('filament_rol_id', '');
       })
       .catch(() => setRollenVoorType([]));
   }, [form.filament_type_id]);
@@ -281,20 +296,18 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
   // gemiddeld verbruik dat per printer is ingesteld (Instellingen-tab, zelfde
   // waarde als KostenModal gebruikt voor de kWh-schatting) heeft voorrang;
   // enkel als dat niet is ingevuld, valt terug op de oude generieke tarieven.
+  // Puur berekenings-hulpvelden (niet opgeslagen op de offerte zelf) — dus
+  // setSilent, anders telt elke heropening van een bestaande offerte al als
+  // "gewijzigd" zodra de printer een ander verbruik heeft dan de 120W-default.
   useEffect(() => {
     const p = printers.find(p => p.id === parseInt(form.printer_id));
     if (p) {
-      set('machine_kost_per_uur', p.machine_kost_per_uur || 0.13);
-      set('printer_watt', p.gem_verbruik_watt > 0
+      setSilent('machine_kost_per_uur', p.machine_kost_per_uur || 0.13);
+      setSilent('printer_watt', p.gem_verbruik_watt > 0
         ? p.gem_verbruik_watt
         : (p.naam?.toLowerCase().includes('ender') ? (tarieven.ender_watt || 150) : (tarieven.bambu_watt || 120)));
     }
   }, [form.printer_id]);
-
-  // Moet NA alle bovenstaande mount-tijd-effects staan (field-syncs, rollen-
-  // loader, printer-wattage) — die roepen bij het openen elk 1x set() aan om
-  // de lokale state te initialiseren; dat mag niet als "dirty" tellen.
-  useEffect(() => { mountingRef.current = false; }, []);
 
   const gekozenRol = rollenVoorType.find(r => r.id === parseInt(form.filament_rol_id));
   const stockWaarschuwing = gekozenRol && form.geschat_gewicht_g
@@ -333,7 +346,7 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
 
   // Bevroren tot je zelf wijzigt: bij het heropenen van een bestaande offerte
   // tonen we de opgeslagen (bevroren) waarden i.p.v. de live herberekening —
-  // zie toelichting bij mountingRef hierboven.
+  // zie toelichting bij set()/setSilent() hierboven.
   const toonBevroren = isEdit && !dirty;
   const previewData = toonBevroren ? offerte : livePreviewDetail;
 
