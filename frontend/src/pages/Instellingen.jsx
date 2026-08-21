@@ -34,6 +34,12 @@ export default function Instellingen() {
   const [drempelOmzet, setDrempelOmzet]       = useState('25000');
   const [drempelWinst, setDrempelWinst]       = useState('1922.16');
   const [drempelSaved, setDrempelSaved]       = useState('');
+  const [bedrijfNaam,  setBedrijfNaam]  = useState('');
+  const [bedrijfBtw,   setBedrijfBtw]   = useState('');
+  const [bedrijfAdres, setBedrijfAdres] = useState('');
+  const [bedrijfEmail, setBedrijfEmail] = useState('');
+  const [bedrijfIban,  setBedrijfIban]  = useState('');
+  const [bedrijfSaved, setBedrijfSaved] = useState('');
 
   async function startNieuwJaar() {
     if (resetConfirm !== 'RESET') return;
@@ -73,9 +79,24 @@ export default function Instellingen() {
       setStartdatum(map.bedrijf_startdatum || '');
       setDrempelOmzet(map.drempel_omzet_jaar || '25000');
       setDrempelWinst(map.drempel_winst_jaar || '1922.16');
+      setBedrijfNaam(map.bedrijf_naam || '');
+      setBedrijfBtw(map.bedrijf_btw || '');
+      setBedrijfAdres(map.bedrijf_adres || '');
+      setBedrijfEmail(map.bedrijf_email || '');
+      setBedrijfIban(map.bedrijf_iban || '');
     }).catch(() => {});
     laadBackups();
   }, []);
+
+  async function saveBedrijfsgegevens() {
+    await api.put('/instellingen/bedrijf_naam',  { waarde: bedrijfNaam });
+    await api.put('/instellingen/bedrijf_btw',   { waarde: bedrijfBtw });
+    await api.put('/instellingen/bedrijf_adres', { waarde: bedrijfAdres });
+    await api.put('/instellingen/bedrijf_email', { waarde: bedrijfEmail });
+    await api.put('/instellingen/bedrijf_iban',  { waarde: bedrijfIban });
+    setBedrijfSaved('Opgeslagen!');
+    setTimeout(() => setBedrijfSaved(''), 3000);
+  }
 
   async function saveDrempels() {
     await api.put('/instellingen/bedrijf_startdatum', { waarde: startdatum });
@@ -480,6 +501,35 @@ export default function Instellingen() {
               </button>
             </div>
           ))}
+
+          <div className="card">
+            <h2 style={{ fontSize:14, fontWeight:600, marginBottom:8 }}>🏢 Bedrijfsgegevens</h2>
+            <p style={{ fontSize:11, color:'var(--muted)', marginBottom:12 }}>
+              Verschijnt op offertes, werkbonnen en facturen (header/footer van het PDF-document).
+            </p>
+            <div className="form-group" style={{ marginBottom:8 }}>
+              <label>Bedrijfsnaam</label>
+              <input value={bedrijfNaam} onChange={e => setBedrijfNaam(e.target.value)} placeholder="bv. 3D Plezier" />
+            </div>
+            <div className="form-group" style={{ marginBottom:8 }}>
+              <label>BTW-nummer</label>
+              <input value={bedrijfBtw} onChange={e => setBedrijfBtw(e.target.value)} placeholder="bv. BE0543857422" />
+            </div>
+            <div className="form-group" style={{ marginBottom:8 }}>
+              <label>Adres</label>
+              <input value={bedrijfAdres} onChange={e => setBedrijfAdres(e.target.value)} placeholder="straat + nr, postcode gemeente" />
+            </div>
+            <div className="form-group" style={{ marginBottom:8 }}>
+              <label>E-mailadres</label>
+              <input value={bedrijfEmail} onChange={e => setBedrijfEmail(e.target.value)} placeholder="bv. info@bedrijf.be" />
+            </div>
+            <div className="form-group" style={{ marginBottom:12 }}>
+              <label>IBAN</label>
+              <input value={bedrijfIban} onChange={e => setBedrijfIban(e.target.value)} placeholder="bv. BE59 0020 3763 3126" />
+            </div>
+            <button className="btn primary" onClick={saveBedrijfsgegevens}>Opslaan</button>
+            {bedrijfSaved && <span style={{ fontSize:11, color:'var(--accent2)', marginLeft:8 }}>{bedrijfSaved}</span>}
+          </div>
 
           <div className="card">
             <h2 style={{ fontSize:14, fontWeight:600, marginBottom:8 }}>📊 Drempels (bijberoep)</h2>

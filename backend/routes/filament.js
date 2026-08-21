@@ -36,32 +36,34 @@ r.get('/types', (req, res) => {
 r.post('/types', (req, res) => {
   const db = getDb();
   const { merk, materiaal, inkoop_prijs_per_kg, dichtheid_g_per_cm3, leverancier, notities,
-          categorie, eenheid, marge_pct, min_voorraad } = req.body;
+          categorie, eenheid, marge_pct, min_voorraad, vaste_prijs } = req.body;
   if (!merk || !materiaal) return res.status(400).json({ error: 'Merk en materiaal zijn verplicht' });
   const prijs = parseFloat(inkoop_prijs_per_kg);
   // prijs is optioneel — 0 toegestaan
   const result = db.prepare(
-    'INSERT INTO filament_types (merk,materiaal,inkoop_prijs_per_kg,dichtheid_g_per_cm3,leverancier,notities,categorie,eenheid,marge_pct,min_voorraad) VALUES (?,?,?,?,?,?,?,?,?,?)'
+    'INSERT INTO filament_types (merk,materiaal,inkoop_prijs_per_kg,dichtheid_g_per_cm3,leverancier,notities,categorie,eenheid,marge_pct,min_voorraad,vaste_prijs) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
   ).run(merk, materiaal, prijs, parseFloat(dichtheid_g_per_cm3) || 1.24, leverancier || null, notities || null,
         categorie || 'filament', eenheid || 'gram',
         (marge_pct !== undefined && marge_pct !== '') ? parseFloat(marge_pct) : null,
-        (min_voorraad !== undefined && min_voorraad !== '') ? parseFloat(min_voorraad) : null);
+        (min_voorraad !== undefined && min_voorraad !== '') ? parseFloat(min_voorraad) : null,
+        vaste_prijs ? 1 : 0);
   res.status(201).json({ id: result.lastInsertRowid });
 });
 
 r.put('/types/:id', (req, res) => {
   const db = getDb();
   const { merk, materiaal, inkoop_prijs_per_kg, dichtheid_g_per_cm3, leverancier, notities,
-          categorie, eenheid, marge_pct, min_voorraad } = req.body;
+          categorie, eenheid, marge_pct, min_voorraad, vaste_prijs } = req.body;
   if (!merk || !materiaal) return res.status(400).json({ error: 'Merk en materiaal zijn verplicht' });
   const prijs = parseFloat(inkoop_prijs_per_kg);
   if (isNaN(prijs) || prijs <= 0) return res.status(400).json({ error: 'Prijs moet een positief getal zijn' });
   db.prepare(
-    'UPDATE filament_types SET merk=?,materiaal=?,inkoop_prijs_per_kg=?,dichtheid_g_per_cm3=?,leverancier=?,notities=?,categorie=?,eenheid=?,marge_pct=?,min_voorraad=? WHERE id=?'
+    'UPDATE filament_types SET merk=?,materiaal=?,inkoop_prijs_per_kg=?,dichtheid_g_per_cm3=?,leverancier=?,notities=?,categorie=?,eenheid=?,marge_pct=?,min_voorraad=?,vaste_prijs=? WHERE id=?'
   ).run(merk, materiaal, prijs, parseFloat(dichtheid_g_per_cm3) || 1.24, leverancier || null, notities || null,
         categorie || 'filament', eenheid || 'gram',
         (marge_pct !== undefined && marge_pct !== '') ? parseFloat(marge_pct) : null,
         (min_voorraad !== undefined && min_voorraad !== '') ? parseFloat(min_voorraad) : null,
+        vaste_prijs ? 1 : 0,
         req.params.id);
   res.json({ ok: true });
 });

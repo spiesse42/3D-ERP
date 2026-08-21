@@ -29,7 +29,7 @@ function useField(init) {
   };
 }
 
-function berekenLive(form, tarieven, rollen, artikelenKost = 0) {
+function berekenLive(form, tarieven, rollen, artikelenKost = 0, artikelenVastKost = 0) {
   if (!form.filament_rol_id || !form.geschat_gewicht_g) return null;
 
   const rol = rollen.find(r => r.id === parseInt(form.filament_rol_id));
@@ -70,13 +70,17 @@ function berekenLive(form, tarieven, rollen, artikelenKost = 0) {
   const bmcu  = form.is_multicolor ? (t.bmcu_per_job || 0.10) : 0;
   const extra = (parseFloat(form.extra_per_stuk) || 0) * aantal + (parseFloat(form.extra_eenmalig) || 0);
   const artikelen = parseFloat(artikelenKost) || 0;
+  const artikelenVast = parseFloat(artikelenVastKost) || 0;
 
   const sub   = mat + ener + mach + arb + extra + bmcu + artikelen;
   const margeGrns = t.marge_grens_uur || 4;
   const marge = totU >= margeGrns ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
-  const vkp   = sub * (1 + marge / 100);
+  // vkpBasis = alles waar marge op wordt toegepast; vaste_prijs-artikelen
+  // (bv. verzendkosten) krijgen geen marge en worden er 1-op-1 bijgeteld.
+  const vkpBasis = sub * (1 + marge / 100);
+  const vkp = vkpBasis + artikelenVast;
 
-  return { mat, ener, mach, arb, extra, bmcu, artikelen, sub, marge, vkp, aantal, prijsPerKg };
+  return { mat, ener, mach, arb, extra, bmcu, artikelen, artikelenVast, sub, marge, vkpBasis, vkp, aantal, prijsPerKg };
 }
 
 // Op moduleniveau gedefinieerd (niet binnen OfferteModal) — anders krijgen
@@ -129,16 +133,46 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
   // Aflopende teller voor lokale (nog niet opgeslagen) artikel-ids — negatief
   // zodat ze nooit kunnen botsen met echte database-ids.
   const pendingIdRef = useRef(-1);
-  const set = useCallback((k, v) => setForm(f => ({ ...f, [k]: v })), []);
+  // "Bevroren tot je zelf wijzigt": bij het heropenen van een bestaande
+  // offerte tonen we de opgeslagen waarden (identiek aan het detailvenster/
+  // de PDF), i.p.v. meteen te herberekenen met de huidige tarieven/prijzen —
+  // die kunnen intussen gewijzigd zijn, wat anders een verwarrend verschil
+  // toont terwijl er in feite niets fout is. Pas zodra je zelf iets aanpast
+  // (of een artikel toevoegt/wijzigt/verwijdert) schakelt de preview over
+  // naar de live herberekening. mountingRef voorkomt dat de vele
+  // veld-sync-effects hieronder (die bij het openen 1x set() aanroepen om de
+  // lokale string-state naar het form te syncen) dit meteen als "gewijzigd"
+  // laten tellen.
+  const mountingRef = useRef(true);
+  const [dirty, setDirty] = useState(false);
+  // Let op: de rollen-loader hieronder doet een async fetch — die callback
+  // vuurt pas ná de synchrone mount-effects af, dus dan staat mountingRef al
+  // op false. Zonder de f[k]===v-check zou een auto-select die toevallig
+  // dezelfde rol herbevestigt (het normale geval bij het heropenen van een
+  // offerte) de preview dus onterecht als "gewijzigd" markeren. Door enkel
+  // een echte waardewijziging als "dirty" te tellen, blijft dat geval veilig.
+  const set = useCallback((k, v) => {
+    setForm(f => {
+      if (f[k] === v) return f;
+      if (!mountingRef.current) setDirty(true);
+      return { ...f, [k]: v };
+    });
+  }, []);
   const isEdit = !!form.id;
 
   // Extra artikelen (bv. verzendkosten) — alleen niet-filament types, prijs op
   // TYPE-niveau net als het hoofdfilament: een offerte reserveert geen stock.
   const artikelTypes = filamentTypes.filter(f => (f.categorie || 'filament') !== 'filament');
-  const artikelenKost = artikelen.reduce((som, a) => {
+  // Gesplitst: 'marge' krijgt de gewone offerte-marge, 'vast' (vaste_prijs-
+  // artikelen zoals verzendkosten) niet — zelfde logica als de backend.
+  const artikelenKostSplit = artikelen.reduce((som, a) => {
     const deler = a.eenheid === 'gram' ? 1000 : 1;
-    return som + (parseFloat(a.aantal) / deler) * (parseFloat(a.inkoop_prijs_per_kg) || 0);
-  }, 0);
+    const bedrag = (parseFloat(a.aantal) / deler) * (parseFloat(a.inkoop_prijs_per_kg) || 0);
+    if (a.vaste_prijs) som.vast += bedrag; else som.marge += bedrag;
+    return som;
+  }, { marge: 0, vast: 0 });
+  const artikelenKost = artikelenKostSplit.marge;
+  const artikelenVastKost = artikelenKostSplit.vast;
 
   // Vóór de eerste keer opslaan bestaat de offerte nog niet op de server —
   // artikelen (bv. verzendkosten) worden dan lokaal bijgehouden met een
@@ -157,9 +191,11 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
         filament_type_id: type.id, aantal: aantalNum,
         merk: type.merk, materiaal: type.materiaal, eenheid: type.eenheid,
         categorie: type.categorie, inkoop_prijs_per_kg: type.inkoop_prijs_per_kg,
+        vaste_prijs: type.vaste_prijs,
         _pending: true,
       }]);
       setArtikelTypeId(''); setArtikelAantal('');
+      setDirty(true);
       return;
     }
 
@@ -167,6 +203,7 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
       const r = await api.post(`/offertes2/${form.id}/artikelen`, { filament_type_id: artikelTypeId, aantal: aantalNum });
       setArtikelen(r.artikelen);
       setArtikelTypeId(''); setArtikelAantal('');
+      setDirty(true);
     } catch(e) { alert(e.message); }
   }
 
@@ -175,11 +212,13 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
     const bestaand = artikelen.find(a => a.id === artikelId);
     if (bestaand?._pending) {
       setArtikelen(a => a.map(x => x.id === artikelId ? { ...x, aantal: nieuwAantal } : x));
+      setDirty(true);
       return;
     }
     try {
       const r = await api.put(`/offertes2/${form.id}/artikelen/${artikelId}`, { aantal: nieuwAantal });
       setArtikelen(r.artikelen);
+      setDirty(true);
     } catch(e) { alert(e.message); }
   }
 
@@ -187,11 +226,13 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
     const bestaand = artikelen.find(a => a.id === artikelId);
     if (bestaand?._pending) {
       setArtikelen(a => a.filter(x => x.id !== artikelId));
+      setDirty(true);
       return;
     }
     try {
       const r = await api.delete(`/offertes2/${form.id}/artikelen/${artikelId}`);
       setArtikelen(r.artikelen);
+      setDirty(true);
     } catch(e) { alert(e.message); }
   }
 
@@ -250,12 +291,17 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
     }
   }, [form.printer_id]);
 
+  // Moet NA alle bovenstaande mount-tijd-effects staan (field-syncs, rollen-
+  // loader, printer-wattage) — die roepen bij het openen elk 1x set() aan om
+  // de lokale state te initialiseren; dat mag niet als "dirty" tellen.
+  useEffect(() => { mountingRef.current = false; }, []);
+
   const gekozenRol = rollenVoorType.find(r => r.id === parseInt(form.filament_rol_id));
   const stockWaarschuwing = gekozenRol && form.geschat_gewicht_g
     ? parseFloat(form.geschat_gewicht_g) > gekozenRol.gewicht_gram_huidig
     : false;
 
-  const preview = berekenLive(form, tarieven, allRollen, artikelenKost);
+  const preview = berekenLive(form, tarieven, allRollen, artikelenKost, artikelenVastKost);
 
   // Hertaalt de live-schatting naar exact dezelfde vorm als een opgeslagen
   // offerte, zodat de preview hieronder met dezelfde offerteRegelsClient()
@@ -280,8 +326,16 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
     artikelen,
     verkoopprijs: preview.vkp,
     btw_pct: form.btw_pct,
-    btw_bedrag: preview.vkp * (form.btw_pct || 0) / 100,
+    // BTW enkel op de marge-basis (excl. vaste_prijs-artikelen zoals
+    // verzendkosten, die al incl. BTW zijn) — zelfde als de backend.
+    btw_bedrag: preview.vkpBasis * (form.btw_pct || 0) / 100,
   } : null;
+
+  // Bevroren tot je zelf wijzigt: bij het heropenen van een bestaande offerte
+  // tonen we de opgeslagen (bevroren) waarden i.p.v. de live herberekening —
+  // zie toelichting bij mountingRef hierboven.
+  const toonBevroren = isEdit && !dirty;
+  const previewData = toonBevroren ? offerte : livePreviewDetail;
 
   function addFilamentRol() {
     set('filament_rollen', [...(form.filament_rollen || []), { filament_type_id: form.filament_type_id || '', filament_rol_id: '', gram: '' }]);
@@ -603,8 +657,15 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
             Wat je hier ziet is dus exact wat er straks bewaard/afgedrukt
             wordt — geen aparte berekening meer die uit de pas kan lopen. */}
         <div style={{ background:'var(--bg3)', borderRadius:'var(--radius)', padding:'1rem', marginBottom:'0.75rem' }}>
-          <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>📄 Live offerte-preview</p>
-          {!livePreviewDetail
+          <p style={{ fontSize:12, fontWeight:600, marginBottom:8 }}>
+            📄 {toonBevroren ? 'Opgeslagen offerte' : 'Live offerte-preview'}
+          </p>
+          {toonBevroren && (
+            <p style={{ fontSize:11, color:'var(--muted)', marginBottom:10 }}>
+              Dit zijn de bewaarde waarden van deze offerte. Zodra je iets wijzigt, schakelt dit over naar een live herberekening met de huidige tarieven/prijzen.
+            </p>
+          )}
+          {!previewData
             ? <p style={{ color:'var(--muted)', fontSize:12, margin:0 }}>Selecteer filamenttype, rol en gewicht</p>
             : <>
               {(klantNaamGekozen || form.object_naam) && (
@@ -623,7 +684,7 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
                   </tr>
                 </thead>
                 <tbody>
-                  {offerteRegelsClient(livePreviewDetail, tarieven).map((r, i) => (
+                  {offerteRegelsClient(previewData, tarieven).map((r, i) => (
                     <tr key={i} style={{ borderBottom:'1px solid var(--border)' }}>
                       <td style={{ padding:'4px 4px 4px 0' }}>{r.aantal}</td>
                       <td style={{ padding:'4px' }}>{r.omschrijving}</td>
@@ -635,17 +696,19 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
               </table>
               <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0 4px', fontWeight:700 }}>
                 <span>Verkoopprijs</span>
-                <span style={{ fontSize:22, color:'var(--accent2)' }}>€{livePreviewDetail.verkoopprijs.toFixed(2)}</span>
+                <span style={{ fontSize:22, color:'var(--accent2)' }}>€{previewData.verkoopprijs.toFixed(2)}</span>
               </div>
               {form.btw_pct > 0 && (
                 <div style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', fontSize:12, color:'var(--muted)' }}>
                   <span>+ BTW {form.btw_pct}%</span>
-                  <span>€{livePreviewDetail.btw_bedrag.toFixed(2)}</span>
+                  <span>€{previewData.btw_bedrag.toFixed(2)}</span>
                 </div>
               )}
-              <div style={{ fontSize:10, color:'var(--muted)', marginTop:6, borderTop:'1px solid var(--border)', paddingTop:6 }}>
-                Rolprijs: €{preview.prijsPerKg.toFixed(2)}/kg
-              </div>
+              {!toonBevroren && preview && (
+                <div style={{ fontSize:10, color:'var(--muted)', marginTop:6, borderTop:'1px solid var(--border)', paddingTop:6 }}>
+                  Rolprijs: €{preview.prijsPerKg.toFixed(2)}/kg
+                </div>
+              )}
             </>
           }
         </div>
@@ -715,11 +778,15 @@ function offerteRegelsClient(detail, tarieven) {
     });
   }
 
+  // Vaste_prijs-artikelen (bv. verzendkosten) krijgen bewust GEEN marge — de
+  // ingevoerde prijs is al de (incl. BTW) eindprijs. Zelfde logica als de
+  // backend (offerteRegels() in offertes_v2.js).
   for (const a of (detail.artikelen || [])) {
     const deler = a.eenheid === 'gram' ? 1000 : 1;
     const aantalNum = parseFloat(a.aantal) || 0;
     const aantalTxt = a.eenheid === 'stuk' ? Math.round(aantalNum) : aantalNum.toFixed(1);
-    const artikelTotaal = (aantalNum / deler) * (a.inkoop_prijs_per_kg || 0) * marge;
+    const factor = a.vaste_prijs ? 1 : marge;
+    const artikelTotaal = (aantalNum / deler) * (a.inkoop_prijs_per_kg || 0) * factor;
     regels.push({
       omschrijving: `${a.merk || ''} ${a.materiaal || ''}`.trim(),
       aantal: `${aantalTxt} ${eenheidLabel(a.eenheid)}`,

@@ -114,7 +114,7 @@ const EENHEDEN = [
 function TypeModal({ type, onClose, onSaved }) {
   const [form, setForm] = useState(type?.id ? { ...type } : {
     merk: '', materiaal: 'PLA+', inkoop_prijs_per_kg: '', dichtheid_g_per_cm3: 1.24, leverancier: '',
-    categorie: 'filament', eenheid: 'gram', marge_pct: '', min_voorraad: ''
+    categorie: 'filament', eenheid: 'gram', marge_pct: '', min_voorraad: '', vaste_prijs: 0
   });
   // Lokale strings zodat je ononderbroken kan typen
   const [prijsStr, setPrijsStr] = useState(String(form.inkoop_prijs_per_kg ?? ''));
@@ -219,8 +219,22 @@ function TypeModal({ type, onClose, onSaved }) {
 
         <div className="form-group">
           <label>Marge (%) <span style={{ color:'var(--muted)', fontWeight:400, fontSize:11 }}>leeg = globale marge</span></label>
-          <input value={margeStr} onChange={e => setMargeStr(e.target.value)} placeholder="bv. 30" />
+          <input value={margeStr} onChange={e => setMargeStr(e.target.value)} disabled={!!form.vaste_prijs}
+            placeholder="bv. 30" style={form.vaste_prijs ? { opacity:0.5 } : undefined} />
         </div>
+
+        {!isFilament && (
+          <div className="form-group">
+            <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer' }}>
+              <input type="checkbox" checked={!!form.vaste_prijs}
+                onChange={e => set('vaste_prijs', e.target.checked ? 1 : 0)} />
+              Vaste prijs (geen marge, prijs is al incl. BTW)
+            </label>
+            <div style={{ color:'var(--muted)', fontWeight:400, fontSize:11, marginTop:2 }}>
+              Bv. voor verzendkosten: de ingevoerde inkoopprijs wordt dan 1-op-1 als eindprijs gebruikt, zonder marge erbovenop.
+            </div>
+          </div>
+        )}
 
         {isFilament && (
           <div className="form-group">
@@ -919,7 +933,7 @@ export default function Filament() {
                       <td style={{ fontWeight: 500 }}>{t.merk}</td>
                       <td>{t.materiaal}</td>
                       <td style={{ color: 'var(--muted)' }}>{t.eenheid || 'gram'}</td>
-                      <td style={{ color: 'var(--muted)' }}>{t.marge_pct != null ? `${t.marge_pct}%` : <span style={{ fontStyle:'italic' }}>globaal</span>}</td>
+                      <td style={{ color: 'var(--muted)' }}>{t.vaste_prijs ? <span style={{ color:'var(--accent2)' }}>vast, incl. BTW</span> : (t.marge_pct != null ? `${t.marge_pct}%` : <span style={{ fontStyle:'italic' }}>globaal</span>)}</td>
                       <td style={{ color: 'var(--muted)' }}>{t.leverancier || '—'}</td>
                       <td>
                         <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>

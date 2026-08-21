@@ -9,6 +9,23 @@ function getTarieven(db) {
   return Object.fromEntries(rows.map(r => [r.sleutel, r.waarde]));
 }
 
+// Bedrijfsgegevens (naam/BTW/adres/email/IBAN) voor op offerte/werkbon/factuur
+// — instelbaar via Instellingen-tab, opgeslagen in de generieke instellingen-tabel.
+function getBedrijfsgegevens(db) {
+  const rows = db.prepare(`
+    SELECT sleutel, waarde FROM instellingen
+    WHERE sleutel IN ('bedrijf_naam','bedrijf_btw','bedrijf_adres','bedrijf_email','bedrijf_iban')
+  `).all();
+  const map = Object.fromEntries(rows.map(r => [r.sleutel, r.waarde]));
+  return {
+    naam:  map.bedrijf_naam  || '',
+    btw:   map.bedrijf_btw   || '',
+    adres: map.bedrijf_adres || '',
+    email: map.bedrijf_email || '',
+    iban:  map.bedrijf_iban  || '',
+  };
+}
+
 // Valt terug op de standaardwaarde enkel als er écht niets bruikbaars werd
 // meegegeven — niet bij een bewust ingevulde 0 (bv. "geen voorbereidingstijd
 // nodig"). Met een gewone `||`-fallback ging zo'n ingevulde 0 altijd verloren
@@ -46,6 +63,7 @@ function berekenOfferte(data, t) {
     filament_prijs_per_kg = 0,
     printer_watt = 120,
     artikelen_kost = 0,
+    artikelen_vast_kost = 0,
     materiaal_kost_override = null,
   } = data;
 
@@ -73,7 +91,11 @@ function berekenOfferte(data, t) {
 
   const marge_grens = t.marge_grens_uur || 4;
   const marge_pct = totale_tijd_u >= marge_grens ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
-  const verkoopprijs = subtotaal * (1 + marge_pct / 100);
+  // verkoopprijs_basis = alles waar marge op wordt toegepast (excl. de
+  // vast-geprijsde artikelen — bv. verzendkosten — die krijgen bewust GEEN
+  // marge en worden 1-op-1 als reeds-incl.-BTW eindprijs bijgeteld.
+  const verkoopprijs_basis = subtotaal * (1 + marge_pct / 100);
+  const verkoopprijs = verkoopprijs_basis + parseFloat(artikelen_vast_kost || 0);
 
   return {
     materiaal_kost: Math.round(materiaal_kost * 1000) / 1000,
@@ -82,8 +104,10 @@ function berekenOfferte(data, t) {
     arbeid_kost: Math.round(arbeid_kost * 1000) / 1000,
     extra_totaal: Math.round(extra_totaal * 1000) / 1000,
     artikelen_kost: Math.round((parseFloat(artikelen_kost) || 0) * 1000) / 1000,
+    artikelen_vast_kost: Math.round((parseFloat(artikelen_vast_kost) || 0) * 1000) / 1000,
     subtotaal: Math.round(subtotaal * 1000) / 1000,
     marge_pct,
+    verkoopprijs_basis: Math.round(verkoopprijs_basis * 100) / 100,
     verkoopprijs: Math.round(verkoopprijs * 100) / 100,
   };
 }
@@ -155,7 +179,7 @@ function kostPerArtikelRegel(a) {
 function haalArtikelen(db, offerteId) {
   return db.prepare(`
     SELECT oa.id, oa.filament_type_id, oa.aantal,
-      ft.merk, ft.materiaal, ft.eenheid, ft.categorie, ft.inkoop_prijs_per_kg
+      ft.merk, ft.materiaal, ft.eenheid, ft.categorie, ft.inkoop_prijs_per_kg, ft.vaste_prijs
     FROM offerte_artikelen oa
     JOIN filament_types ft ON ft.id = oa.filament_type_id
     WHERE oa.offerte_id = ?
@@ -163,8 +187,16 @@ function haalArtikelen(db, offerteId) {
   `).all(offerteId);
 }
 
+// Splitst de artikelen in twee groepen: 'marge' (normale artikelen, krijgen
+// de gewone offerte-marge zoals materiaal/arbeid) en 'vast' (vaste_prijs-
+// artikelen zoals verzendkosten: geen marge, prijs is al incl. BTW en wordt
+// 1-op-1 bij de verkoopprijs opgeteld).
 function berekenArtikelenKost(db, offerteId) {
-  return haalArtikelen(db, offerteId).reduce((som, a) => som + kostPerArtikelRegel(a), 0);
+  return haalArtikelen(db, offerteId).reduce((som, a) => {
+    if (a.vaste_prijs) som.vast += kostPerArtikelRegel(a);
+    else som.marge += kostPerArtikelRegel(a);
+    return som;
+  }, { marge: 0, vast: 0 });
 }
 
 // Herberekent en bewaart de volledige offerte-totalen (bv. na een artikel toe
@@ -191,10 +223,10 @@ function herbereken(db, offerteId) {
   try { filament_rollen = JSON.parse(offerte.filament_rollen_json || '[]'); } catch { filament_rollen = []; }
   const materiaal_kost_override = bepaalMateriaalKostOverride(db, { ...offerte, filament_rollen }, faalfactor);
 
-  const artikelen_kost = berekenArtikelenKost(db, offerteId);
+  const artKost = berekenArtikelenKost(db, offerteId);
   const arbeid_per_uur = t.arbeid_per_uur || 15;
-  const ber = berekenOfferte({ ...offerte, filament_prijs_per_kg, printer_watt, artikelen_kost, materiaal_kost_override }, t);
-  const btw_bedrag = Math.round(ber.verkoopprijs * (parseFloat(offerte.btw_pct) || 0)) / 100;
+  const ber = berekenOfferte({ ...offerte, filament_prijs_per_kg, printer_watt, artikelen_kost: artKost.marge, artikelen_vast_kost: artKost.vast, materiaal_kost_override }, t);
+  const btw_bedrag = Math.round(ber.verkoopprijs_basis * (parseFloat(offerte.btw_pct) || 0)) / 100;
   const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
 
   db.prepare(`
@@ -205,7 +237,7 @@ function herbereken(db, offerteId) {
     WHERE id=?
   `).run(
     ber.materiaal_kost, ber.energie_kost_schat, ber.arbeid_kost, ber.machine_kost,
-    ber.extra_totaal, ber.artikelen_kost, ber.subtotaal, ber.marge_pct, ber.verkoopprijs,
+    ber.extra_totaal, ber.artikelen_kost + ber.artikelen_vast_kost, ber.subtotaal, ber.marge_pct, ber.verkoopprijs,
     btw_bedrag, totaal, arbeid_per_uur, offerteId
   );
 
@@ -258,12 +290,14 @@ function offerteRegels(offerte, berekening, filamentType, artikelen = []) {
     });
   }
 
-  // Extra artikelen (bv. verzendkosten)
+  // Extra artikelen (bv. verzendkosten). Vaste_prijs-artikelen krijgen bewust
+  // GEEN marge — de ingevoerde prijs is al de (incl. BTW) eindprijs.
   for (const a of artikelen) {
     const deler = a.eenheid === 'gram' ? 1000 : 1;
     const aantalNum = parseFloat(a.aantal) || 0;
     const aantalTxt = a.eenheid === 'stuk' ? Math.round(aantalNum) : aantalNum.toFixed(1);
-    const artikelTotaal = (aantalNum / deler) * (a.inkoop_prijs_per_kg || 0) * margeFactor;
+    const factor = a.vaste_prijs ? 1 : margeFactor;
+    const artikelTotaal = (aantalNum / deler) * (a.inkoop_prijs_per_kg || 0) * factor;
     regels.push({
       omschrijving: `${a.merk || ''} ${a.materiaal || ''}`.trim(),
       aantal: `${aantalTxt} ${eenheidLabel(a.eenheid)}`,
@@ -275,7 +309,7 @@ function offerteRegels(offerte, berekening, filamentType, artikelen = []) {
   return regels;
 }
 
-function buildOfferteHtml(offerte, klant, berekening, filamentType, artikelen = []) {
+function buildOfferteHtml(offerte, klant, berekening, filamentType, artikelen = [], bedrijf = {}) {
   const nu = new Date().toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const regels = offerteRegels(offerte, berekening, filamentType, artikelen);
   const regelRijen = regels.map(r => `
@@ -313,7 +347,16 @@ function buildOfferteHtml(offerte, klant, berekening, filamentType, artikelen = 
 </head>
 <body>
 <div class="header">
-  <div class="logo"><img src="${LOGO_DATA_URI}" alt="3D Plezier"></div>
+  <div>
+    <div class="logo"><img src="${LOGO_DATA_URI}" alt="3D Plezier"></div>
+    ${bedrijf.naam || bedrijf.adres || bedrijf.email || bedrijf.btw ? `
+    <div style="margin-top:8px;font-size:.72rem;color:#888;line-height:1.5">
+      ${bedrijf.naam ? `<strong>${bedrijf.naam}</strong><br>` : ''}
+      ${bedrijf.adres ? `${bedrijf.adres}<br>` : ''}
+      ${bedrijf.email ? `${bedrijf.email}<br>` : ''}
+      ${bedrijf.btw ? `BTW: ${bedrijf.btw}` : ''}
+    </div>` : ''}
+  </div>
   <div style="text-align:right;color:#666;font-size:.85rem">
     <div class="doc-nr">OFFERTE ${offerte.nummer}</div>
     <div>${nu}</div>
@@ -348,7 +391,10 @@ ${offerte.object_naam || offerte.object_link ? `
 </div>
 
 ${offerte.notities ? `<div class="opmerking">📝 ${offerte.notities}</div>` : ''}
-<div class="footer">Offerte ${offerte.nummer} &nbsp;|&nbsp; ${nu} &nbsp;|&nbsp; Geldig ${offerte.geldig_tot || '30 dagen'} &nbsp;|&nbsp; Vrijgesteld van BTW — art. 56bis BTW-wetboek</div>
+<div class="footer">
+  Offerte ${offerte.nummer} &nbsp;|&nbsp; ${nu} &nbsp;|&nbsp; Geldig ${offerte.geldig_tot || '30 dagen'} &nbsp;|&nbsp; Vrijgesteld van BTW — art. 56bis BTW-wetboek
+  ${bedrijf.iban ? `<br>IBAN: ${bedrijf.iban}` : ''}
+</div>
 </body></html>`;
 }
 
@@ -479,7 +525,7 @@ r.post('/', (req, res) => {
   };
 
   const ber = berekenOfferte(berData, t);
-  const btw_bedrag = Math.round(ber.verkoopprijs * (parseFloat(btw_pct) || 0)) / 100;
+  const btw_bedrag = Math.round(ber.verkoopprijs_basis * (parseFloat(btw_pct) || 0)) / 100;
   const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
   const nummer = nextNummer(db);
   const arbeid_per_uur = t.arbeid_per_uur || 15;
@@ -507,7 +553,7 @@ r.post('/', (req, res) => {
     geldig_tot||null, notities||null, arbeid_per_uur
   );
 
-  res.status(201).json({ id: result.lastInsertRowid, nummer, ...ber });
+  res.status(201).json({ id: result.lastInsertRowid, nummer, ...ber, btw_bedrag, totaal });
 });
 
 // PUT update offerte — MOET voor export default staan!
@@ -554,14 +600,18 @@ r.put('/:id', (req, res) => {
     filament_prijs_per_kg,
     printer_watt,
     materiaal_kost_override,
-    // Bewaar de artikelen-bijdrage (verzendkosten enz.) — anders zou het
-    // hoofd-'Opslaan' hier de bijdrage van reeds toegevoegde artikelen wissen.
-    artikelen_kost: berekenArtikelenKost(db, req.params.id),
   };
+  // Bewaar de artikelen-bijdrage (verzendkosten enz.) — anders zou het
+  // hoofd-'Opslaan' hier de bijdrage van reeds toegevoegde artikelen wissen.
+  // Gesplitst: 'marge' krijgt de gewone offerte-marge, 'vast' (vaste_prijs-
+  // artikelen zoals verzendkosten) niet — zie berekenOfferte().
+  const artKostPut = berekenArtikelenKost(db, req.params.id);
+  berData.artikelen_kost = artKostPut.marge;
+  berData.artikelen_vast_kost = artKostPut.vast;
 
   const ber = berekenOfferte(berData, t);
   const btw_pct = parseFloat(data.btw_pct) || 0;
-  const btw_bedrag = Math.round(ber.verkoopprijs * btw_pct) / 100;
+  const btw_bedrag = Math.round(ber.verkoopprijs_basis * btw_pct) / 100;
   const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
   const arbeid_per_uur = t.arbeid_per_uur || 15;
 
@@ -585,11 +635,11 @@ r.put('/:id', (req, res) => {
     berData.is_multicolor ? JSON.stringify(filament_rollen) : null,
     berData.extra_per_stuk, berData.extra_eenmalig, data.extra_omschrijving||null, berData.aantal,
     ber.materiaal_kost, ber.energie_kost_schat, ber.arbeid_kost, ber.machine_kost, ber.extra_totaal,
-    ber.artikelen_kost, ber.subtotaal, ber.marge_pct, ber.verkoopprijs, btw_pct, btw_bedrag, totaal,
+    ber.artikelen_kost + ber.artikelen_vast_kost, ber.subtotaal, ber.marge_pct, ber.verkoopprijs, btw_pct, btw_bedrag, totaal,
     data.geldig_tot||null, data.notities||null, arbeid_per_uur, req.params.id
   );
 
-  res.json({ ok: true, ...ber });
+  res.json({ ok: true, ...ber, btw_bedrag, totaal });
 });
 
 // PATCH status
@@ -704,7 +754,7 @@ r.get('/:id/pdf', (req, res) => {
     arbeid_per_uur: offerte.arbeid_per_uur || t.arbeid_per_uur || 15
   };
 
-  const html = buildOfferteHtml(offerte, klant, ber, ft, haalArtikelen(db, req.params.id));
+  const html = buildOfferteHtml(offerte, klant, ber, ft, haalArtikelen(db, req.params.id), getBedrijfsgegevens(db));
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="offerte-${offerte.nummer}.html"`);
   res.send(html);

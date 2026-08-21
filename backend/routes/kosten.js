@@ -10,7 +10,24 @@ function getTarieven(db) {
   return Object.fromEntries(rows.map(r => [r.sleutel, r.waarde]));
 }
 
-function buildPdfHtml(kosten, klant, extraInfo = {}) {
+// Bedrijfsgegevens (naam/BTW/adres/email/IBAN) voor op de werkbon/factuur —
+// instelbaar via Instellingen-tab, opgeslagen in de generieke instellingen-tabel.
+function getBedrijfsgegevens(db) {
+  const rows = db.prepare(`
+    SELECT sleutel, waarde FROM instellingen
+    WHERE sleutel IN ('bedrijf_naam','bedrijf_btw','bedrijf_adres','bedrijf_email','bedrijf_iban')
+  `).all();
+  const map = Object.fromEntries(rows.map(r => [r.sleutel, r.waarde]));
+  return {
+    naam:  map.bedrijf_naam  || '',
+    btw:   map.bedrijf_btw   || '',
+    adres: map.bedrijf_adres || '',
+    email: map.bedrijf_email || '',
+    iban:  map.bedrijf_iban  || '',
+  };
+}
+
+function buildPdfHtml(kosten, klant, extraInfo = {}, bedrijf = {}) {
   const nu = new Date().toLocaleDateString('nl-BE', { day:'2-digit', month:'2-digit', year:'numeric' });
   const toon = v => `€${(v||0).toFixed(2)}`;
   const { voorbMin=15, nabMin=10, arbTarief=15, ontwerpMin=0, ontwerpTarief=15,
@@ -49,7 +66,16 @@ function buildPdfHtml(kosten, klant, extraInfo = {}) {
   .footer{margin-top:32px;border-top:1px solid #eee;padding-top:14px;font-size:.72rem;color:#999;text-align:center}
 </style></head><body>
 <div class="header">
-  <div class="logo"><img src="${LOGO_DATA_URI}" alt="3D Plezier"></div>
+  <div>
+    <div class="logo"><img src="${LOGO_DATA_URI}" alt="3D Plezier"></div>
+    ${bedrijf.naam || bedrijf.adres || bedrijf.email || bedrijf.btw ? `
+    <div style="margin-top:8px;font-size:.72rem;color:#888;line-height:1.5">
+      ${bedrijf.naam ? `<strong>${bedrijf.naam}</strong><br>` : ''}
+      ${bedrijf.adres ? `${bedrijf.adres}<br>` : ''}
+      ${bedrijf.email ? `${bedrijf.email}<br>` : ''}
+      ${bedrijf.btw ? `BTW: ${bedrijf.btw}` : ''}
+    </div>` : ''}
+  </div>
   <div style="text-align:right;color:#666;font-size:.85rem">
     <div style="font-size:1.1rem;font-weight:bold">WERKBON</div>
     ${kosten.volgnummer ? `<div style="font-family:monospace;font-weight:600">${kosten.volgnummer}</div>` : ''}
@@ -91,7 +117,10 @@ ${btw ? `
   </tbody>
 </table>` : ''}
 ${kosten.opmerking ? `<div class="opmerking">📝 ${kosten.opmerking}</div>` : ''}
-<div class="footer">3D Print ERP &nbsp;|&nbsp; ${nu} &nbsp;|&nbsp; ${btw ? `BTW 21% inbegrepen &nbsp;|&nbsp; ${klant?.btw_nummer ? 'BTW: '+klant.btw_nummer : ''}` : 'Vrijgesteld van BTW — art. 56bis BTW-wetboek'}</div>
+<div class="footer">
+  ${bedrijf.naam || '3D Print ERP'} &nbsp;|&nbsp; ${nu} &nbsp;|&nbsp; ${btw ? `BTW 21% inbegrepen &nbsp;|&nbsp; ${klant?.btw_nummer ? 'BTW: '+klant.btw_nummer : ''}` : 'Vrijgesteld van BTW — art. 56bis BTW-wetboek'}
+  ${bedrijf.iban ? `<br>IBAN: ${bedrijf.iban}` : ''}
+</div>
 </body></html>`;
 }
 
@@ -289,7 +318,7 @@ r.get('/pdf/:jobId', (req, res) => {
     `).all(req.params.jobId),
   };
 
-  const html = buildPdfHtml(volledigeKosten, klant, extraInfo);
+  const html = buildPdfHtml(volledigeKosten, klant, extraInfo, getBedrijfsgegevens(db));
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="werkbon-${(job?.naam||'print').replace(/\s+/g,'-')}.html"`);
   res.send(html);
@@ -327,7 +356,7 @@ r.post('/email/:jobId', async (req, res) => {
     matDetails: db.prepare(`SELECT jm.gram_gebruikt as gram, ft.eenheid, COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start, 0) * (CASE WHEN ft.eenheid = 'gram' THEN 1000.0 ELSE 1.0 END), ft.inkoop_prijs_per_kg) as prijs, ft.merk || ' ' || ft.materiaal || COALESCE(' ' || r.kleur, '') as naam FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?`).all(req.params.jobId),
     dienstDetails: db.prepare(`SELECT jd.aantal, jd.prijs_per_eenheid, ft.eenheid, ft.merk || ' ' || ft.materiaal as naam FROM job_diensten jd JOIN filament_types ft ON ft.id = jd.filament_type_id WHERE jd.job_id = ?`).all(req.params.jobId),
   };
-  const pdfHtml = buildPdfHtml(volledigeKosten, klant, extraInfo);
+  const pdfHtml = buildPdfHtml(volledigeKosten, klant, extraInfo, getBedrijfsgegevens(db));
   try {
     await sendPdfEmail({ to: emailTo, subject: `Werkbon — ${job?.naam||'print'}`,
       html: `<p>Beste${klant ? ` ${klant.voornaam||''} ${klant.naam}` : ''},</p><p>Hierbij de werkbon voor <strong>${job?.naam||'uw print'}</strong>.</p><p>Verkoopprijs: <strong>€${(kosten.verkoopprijs||0).toFixed(2)}</strong>${btwEmail ? `<br>BTW 21%: <strong>€${btwBedragEmail.toFixed(2)}</strong><br>Totaal incl. BTW: <strong>€${((kosten.verkoopprijs||0)+btwBedragEmail).toFixed(2)}</strong>` : ''}</p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
