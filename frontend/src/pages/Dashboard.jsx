@@ -3,7 +3,6 @@ import { api } from '../lib/api.js';
 import { useNavigate } from 'react-router-dom';
 import { usePrinterData } from '../lib/usePrinterData.js';
 import KleurDot from '../components/KleurDot.jsx';
-import PrinterCard from '../components/PrinterCard.jsx';
 
 function OperationeelWidget({ icon, titel, items, renderRij, leegTekst }) {
   const PER_PAGINA = 5;
@@ -108,6 +107,55 @@ function TeBestellenWidget({ rollen, navigate }) {
                 <div style={{ fontSize:9, color:'var(--muted)' }}>drempel: {drempel(r)}g</div>
               </div>
             ))}
+          </div>
+      }
+    </div>
+  );
+}
+
+// ─── Compacte printerstatus met voortgangsbalk (géén volledige telemetrie
+// hier — temperaturen/wattage/kWh/camera/pauze-hervat-annuleer/"+ Maak job"
+// staan enkel op de Jobs-pagina, dat is bewust de enige plek met de grote
+// datavelden per printer) ──
+function PrinterStatusStrip({ printerConfig, printerData, navigate }) {
+  return (
+    <div className="card" style={{ flex:1, minWidth:220 }}>
+      <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.75rem' }}>🖨 Printers</h2>
+      {printerConfig.length === 0
+        ? <p style={{ color:'var(--muted)', fontSize:12 }}>Geen printers geconfigureerd</p>
+        : <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+            {printerConfig.map(p => {
+              const d = printerData[p.id] || {};
+              const statusLower = (d.status || '').toLowerCase();
+              const isActief = ['running','printing','prepare'].includes(statusLower);
+              const isOnbekend = !d.status || statusLower === 'unavailable';
+              const kleur = isActief ? 'var(--accent2)' : isOnbekend ? 'var(--muted)' : '#f59e0b';
+              const pct = isActief && d.progress != null ? Math.round(d.progress) : 0;
+              return (
+                <div key={p.id} onClick={() => navigate('/jobs')}
+                  style={{ cursor:'pointer', padding:'6px 4px', borderRadius:6 }}
+                  onMouseEnter={e => e.currentTarget.style.background='var(--bg3)'}
+                  onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <span style={{ width:8, height:8, borderRadius:'50%', background:kleur, flexShrink:0 }} />
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:12, fontWeight:500 }}>{p.naam}</div>
+                      <div style={{ fontSize:11, color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {isActief ? (d.filename || 'aan het printen') : (d.status || 'onbekend')}
+                      </div>
+                    </div>
+                    {isActief && d.progress != null && (
+                      <span style={{ fontSize:11, color:'var(--accent2)', fontWeight:600, flexShrink:0 }}>{pct}%</span>
+                    )}
+                  </div>
+                  {isActief && (
+                    <div style={{ height:4, background:'var(--bg2)', borderRadius:2, marginTop:5 }}>
+                      <div style={{ width:`${pct}%`, height:'100%', background:'var(--accent2)', borderRadius:2, transition:'width 0.3s' }} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
       }
     </div>
@@ -228,31 +276,25 @@ export default function Dashboard() {
   const [rollen,       setRollen]       = useState([]);
   const [operationeel, setOperationeel] = useState({ gepland:[], bezig:[], voltooid:[], controle_facturatie:[], controle_facturatie_totaal:0 });
   const [loading,      setLoading]      = useState(true);
-  const [klanten,      setKlanten]      = useState([]);
-  const [jobs,         setJobs]         = useState([]);
-  // Dashboard toont dezelfde volledige printerkaarten (incl. live telemetrie,
-  // camera, pauze/hervat/annuleer, "+ Maak job") als de Jobs-pagina — beide
-  // gebruiken hetzelfde gedeelde PrinterCard-component en dezelfde
-  // usePrinterData-hook, dus geen aparte/verkorte weergave meer hier.
-  const { printerConfig, printerData, reloadPrinterConfig } = usePrinterData();
+  // usePrinterData blijft actief op Dashboard (ook al tonen we geen volledige
+  // printerkaarten meer) — de hook doet op de achtergrond ook auto-detectie
+  // van voltooide/mislukte prints en optionele auto-jobaanmaak. Die logica
+  // moet blijven lopen ongeacht welke pagina open staat.
+  const { printerConfig, printerData } = usePrinterData();
   const navigate = useNavigate();
 
   const loadOperationeel = () => api.get('/rapportage/dashboard/operationeel')
     .then(d => { setOperationeel(d); })
     .catch(() => {});
 
-  const loadJobs = () => api.get('/jobs').then(setJobs).catch(() => {});
-
   useEffect(() => {
     api.get('/rapportage/dashboard/operationeel')
       .then(d => { setOperationeel(d); setLoading(false); })
       .catch(() => setLoading(false));
     api.get('/filament/rollen').then(setRollen).catch(() => {});
-    api.get('/klanten').then(setKlanten).catch(() => {});
-    loadJobs();
 
     // Periodiek herladen zodat statuswijzigingen (finish, cancel) direct zichtbaar zijn
-    const interval = setInterval(() => { loadOperationeel(); loadJobs(); }, 10000);
+    const interval = setInterval(loadOperationeel, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -281,29 +323,10 @@ export default function Dashboard() {
         </span>
       </div>
 
-      {/* Printerkaarten — identiek aan Jobs-pagina (zelfde PrinterCard-component) */}
-      <div style={{ display:'flex', gap:'1rem', marginBottom:'1.5rem' }}>
-        {printerConfig.map(p => (
-          <PrinterCard
-            key={p.id}
-            printerId={p.id}
-            naam={p.naam}
-            autoJobAanmaken={p.auto_job_aanmaken}
-            onConfigChanged={reloadPrinterConfig}
-            data={printerData[p.id]}
-            klanten={klanten}
-            onJobCreated={loadJobs}
-            bestaandeJobs={jobs}
-            pauseEntity={p.pause_entity}
-            resumeEntity={p.resume_entity}
-            cancelEntity={p.cancel_entity}
-            cameraEntity={p.camera_entity}
-          />
-        ))}
-      </div>
-
       {/* Rij 1: Wat gebeurt er nu */}
       <div style={{ display:'flex', gap:'1rem', marginBottom:'1.5rem', flexWrap:'wrap' }}>
+        <PrinterStatusStrip printerConfig={printerConfig} printerData={printerData} navigate={navigate} />
+
         <OperationeelWidget
           icon="🖨" titel="Bezig" leegTekst="Geen actieve prints"
           items={operationeel.bezig}
