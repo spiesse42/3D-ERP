@@ -8,7 +8,19 @@ const GROEPEN = [
   { titel: 'Regie tarieven', sleutels: ['ontwerp_tarief','nabewerking_tarief','arbeid_per_uur'], info: 'Gebruikt bij ontwerp op maat of uitgebreide nabewerking' },
   { titel: 'BMCU', sleutels: ['bmcu_per_job'] },
 ];
+
+// Submenu's — groeperen de instellingen per taak zodat je niet meer door
+// één lange lijst kaarten hoeft te scrollen om iets terug te vinden.
+const TABS = [
+  { key: 'tarieven',    label: 'Tarieven' },
+  { key: 'printers',    label: 'Printers' },
+  { key: 'bedrijf',     label: 'Bedrijf' },
+  { key: 'data',        label: 'Data & Backup' },
+  { key: 'integraties', label: 'Integraties' },
+];
+
 export default function Instellingen() {
+  const [tab, setTab]                 = useState('tarieven');
   const [tarieven, setTarieven]       = useState({});
   const [geladen, setGeladen]         = useState(false);
   const [printers, setPrinters]       = useState([]);
@@ -217,10 +229,17 @@ export default function Instellingen() {
         {saved && <span style={{ color:'var(--accent2)', fontSize:13 }}>✓ {saved}</span>}
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1.5rem', alignItems:'start' }}>
+      <div style={{ display:'flex', gap:4, marginBottom:'1.25rem' }}>
+        {TABS.map(t => (
+          <button key={t.key} className={`btn${tab === t.key ? ' primary' : ''}`} onClick={() => setTab(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-        {/* LINKER KOLOM — tarieven + HA verbinding */}
-        <div>
+      {/* ═══ TARIEVEN ═══ */}
+      {tab === 'tarieven' && (
+        <div style={{ maxWidth:640 }}>
           {GROEPEN.map(g => {
             const velden = g.sleutels.map(s => tarieven[s]).filter(Boolean);
             return (
@@ -243,9 +262,14 @@ export default function Instellingen() {
           <button className="btn primary" style={{ width:'100%' }} onClick={saveTarieven}>
             Tarieven opslaan
           </button>
+        </div>
+      )}
 
+      {/* ═══ PRINTERS (incl. Home Assistant-verbinding) ═══ */}
+      {tab === 'printers' && (
+        <div style={{ maxWidth:640 }}>
           {/* HA VERBINDING */}
-          <div className="card" style={{ marginTop:'1.5rem' }}>
+          <div className="card" style={{ marginBottom:'1.5rem' }}>
             <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.25rem' }}>Home Assistant verbinding</h2>
             <p style={{ fontSize:11, color:'var(--muted)', marginBottom:'1rem' }}>
               Gebruikt voor Watt-sampling per printjob. Token wordt versleuteld opgeslagen.
@@ -300,45 +324,6 @@ export default function Instellingen() {
             )}
           </div>
 
-          {/* GEMINI API — factuurherkenning */}
-          <div className="card" style={{ marginTop:'1.5rem' }}>
-            <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.25rem' }}>Factuurherkenning (Gemini)</h2>
-            <p style={{ fontSize:11, color:'var(--muted)', marginBottom:'1rem' }}>
-              Nodig om geüploade facturen automatisch uit te lezen bij Artikelen. Gratis aan te maken via{' '}
-              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a>.
-            </p>
-
-            <div className="form-group">
-              <label>Gemini API-key</label>
-              <div style={{ display:'flex', gap:6 }}>
-                <input
-                  type={geminiKeyZichtbaar ? 'text' : 'password'}
-                  value={geminiKey}
-                  onChange={e => setGeminiKey(e.target.value)}
-                  placeholder="AIzaSy..."
-                  style={{ flex:1, fontFamily:'monospace', fontSize:11 }}
-                />
-                <button
-                  className="btn"
-                  style={{ flexShrink:0, fontSize:11, padding:'4px 10px' }}
-                  onClick={() => setGeminiKeyZichtbaar(v => !v)}
-                >
-                  {geminiKeyZichtbaar ? '🙈' : '👁'}
-                </button>
-              </div>
-            </div>
-
-            <button className="btn primary" style={{ width:'100%', marginTop:'0.75rem' }} onClick={saveGeminiKey}>
-              Opslaan
-            </button>
-            {geminiSaved && (
-              <p style={{ fontSize:12, marginTop:8, color:'var(--accent2)' }}>{geminiSaved}</p>
-            )}
-          </div>
-        </div>
-
-        {/* RECHTER KOLOM — printers + export */}
-        <div>
           {nieuwePrinter === null ? (
             <button className="btn primary" style={{ width:'100%', marginBottom:'1rem' }}
               onClick={() => setNieuwePrinter({})}>
@@ -501,8 +486,13 @@ export default function Instellingen() {
               </button>
             </div>
           ))}
+        </div>
+      )}
 
-          <div className="card">
+      {/* ═══ BEDRIJF ═══ */}
+      {tab === 'bedrijf' && (
+        <div style={{ maxWidth:640 }}>
+          <div className="card" style={{ marginBottom:'1.5rem' }}>
             <h2 style={{ fontSize:14, fontWeight:600, marginBottom:8 }}>🏢 Bedrijfsgegevens</h2>
             <p style={{ fontSize:11, color:'var(--muted)', marginBottom:12 }}>
               Verschijnt op offertes, werkbonnen en facturen (header/footer van het PDF-document).
@@ -553,13 +543,18 @@ export default function Instellingen() {
             <button className="btn primary" onClick={saveDrempels}>Opslaan</button>
             {drempelSaved && <span style={{ fontSize:11, color:'var(--accent2)', marginLeft:8 }}>{drempelSaved}</span>}
           </div>
+        </div>
+      )}
 
-          <div className="card">
+      {/* ═══ DATA & BACKUP ═══ */}
+      {tab === 'data' && (
+        <div style={{ maxWidth:640 }}>
+          <div className="card" style={{ marginBottom:'1.5rem' }}>
             <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'1rem' }}>Data export</h2>
             <a className="btn" href="/api/rapportage/csv/jobs" download>↓ Jobs exporteren (CSV)</a>
           </div>
 
-          <div className="card">
+          <div className="card" style={{ marginBottom:'1.5rem' }}>
             <h2 style={{ fontSize:14, fontWeight:600, marginBottom:8 }}>📦 Backup</h2>
             <p style={{ fontSize:11, color:'var(--muted)', marginBottom:12 }}>
               Niet-destructief: maakt enkel een kopie van de volledige database, er wordt niets verwijderd of leeggemaakt.
@@ -639,8 +634,47 @@ export default function Instellingen() {
             )}
           </div>
         </div>
+      )}
 
-      </div>
+      {/* ═══ INTEGRATIES ═══ */}
+      {tab === 'integraties' && (
+        <div style={{ maxWidth:640 }}>
+          <div className="card">
+            <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.25rem' }}>Factuurherkenning (Gemini)</h2>
+            <p style={{ fontSize:11, color:'var(--muted)', marginBottom:'1rem' }}>
+              Nodig om geüploade facturen automatisch uit te lezen bij Artikelen. Gratis aan te maken via{' '}
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a>.
+            </p>
+
+            <div className="form-group">
+              <label>Gemini API-key</label>
+              <div style={{ display:'flex', gap:6 }}>
+                <input
+                  type={geminiKeyZichtbaar ? 'text' : 'password'}
+                  value={geminiKey}
+                  onChange={e => setGeminiKey(e.target.value)}
+                  placeholder="AIzaSy..."
+                  style={{ flex:1, fontFamily:'monospace', fontSize:11 }}
+                />
+                <button
+                  className="btn"
+                  style={{ flexShrink:0, fontSize:11, padding:'4px 10px' }}
+                  onClick={() => setGeminiKeyZichtbaar(v => !v)}
+                >
+                  {geminiKeyZichtbaar ? '🙈' : '👁'}
+                </button>
+              </div>
+            </div>
+
+            <button className="btn primary" style={{ width:'100%', marginTop:'0.75rem' }} onClick={saveGeminiKey}>
+              Opslaan
+            </button>
+            {geminiSaved && (
+              <p style={{ fontSize:12, marginTop:8, color:'var(--accent2)' }}>{geminiSaved}</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
