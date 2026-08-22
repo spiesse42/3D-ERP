@@ -174,6 +174,10 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
   // Extra artikelen (bv. verzendkosten) — alleen niet-filament types, prijs op
   // TYPE-niveau net als het hoofdfilament: een offerte reserveert geen stock.
   const artikelTypes = filamentTypes.filter(f => (f.categorie || 'filament') !== 'filament');
+  // Hoofdfilamenttype (incl. multicolor/BMCU-kleurkeuzes) — omgekeerde filter
+  // van artikelTypes hierboven: enkel 'filament'-categorie, geen 'dienst'-types.
+  // Zelfde filterconventie als elders (KostenModal.jsx, PrinterCard.jsx).
+  const printFilamentTypes = filamentTypes.filter(f => (f.categorie || 'filament') === 'filament');
   // Gesplitst: 'marge' krijgt de gewone offerte-marge, 'vast' (vaste_prijs-
   // artikelen zoals verzendkosten) niet — zelfde logica als de backend.
   const artikelenKostSplit = artikelen.reduce((som, a) => {
@@ -441,7 +445,7 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
             <F label="Filamenttype (hoofd)">
               <select value={form.filament_type_id || ''} onChange={e => set('filament_type_id', e.target.value)}>
                 <option value="">— selecteer type —</option>
-                {filamentTypes.map(f => <option key={f.id} value={f.id}>{f.merk} {f.materiaal}</option>)}
+                {printFilamentTypes.map(f => <option key={f.id} value={f.id}>{f.merk} {f.materiaal}</option>)}
               </select>
             </F>
             <F label="Geschat gewicht (g)">
@@ -519,7 +523,7 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
                     <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:6, marginBottom:4 }}>
                       <select value={fr.filament_type_id || ''} onChange={e => { setRolField(i, 'filament_type_id', e.target.value); setRolField(i, 'filament_rol_id', ''); }} style={{ fontSize:11 }}>
                         <option value="">— type —</option>
-                        {filamentTypes.map(f => <option key={f.id} value={f.id}>{f.merk} {f.materiaal}</option>)}
+                        {printFilamentTypes.map(f => <option key={f.id} value={f.id}>{f.merk} {f.materiaal}</option>)}
                       </select>
                       <button onClick={() => removeRol(i)} style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer' }}>✕</button>
                     </div>
