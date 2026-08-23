@@ -563,7 +563,7 @@ function BestellingDetailModal({ bestellingId, onClose, onChanged, alleTypes, on
   const [ontvangstItem, setOntvangstItem] = useState(null);
 
   function load() {
-    api.get(`/bestellingen/${bestellingId}`).then(setBestelling);
+    api.get(`/bestellingen/${bestellingId}`).then(setBestelling).catch(e => alert('Kon bestelling niet laden: ' + e.message));
   }
   useEffect(() => { load(); }, [bestellingId]);
 
@@ -650,10 +650,10 @@ export default function Bestellingen() {
   const [handmatigKleurHex, setHandmatigKleurHex] = useState('');
 
   function load() {
-    api.get('/bestellingen/te-bestellen-overzicht').then(setOverzicht);
-    api.get('/bestellingen/leveranciers').then(setLeveranciers);
-    api.get('/bestellingen').then(setBestellingen);
-    api.get('/filament/types').then(setAlleTypes);
+    api.get('/bestellingen/te-bestellen-overzicht').then(setOverzicht).catch(e => alert('Kon te-bestellen overzicht niet laden: ' + e.message));
+    api.get('/bestellingen/leveranciers').then(setLeveranciers).catch(e => alert('Kon leveranciers niet laden: ' + e.message));
+    api.get('/bestellingen').then(setBestellingen).catch(e => alert('Kon bestellingen niet laden: ' + e.message));
+    api.get('/filament/types').then(setAlleTypes).catch(e => alert('Kon filamenttypes niet laden: ' + e.message));
   }
   useEffect(() => { load(); }, []);
 

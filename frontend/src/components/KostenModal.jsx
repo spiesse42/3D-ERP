@@ -1,6 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api, BASE } from '../lib/api.js';
 
+// Valt terug op de standaardwaarde enkel als er écht niets bruikbaars werd
+// meegegeven — niet bij een bewust ingevulde 0 (bv. €0 ontwerptarief voor
+// gratis werk). Met een gewone `||`-fallback ging zo'n ingevulde 0 altijd
+// verloren en werd bij elke opslag/schatting stilzwijgend de standaardwaarde
+// teruggezet — zelfde helper als backend/routes/{offertes_v2,kosten}.js.
+function getalOfDefault(v, fallback) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 // Op module-niveau gedefinieerd — anders krijgt React bij elke render een nieuwe
 // functie-identiteit en breekt/herbouwt het de input erin, met focusverlies als gevolg.
 const Field = ({ label, children }) => (
@@ -102,10 +112,10 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
       const k = d?.kosten;
 
       // Arbeid-tarieven: job-specifieke waarde indien aanwezig, anders globale default
-      setVoorbMin(String(k?.voorbereiding_min ?? (t.voorbereiding_min || 15)));
-      setNabMin(String(k?.nabewerking_min ?? (t.nabewerking_min || 10)));
-      setOntwerpTarief(String(k?.ontwerp_tarief ?? (t.ontwerp_tarief || 15)));
-      setNabewerkingExtraTarief(String(k?.nabewerking_extra_tarief ?? (t.nabewerking_tarief || 15)));
+      setVoorbMin(String(k?.voorbereiding_min ?? getalOfDefault(t.voorbereiding_min, 15)));
+      setNabMin(String(k?.nabewerking_min ?? getalOfDefault(t.nabewerking_min, 10)));
+      setOntwerpTarief(String(k?.ontwerp_tarief ?? getalOfDefault(t.ontwerp_tarief, 15)));
+      setNabewerkingExtraTarief(String(k?.nabewerking_extra_tarief ?? getalOfDefault(t.nabewerking_tarief, 15)));
 
       if (k) {
         if (k.ontwerp_min != null) setOntwerpMin(String(k.ontwerp_min));
@@ -206,27 +216,29 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   }, [tarievenGeladen, isReadOnly, formValues]);
 
   async function voegMateriaaltoe() {
-    if (!selectedRol || !gram) return alert('Selecteer een rol en geef gram op');
+    const gramNum = parseFloat(gram);
+    if (!selectedRol || !Number.isFinite(gramNum) || gramNum <= 0) return alert('Selecteer een rol en geef een gram op groter dan 0');
     try {
       const rol = rollen.find(r => r.id === parseInt(selectedRol));
       const res = await api.post(`/jobs/${job.id}/materialen`, {
         filament_rol_id: parseInt(selectedRol),
-        gram_gebruikt: parseFloat(gram),
+        gram_gebruikt: gramNum,
       });
-      setMaterialen(prev => [...prev, { ...rol, id: res.id, filament_rol_id: parseInt(selectedRol), gram_gebruikt: parseFloat(gram) }]);
+      setMaterialen(prev => [...prev, { ...rol, id: res.id, filament_rol_id: parseInt(selectedRol), gram_gebruikt: gramNum }]);
       setSelectedRol(''); setGram('');
     } catch(e) { alert(e.message); }
   }
 
   async function voegArtikelToe() {
-    if (!selectedArtikel || !artikelAantal) return alert('Selecteer een artikel en geef een aantal op');
+    const aantalNum = parseFloat(artikelAantal);
+    if (!selectedArtikel || !Number.isFinite(aantalNum) || aantalNum <= 0) return alert('Selecteer een artikel en geef een aantal op groter dan 0');
     try {
       const rol = rollen.find(r => r.id === parseInt(selectedArtikel));
       const res = await api.post(`/jobs/${job.id}/materialen`, {
         filament_rol_id: parseInt(selectedArtikel),
-        gram_gebruikt: parseFloat(artikelAantal),
+        gram_gebruikt: aantalNum,
       });
-      setMaterialen(prev => [...prev, { ...rol, id: res.id, filament_rol_id: parseInt(selectedArtikel), gram_gebruikt: parseFloat(artikelAantal) }]);
+      setMaterialen(prev => [...prev, { ...rol, id: res.id, filament_rol_id: parseInt(selectedArtikel), gram_gebruikt: aantalNum }]);
       setSelectedArtikel(''); setArtikelAantal('');
     } catch(e) { alert(e.message); }
   }
@@ -280,9 +292,9 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     is_multicolor: isMulticolor,
     voorbereiding_min: (parseFloat(voorbMin) || 0) + (parseFloat(extraVoorbMin) || 0),
     nabewerking_min: parseFloat(nabMin) || 0,
-    ontwerp_min: parseFloat(ontwerpMin) || 0, ontwerp_tarief: parseFloat(ontwerpTarief) || 15,
+    ontwerp_min: parseFloat(ontwerpMin) || 0, ontwerp_tarief: getalOfDefault(ontwerpTarief, 15),
     nabewerking_extra_min: parseFloat(nabewerkingExtraMin) || 0,
-    nabewerking_extra_tarief: parseFloat(nabewerkingExtraTarief) || 15,
+    nabewerking_extra_tarief: getalOfDefault(nabewerkingExtraTarief, 15),
     extra_per_stuk: parseFloat(extraPerStuk) || 0,
     extra_eenmalig: parseFloat(extraEenmalig) || 0,
     extra_omschrijving: extraOmschrijving,
@@ -317,10 +329,10 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   }
 
   const t          = tarieven;
-  const arbTarief  = t.arbeid_per_uur || 15;
+  const arbTarief  = getalOfDefault(t.arbeid_per_uur, 15);
   const totaleUren = parseInt(printUren) + parseInt(printMin) / 60;
-  const margeGrens = t.marge_grens_uur || 4;
-  const margePct   = totaleUren >= margeGrens ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
+  const margeGrens = getalOfDefault(t.marge_grens_uur, 4);
+  const margePct   = totaleUren >= margeGrens ? getalOfDefault(t.marge_groot_pct, 10) : getalOfDefault(t.marge_klein_pct, 18);
   const totVoorb   = (parseInt(voorbMin) || 0) + (parseInt(extraVoorbMin) || 0);
 
   // Geschatte eindkost — op basis van totale printtijd (verstreken + resterend)
@@ -341,14 +353,14 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
         : filamentMaterialen.reduce((s, m) => s + m.gram_gebruikt, 0);
     const prijsPerKg = filamentMaterialen[0]?.prijs_per_kg_effectief || filamentMaterialen[0]?.inkoop_prijs_per_kg || 0;
     const matKost = prijsPerKg > 0
-      ? (gramBasis / 1000) * prijsPerKg * (1 + (t.faalfactor_pct || 10) / 100)
-      : filamentMaterialen.reduce((s, m) => s + (m.gram_gebruikt / 1000) * (m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0), 0) * (1 + (t.faalfactor_pct || 10) / 100);
-    const energieKost = (kwhGeschat || 0) * (t.kwh_prijs || 0.35);
+      ? (gramBasis / 1000) * prijsPerKg * (1 + getalOfDefault(t.faalfactor_pct, 10) / 100)
+      : filamentMaterialen.reduce((s, m) => s + (m.gram_gebruikt / 1000) * (m.prijs_per_kg_effectief || m.inkoop_prijs_per_kg || 0), 0) * (1 + getalOfDefault(t.faalfactor_pct, 10) / 100);
+    const energieKost = (kwhGeschat || 0) * getalOfDefault(t.kwh_prijs, 0.35);
     const machineKost = totaleUrenGeschat * (t.machine_kost_per_uur || 0);
-    const bmcu = isMulticolor ? (t.bmcu_per_job || 0.10) : 0;
-    const arbeid = (totVoorb / 60) * (t.arbeid_per_uur || 15) + ((parseInt(nabMin) || 0) / 60) * (t.arbeid_per_uur || 15);
+    const bmcu = isMulticolor ? getalOfDefault(t.bmcu_per_job, 0.10) : 0;
+    const arbeid = (totVoorb / 60) * getalOfDefault(t.arbeid_per_uur, 15) + ((parseInt(nabMin) || 0) / 60) * getalOfDefault(t.arbeid_per_uur, 15);
     const sub = matKost + energieKost + machineKost + bmcu + arbeid;
-    const marge = totaleUrenGeschat >= (t.marge_grens_uur || 4) ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
+    const marge = totaleUrenGeschat >= getalOfDefault(t.marge_grens_uur, 4) ? getalOfDefault(t.marge_groot_pct, 10) : getalOfDefault(t.marge_klein_pct, 18);
     return sub * (1 + marge / 100);
   })();
 
@@ -380,7 +392,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
           {isDienst
             ? <span>🛠 Dienst{job.dienst_categorie ? ` — ${job.dienst_categorie}` : ''}</span>
             : <span>🖨 {job.printer_naam}</span>}
-          <span style={{ color: margePct === (t.marge_klein_pct || 18) ? 'var(--warn)' : 'var(--accent2)' }}>
+          <span style={{ color: margePct === getalOfDefault(t.marge_klein_pct, 18) ? 'var(--warn)' : 'var(--accent2)' }}>
             📊 {margePct}% marge ({totaleUren >= margeGrens ? '≥' : '<'}{margeGrens}u)
           </span>
         </div>
@@ -444,7 +456,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             <p style={{ fontSize:12, fontWeight:600, margin:0 }}>🧵 Filament</p>
             <label style={{ display:'flex', alignItems:'center', gap:5, fontSize:12, cursor:'pointer' }}>
               <input type="checkbox" checked={isMulticolor} onChange={e => setIsMulticolor(e.target.checked)} />
-              Multicolor (BMCU +€{t.bmcu_per_job || 0.10})
+              Multicolor (BMCU +€{getalOfDefault(t.bmcu_per_job, 0.10)})
             </label>
           </div>
 

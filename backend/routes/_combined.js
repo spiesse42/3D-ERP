@@ -10,10 +10,16 @@ tarieven.get('/', (req, res) => {
 });
 
 tarieven.put('/:sleutel', (req, res) => {
-  const db = getDb();
-  const { waarde } = req.body;
-  db.prepare('UPDATE tarieven SET waarde = ? WHERE sleutel = ?').run(waarde, req.params.sleutel);
-  res.json({ ok: true });
+  try {
+    const db = getDb();
+    const waarde = parseFloat(req.body.waarde);
+    if (!Number.isFinite(waarde)) return res.status(400).json({ error: 'Waarde moet een getal zijn' });
+    const info = db.prepare('UPDATE tarieven SET waarde = ? WHERE sleutel = ?').run(waarde, req.params.sleutel);
+    if (info.changes === 0) return res.status(404).json({ error: 'Tarief niet gevonden' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // --- INSTELLINGEN (tekst-waarden: token, url, ...) ---

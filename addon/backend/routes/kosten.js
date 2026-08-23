@@ -11,6 +11,15 @@ function getTarieven(db) {
   return Object.fromEntries(rows.map(r => [r.sleutel, r.waarde]));
 }
 
+// Valt terug op de standaardwaarde enkel als er écht niets bruikbaars werd
+// meegegeven — niet bij een bewust ingevulde 0 (bv. "geen voorbereidingstijd
+// nodig", of "0 print-uren aanrekenen"). Met een gewone `||`-fallback ging
+// zo'n ingevulde 0 altijd verloren. Zelfde helper als in offertes_v2.js.
+function getalOfDefault(v, fallback) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 // Bedrijfsgegevens (naam/BTW/adres/email/IBAN) voor op de werkbon/factuur —
 // instelbaar via Instellingen-tab, opgeslagen in de generieke instellingen-tabel.
 function getBedrijfsgegevens(db) {
@@ -145,15 +154,15 @@ r.post('/bereken/:jobId', (req, res) => {
   const machineKostPerUur = job.machine_kost_per_uur || 0;
 
   const t = getTarieven(db);
-  const kwh_prijs = t.kwh_prijs || 0.35;
-  const arbeid_per_uur = t.arbeid_per_uur || 15;
-  const faalfactor_pct = t.faalfactor_pct || 10;
-  const bmcu_per_job = t.bmcu_per_job || 0.10;
-  const voorbereiding_min_default = t.voorbereiding_min || 15;
-  const nabewerking_min_default = t.nabewerking_min || 10;
-  const marge_grens_uur = t.marge_grens_uur || 4;
-  const marge_klein_pct = t.marge_klein_pct || 18;
-  const marge_groot_pct = t.marge_groot_pct || 10;
+  const kwh_prijs = getalOfDefault(t.kwh_prijs, 0.35);
+  const arbeid_per_uur = getalOfDefault(t.arbeid_per_uur, 15);
+  const faalfactor_pct = getalOfDefault(t.faalfactor_pct, 10);
+  const bmcu_per_job = getalOfDefault(t.bmcu_per_job, 0.10);
+  const voorbereiding_min_default = getalOfDefault(t.voorbereiding_min, 15);
+  const nabewerking_min_default = getalOfDefault(t.nabewerking_min, 10);
+  const marge_grens_uur = getalOfDefault(t.marge_grens_uur, 4);
+  const marge_klein_pct = getalOfDefault(t.marge_klein_pct, 18);
+  const marge_groot_pct = getalOfDefault(t.marge_groot_pct, 10);
 
   const {
     kwh_verbruikt = 0,
@@ -164,9 +173,9 @@ r.post('/bereken/:jobId', (req, res) => {
     nabewerking_min = nabewerking_min_default,
     extra_voorbereiding_min = 0,
     ontwerp_min = 0,
-    ontwerp_tarief = t.ontwerp_tarief || 15,
+    ontwerp_tarief = getalOfDefault(t.ontwerp_tarief, 15),
     nabewerking_extra_min = 0,
-    nabewerking_extra_tarief = t.nabewerking_tarief || 15,
+    nabewerking_extra_tarief = getalOfDefault(t.nabewerking_tarief, 15),
     extra_per_stuk = 0,
     extra_eenmalig = 0,
     extra_omschrijving = '',
@@ -175,7 +184,12 @@ r.post('/bereken/:jobId', (req, res) => {
     print_uren = null,
   } = req.body;
 
-  const uren = parseFloat(print_uren) || job.print_uren_werkelijk || job.print_uren_geschat || 0;
+  // Bugfix: bewust "0 print-uren" invullen (bv. correctie na een mislukte
+  // print, of een dienst-job zonder printtijd) werd door de oude `||`-keten
+  // genegeerd — 0 is falsy, dus viel dit altijd terug op de oude opgeslagen
+  // waarde van de job. `??` respecteert een echte 0 in die oude waarden,
+  // `getalOfDefault` respecteert een echte 0 in de nieuw ingevulde `print_uren`.
+  const uren = getalOfDefault(print_uren, job.print_uren_werkelijk ?? job.print_uren_geschat ?? 0);
 
   if (print_uren != null) {
     try { db.prepare('UPDATE jobs SET print_uren_werkelijk = ? WHERE id = ?').run(parseFloat(print_uren), req.params.jobId); } catch {}
@@ -313,13 +327,13 @@ r.get('/pdf/:jobId', async (req, res) => {
   const btwParam = req.query.btw;
   const btw = btwParam != null ? btwParam === '1' || btwParam === 'true' : klantType === 'zakelijk';
   const extraInfo = {
-    voorbMin: kosten.voorbereiding_min ?? (t.voorbereiding_min||15),
-    nabMin: kosten.nabewerking_min ?? (t.nabewerking_min||10),
-    arbTarief: t.arbeid_per_uur||15,
+    voorbMin: kosten.voorbereiding_min ?? getalOfDefault(t.voorbereiding_min, 15),
+    nabMin: kosten.nabewerking_min ?? getalOfDefault(t.nabewerking_min, 10),
+    arbTarief: getalOfDefault(t.arbeid_per_uur, 15),
     ontwerpMin: kosten.ontwerp_min || 0,
-    ontwerpTarief: kosten.ontwerp_tarief || t.ontwerp_tarief || 15,
+    ontwerpTarief: getalOfDefault(kosten.ontwerp_tarief, getalOfDefault(t.ontwerp_tarief, 15)),
     nabExtraMin: kosten.nabewerking_extra_min || 0,
-    nabExtraTarief: kosten.nabewerking_extra_tarief || t.nabewerking_tarief || 15,
+    nabExtraTarief: getalOfDefault(kosten.nabewerking_extra_tarief, getalOfDefault(t.nabewerking_tarief, 15)),
     extraTotaal: (parseFloat(kosten.extra_per_stuk)||0) * (parseInt(kosten.aantal)||1) + (parseFloat(kosten.extra_eenmalig)||0),
     extraOmschrijving: kosten.extra_omschrijving || '',
     aantal: parseInt(req.query.aantal) || kosten.aantal || 1,
@@ -369,13 +383,13 @@ r.post('/email/:jobId', async (req, res) => {
   const btwGrondslagEmail = (kosten.verkoopprijs||0) - (kosten.vast_prijs_totaal||0);
   const btwBedragEmail = btwEmail ? btwGrondslagEmail * 0.21 : 0;
   const extraInfo = {
-    voorbMin: kosten.voorbereiding_min ?? (t.voorbereiding_min||15),
-    nabMin: kosten.nabewerking_min ?? (t.nabewerking_min||10),
-    arbTarief: t.arbeid_per_uur||15,
+    voorbMin: kosten.voorbereiding_min ?? getalOfDefault(t.voorbereiding_min, 15),
+    nabMin: kosten.nabewerking_min ?? getalOfDefault(t.nabewerking_min, 10),
+    arbTarief: getalOfDefault(t.arbeid_per_uur, 15),
     ontwerpMin: kosten.ontwerp_min || 0,
-    ontwerpTarief: kosten.ontwerp_tarief || t.ontwerp_tarief || 15,
+    ontwerpTarief: getalOfDefault(kosten.ontwerp_tarief, getalOfDefault(t.ontwerp_tarief, 15)),
     nabExtraMin: kosten.nabewerking_extra_min || 0,
-    nabExtraTarief: kosten.nabewerking_extra_tarief || t.nabewerking_tarief || 15,
+    nabExtraTarief: getalOfDefault(kosten.nabewerking_extra_tarief, getalOfDefault(t.nabewerking_tarief, 15)),
     extraTotaal: (parseFloat(kosten.extra_per_stuk)||0) * (parseInt(extra_velden.aantal || kosten.aantal)||1) + (parseFloat(kosten.extra_eenmalig)||0),
     extraOmschrijving: kosten.extra_omschrijving || '',
     aantal: extra_velden.aantal || kosten.aantal || 1,

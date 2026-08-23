@@ -77,8 +77,11 @@ export default function Instellingen() {
       rows.forEach(r => { map[r.sleutel] = { ...r }; });
       setTarieven(map);
       setGeladen(true);
+    }).catch(e => {
+      alert('Kon tarieven niet laden: ' + e.message);
+      setGeladen(true); // anders blijft de pagina voor altijd op "Laden..." staan
     });
-    api.get('/printers').then(setPrinters);
+    api.get('/printers').then(setPrinters).catch(e => alert('Kon printers niet laden: ' + e.message));
     // Laad HA + backup instellingen uit de instellingen tabel
     api.get('/instellingen').then(rows => {
       const map = {};
@@ -101,21 +104,25 @@ export default function Instellingen() {
   }, []);
 
   async function saveBedrijfsgegevens() {
-    await api.put('/instellingen/bedrijf_naam',  { waarde: bedrijfNaam });
-    await api.put('/instellingen/bedrijf_btw',   { waarde: bedrijfBtw });
-    await api.put('/instellingen/bedrijf_adres', { waarde: bedrijfAdres });
-    await api.put('/instellingen/bedrijf_email', { waarde: bedrijfEmail });
-    await api.put('/instellingen/bedrijf_iban',  { waarde: bedrijfIban });
-    setBedrijfSaved('Opgeslagen!');
-    setTimeout(() => setBedrijfSaved(''), 3000);
+    try {
+      await api.put('/instellingen/bedrijf_naam',  { waarde: bedrijfNaam });
+      await api.put('/instellingen/bedrijf_btw',   { waarde: bedrijfBtw });
+      await api.put('/instellingen/bedrijf_adres', { waarde: bedrijfAdres });
+      await api.put('/instellingen/bedrijf_email', { waarde: bedrijfEmail });
+      await api.put('/instellingen/bedrijf_iban',  { waarde: bedrijfIban });
+      setBedrijfSaved('Opgeslagen!');
+      setTimeout(() => setBedrijfSaved(''), 3000);
+    } catch (e) { alert(e.message); }
   }
 
   async function saveDrempels() {
-    await api.put('/instellingen/bedrijf_startdatum', { waarde: startdatum });
-    await api.put('/instellingen/drempel_omzet_jaar', { waarde: drempelOmzet });
-    await api.put('/instellingen/drempel_winst_jaar', { waarde: drempelWinst });
-    setDrempelSaved('Opgeslagen!');
-    setTimeout(() => setDrempelSaved(''), 3000);
+    try {
+      await api.put('/instellingen/bedrijf_startdatum', { waarde: startdatum });
+      await api.put('/instellingen/drempel_omzet_jaar', { waarde: drempelOmzet });
+      await api.put('/instellingen/drempel_winst_jaar', { waarde: drempelWinst });
+      setDrempelSaved('Opgeslagen!');
+      setTimeout(() => setDrempelSaved(''), 3000);
+    } catch (e) { alert(e.message); }
   }
 
   function laadBackups() {
@@ -138,8 +145,10 @@ export default function Instellingen() {
   }
 
   async function saveBackupAutoInstellingen(actief, interval) {
-    await api.put('/instellingen/backup_auto_actief', { waarde: actief ? '1' : '0' });
-    await api.put('/instellingen/backup_auto_interval_uren', { waarde: interval });
+    try {
+      await api.put('/instellingen/backup_auto_actief', { waarde: actief ? '1' : '0' });
+      await api.put('/instellingen/backup_auto_interval_uren', { waarde: interval });
+    } catch (e) { alert(e.message); }
   }
 
   function setTarief(sleutel, waarde) {
@@ -147,24 +156,30 @@ export default function Instellingen() {
   }
 
   async function saveTarieven() {
-    for (const [sleutel, t] of Object.entries(tarieven)) {
-      await api.put(`/tarieven/${sleutel}`, { waarde: t.waarde });
-    }
-    setSaved('Tarieven opgeslagen!');
-    setTimeout(() => setSaved(''), 3000);
+    try {
+      for (const [sleutel, t] of Object.entries(tarieven)) {
+        await api.put(`/tarieven/${sleutel}`, { waarde: t.waarde });
+      }
+      setSaved('Tarieven opgeslagen!');
+      setTimeout(() => setSaved(''), 3000);
+    } catch (e) { alert(e.message); }
   }
 
   async function saveHaInstellingen() {
-    await api.put('/instellingen/ha_url',   { waarde: haUrl });
-    await api.put('/instellingen/ha_token', { waarde: haToken });
-    setSaved('HA instellingen opgeslagen!');
-    setTimeout(() => setSaved(''), 3000);
+    try {
+      await api.put('/instellingen/ha_url',   { waarde: haUrl });
+      await api.put('/instellingen/ha_token', { waarde: haToken });
+      setSaved('HA instellingen opgeslagen!');
+      setTimeout(() => setSaved(''), 3000);
+    } catch (e) { alert(e.message); }
   }
 
   async function saveGeminiKey() {
-    await api.put('/instellingen/gemini_api_key', { waarde: geminiKey });
-    setGeminiSaved('Opgeslagen!');
-    setTimeout(() => setGeminiSaved(''), 3000);
+    try {
+      await api.put('/instellingen/gemini_api_key', { waarde: geminiKey });
+      setGeminiSaved('Opgeslagen!');
+      setTimeout(() => setGeminiSaved(''), 3000);
+    } catch (e) { alert(e.message); }
   }
 
   async function testHaVerbinding() {
@@ -187,9 +202,11 @@ export default function Instellingen() {
   }
 
   async function savePrinter(printer) {
-    await api.put(`/printers/${printer.id}`, printer);
-    setSaved('Printer opgeslagen!');
-    setTimeout(() => setSaved(''), 3000);
+    try {
+      await api.put(`/printers/${printer.id}`, printer);
+      setSaved('Printer opgeslagen!');
+      setTimeout(() => setSaved(''), 3000);
+    } catch (e) { alert(e.message); }
   }
 
   function setNieuw(k, v) {

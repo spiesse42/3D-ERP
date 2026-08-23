@@ -14,8 +14,10 @@ function KlantDetail({ klant, onClose, onEdit, onDeleted }) {
 
   async function del() {
     if (!confirm('Klant verwijderen? Jobs blijven bewaard.')) return;
-    await api.delete(`/klanten/${klant.id}`);
-    onDeleted();
+    try {
+      await api.delete(`/klanten/${klant.id}`);
+      onDeleted();
+    } catch (e) { alert(e.message); }
   }
 
   const volledigAdres = (k) => {
@@ -185,8 +187,10 @@ export default function Klanten() {
                         <button className="btn danger" style={{ fontSize:11, padding:'4px 8px' }}
                           onClick={async () => {
                             if (!confirm('Klant verwijderen? Jobs blijven bewaard.')) return;
-                            await api.delete(`/klanten/${k.id}`);
-                            load();
+                            try {
+                              await api.delete(`/klanten/${k.id}`);
+                              load();
+                            } catch (e) { alert(e.message); }
                           }}>✕</button>
                       </div>
                     </td>

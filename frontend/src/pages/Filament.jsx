@@ -500,7 +500,11 @@ function RolModal({ types, rol, onClose, onSaved }) {
   const [typePalet, setTypePalet] = useState([]);
   useEffect(() => {
     if (!form.filament_type_id) { setTypePalet([]); return; }
-    api.get(`/filament/types/${form.filament_type_id}/kleurenpalet`).then(setTypePalet).catch(() => setTypePalet([]));
+    let genegeerd = false;
+    api.get(`/filament/types/${form.filament_type_id}/kleurenpalet`)
+      .then(rows => { if (!genegeerd) setTypePalet(rows); })
+      .catch(() => { if (!genegeerd) setTypePalet([]); });
+    return () => { genegeerd = true; };
   }, [form.filament_type_id]);
   const heeftBeperktPalet = typePalet.length > 0;
   const gekozenKleurenLijst = heeftBeperktPalet ? typePalet : kleurenLijst;
@@ -755,9 +759,9 @@ export default function Filament() {
   const highlightRef = useRef(null);
 
   const load = () => {
-    api.get('/filament/types').then(setTypes);
-    api.get('/filament/rollen').then(setRollen);
-    api.get('/facturen').then(setFacturen);
+    api.get('/filament/types').then(setTypes).catch(e => alert('Kon filamenttypes niet laden: ' + e.message));
+    api.get('/filament/rollen').then(setRollen).catch(e => alert('Kon filamentrollen niet laden: ' + e.message));
+    api.get('/facturen').then(setFacturen).catch(e => alert('Kon aankoopfacturen niet laden: ' + e.message));
   };
 
   async function verwijderFactuur(f) {

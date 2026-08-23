@@ -7,7 +7,7 @@
 // blijvend bewaard (backend: /api/facturen/opslaan, map 'aankoopfacturen')
 // en krijgt elke aangemaakte uitgave/voorraadrol een interne koppeling
 // (factuur_id) naar dat bewijsstuk — terug te vinden via "Aankoopfacturen".
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { api, BASE } from '../lib/api.js';
 
 const CATEGORIEEN = [
@@ -70,6 +70,10 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
   const [datum, setDatum] = useState('');
   const [factuurnummer, setFactuurnummer] = useState('');
   const [regels, setRegels] = useState([]);
+  // Blijven behouden over retry-pogingen van bevestig() heen (zie daar) — bij
+  // een nieuwe analyse (nieuw bestand) worden ze hieronder gereset.
+  const factuurIdRef = useRef(null);
+  const verwerkteRegelsRef = useRef(new Set());
 
   async function analyseer() {
     if (!bestand) { setFout('Kies eerst een PDF of foto'); return; }
@@ -84,6 +88,8 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
       setLeverancier(data.leverancier || '');
       setDatum(data.datum || new Date().toISOString().split('T')[0]);
       setFactuurnummer(data.factuurnummer || '');
+      factuurIdRef.current = null;
+      verwerkteRegelsRef.current = new Set();
       setRegels((data.regels || []).map(r => nieuweRegelState(r, types)));
       setStap('controle');
     } catch (e) {
@@ -136,13 +142,27 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
       // (Bestellingen)? Zo niet, meteen aanmaken — één keer per factuur.
       await zorgLeverancierBestaat();
 
-      const totaalBedrag = regels.reduce((s, r) => r.negeer ? s : s + (parseFloat(r.totaal) || 0), 0);
-      const factuurId = await slaFactuurOp(totaalBedrag);
+      // factuurIdRef + verwerkteRegelsRef: bij een eerdere, deels mislukte
+      // poging staan de al succesvol verwerkte regels (en de al aangemaakte
+      // factuur zelf) hierin onthouden, zodat opnieuw op "Bevestigen"
+      // klikken ze niet nog eens aanmaakt (dubbele uitgaven/voorraadregels).
+      let factuurId = factuurIdRef.current;
+      if (factuurId == null) {
+        const totaalBedrag = regels.reduce((s, r) => r.negeer ? s : s + (parseFloat(r.totaal) || 0), 0);
+        factuurId = await slaFactuurOp(totaalBedrag);
+        factuurIdRef.current = factuurId;
+      }
 
-      for (const r of regels) {
+      for (let i = 0; i < regels.length; i++) {
+        const r = regels[i];
         if (r.negeer) continue;
+        if (verwerkteRegelsRef.current.has(i)) continue; // al succesvol verwerkt bij een vorige poging
+
         const aantal = parseFloat(r.aantal) || 0;
-        const totaal = parseFloat(r.totaal) || 0;
+        const totaal = parseFloat(r.totaal);
+        if (!Number.isFinite(totaal) || totaal <= 0) {
+          throw new Error(`Totaalbedrag ontbreekt/ongeldig bij "${r.omschrijving}"`);
+        }
 
         // Elke niet-genegeerde regel is een kost — dit is een aankoopfactuur.
         // factuur_id is een interne koppeling (traceerbaarheid/boekhouding),
@@ -151,7 +171,7 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
           datum: datum || undefined,
           categorie: r.kostCategorie,
           omschrijving: `${r.omschrijving}${leverancier ? ' — ' + leverancier : ''}`,
-          bedrag: totaal || aantal,
+          bedrag: totaal,
           factuur_id: factuurId,
         });
 
@@ -172,16 +192,22 @@ export default function FactuurUploadModal({ types, onClose, onDone }) {
               leverancier: leverancier || null,
             });
             filamentTypeId = created.id;
+            // Onthoud het nieuw aangemaakte type meteen op de regel, zodat een
+            // eventuele retry (bij falen van een latere regel) dit type niet
+            // nog eens aanmaakt.
+            setRegel(i, { typeId: created.id });
           }
           await api.post('/filament/rollen', {
             filament_type_id: filamentTypeId,
             gewicht_gram_start: aantal,
             gewicht_gram_huidig: aantal,
-            aankoopprijs_eur: totaal || null,
+            aankoopprijs_eur: totaal,
             gekocht_op: datum || undefined,
             factuur_id: factuurId,
           });
         }
+
+        verwerkteRegelsRef.current.add(i);
       }
       onDone();
     } catch (e) {

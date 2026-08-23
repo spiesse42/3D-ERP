@@ -51,12 +51,12 @@ function berekenOfferte(data, t) {
     geschat_gewicht_g = 0,
     geschatte_tijd_u = 0,
     geschatte_tijd_min = 0,
-    voorbereiding_min = t.voorbereiding_min || 15,
-    nabewerking_min = t.nabewerking_min || 10,
+    voorbereiding_min = getalOfDefault(t.voorbereiding_min, 15),
+    nabewerking_min = getalOfDefault(t.nabewerking_min, 10),
     ontwerp_min = 0,
-    ontwerp_tarief = t.ontwerp_tarief || 15,
+    ontwerp_tarief = getalOfDefault(t.ontwerp_tarief, 15),
     nabewerking_extra_min = 0,
-    nabewerking_extra_tarief = t.nabewerking_tarief || 15,
+    nabewerking_extra_tarief = getalOfDefault(t.nabewerking_tarief, 15),
     is_multicolor = 0,
     extra_per_stuk = 0,
     extra_eenmalig = 0,
@@ -69,10 +69,10 @@ function berekenOfferte(data, t) {
     materiaal_kost_override = null,
   } = data;
 
-  const arbeid_per_uur = t.arbeid_per_uur || 15;
-  const kwh_prijs = t.kwh_prijs || 0.35;
-  const faalfactor = 1 + (t.faalfactor_pct || 10) / 100;
-  const bmcu = is_multicolor ? (t.bmcu_per_job || 0.10) : 0;
+  const arbeid_per_uur = getalOfDefault(t.arbeid_per_uur, 15);
+  const kwh_prijs = getalOfDefault(t.kwh_prijs, 0.35);
+  const faalfactor = 1 + (getalOfDefault(t.faalfactor_pct, 10)) / 100;
+  const bmcu = is_multicolor ? (getalOfDefault(t.bmcu_per_job, 0.10)) : 0;
 
   const totale_tijd_u = parseInt(geschatte_tijd_u) + parseInt(geschatte_tijd_min) / 60;
 
@@ -88,15 +88,15 @@ function berekenOfferte(data, t) {
   // (zelfde bron als de job/werkbon-berekening in kosten.js) — enkel als er
   // geen printer gekozen is of die geen eigen tarief heeft, valt terug op het
   // globale tarief uit Instellingen.
-  const machine_kost = totale_tijd_u * (machine_kost_per_uur != null ? machine_kost_per_uur : (t.machine_per_uur || 0.13)) * parseInt(aantal);
+  const machine_kost = totale_tijd_u * (machine_kost_per_uur != null ? machine_kost_per_uur : (getalOfDefault(t.machine_per_uur, 0.13))) * parseInt(aantal);
   const arbeid_kost = ((parseInt(voorbereiding_min) + parseInt(nabewerking_min)) / 60 * arbeid_per_uur)
     + (parseInt(ontwerp_min) / 60 * parseFloat(ontwerp_tarief))
     + (parseInt(nabewerking_extra_min) / 60 * parseFloat(nabewerking_extra_tarief));
   const extra_totaal = parseFloat(extra_per_stuk) * parseInt(aantal) + parseFloat(extra_eenmalig);
   const subtotaal = materiaal_kost + energie_kost_schat + machine_kost + arbeid_kost + extra_totaal + bmcu + parseFloat(artikelen_kost || 0);
 
-  const marge_grens = t.marge_grens_uur || 4;
-  const marge_pct = totale_tijd_u >= marge_grens ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
+  const marge_grens = getalOfDefault(t.marge_grens_uur, 4);
+  const marge_pct = totale_tijd_u >= marge_grens ? (getalOfDefault(t.marge_groot_pct, 10)) : (getalOfDefault(t.marge_klein_pct, 18));
   // verkoopprijs_basis = alles waar marge op wordt toegepast (excl. de
   // vast-geprijsde artikelen — bv. verzendkosten — die krijgen bewust GEEN
   // marge en worden 1-op-1 als reeds-incl.-BTW eindprijs bijgeteld.
@@ -124,7 +124,7 @@ function berekenOfferte(data, t) {
 // dat niet is ingevuld, valt terug op de oude generieke Ender/Bambu-tarieven.
 function bepaalPrinterWatt(p, t) {
   if (p?.gem_verbruik_watt > 0) return p.gem_verbruik_watt;
-  return p?.naam?.toLowerCase().includes('ender') ? (t.ender_watt || 150) : (t.bambu_watt || 120);
+  return p?.naam?.toLowerCase().includes('ender') ? getalOfDefault(t.ender_watt, 150) : getalOfDefault(t.bambu_watt, 120);
 }
 
 // Effectieve prijs/kg van 1 specifieke filamentrol — zelfde COALESCE-formule
@@ -167,8 +167,18 @@ function bepaalMateriaalKostOverride(db, { is_multicolor, filament_rollen, filam
   // (checkbox in de frontend) maar als SQLite-integer (0/1) uit de legacy-
   // synthese — parseInt(true) geeft NaN (dus falsy!), dus hier bewust een
   // gewone truthy-check i.p.v. parseInt.
+  //
+  // Bugfix: bij multicolor MAG dit niet meteen `return`en, ook niet als
+  // berekenMultiMateriaalKost() null teruggeeft (geen bruikbare kleurrijen
+  // ingevuld) — anders wordt de hoofd-filament_rol_id hieronder nooit meer
+  // bereikt en valt de aanroeper terug op de generieke TYPE-prijs i.p.v. de
+  // effectieve prijs van de al gekozen specifieke rol. Dat gaf een ander
+  // (te hoog/te laag) bedrag dan wat de live-preview in Offertes.jsx toont,
+  // die dit wél al correct als "multicolor zónder kleurrijen → val terug op
+  // de hoofdrol"-geval behandelt (zie materiaalKostRegelClient()).
   if (is_multicolor) {
-    return berekenMultiMateriaalKost(db, filament_rollen, faalfactor, aantal);
+    const multi = berekenMultiMateriaalKost(db, filament_rollen, faalfactor, aantal);
+    if (multi != null) return multi;
   }
   if (filament_rol_id) {
     const prijs = haalRolEffectievePrijs(db, filament_rol_id);
@@ -230,13 +240,13 @@ function herbereken(db, offerteId) {
     machine_kost_per_uur = p?.machine_kost_per_uur > 0 ? p.machine_kost_per_uur : null;
   }
 
-  const faalfactor = 1 + (t.faalfactor_pct || 10) / 100;
+  const faalfactor = 1 + (getalOfDefault(t.faalfactor_pct, 10)) / 100;
   let filament_rollen = [];
   try { filament_rollen = JSON.parse(offerte.filament_rollen_json || '[]'); } catch { filament_rollen = []; }
   const materiaal_kost_override = bepaalMateriaalKostOverride(db, { ...offerte, filament_rollen }, faalfactor);
 
   const artKost = berekenArtikelenKost(db, offerteId);
-  const arbeid_per_uur = t.arbeid_per_uur || 15;
+  const arbeid_per_uur = getalOfDefault(t.arbeid_per_uur, 15);
   const ber = berekenOfferte({ ...offerte, filament_prijs_per_kg, printer_watt, machine_kost_per_uur, artikelen_kost: artKost.marge, artikelen_vast_kost: artKost.vast, materiaal_kost_override }, t);
   const btw_bedrag = Math.round(ber.verkoopprijs_basis * (parseFloat(offerte.btw_pct) || 0)) / 100;
   const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
@@ -289,14 +299,14 @@ function berekenRegel(db, regel, t) {
 
   if (type === 'ontwerp' || type === 'aanpassing') {
     const minuten = parseFloat(regel.minuten) || 0;
-    const tarief = parseFloat(regel.tarief) || (type === 'ontwerp' ? (t.ontwerp_tarief || 15) : (t.nabewerking_tarief || 15));
+    const tarief = parseFloat(regel.tarief) || (type === 'ontwerp' ? (getalOfDefault(t.ontwerp_tarief, 15)) : (getalOfDefault(t.nabewerking_tarief, 15)));
     return { bedrag: minuten / 60 * tarief, vaste_prijs: false, tijd_u: 0 };
   }
 
   if (type === 'printen') {
-    const faalfactor = 1 + (t.faalfactor_pct || 10) / 100;
-    const kwh_prijs = t.kwh_prijs || 0.35;
-    const arbeid_per_uur = t.arbeid_per_uur || 15;
+    const faalfactor = 1 + (getalOfDefault(t.faalfactor_pct, 10)) / 100;
+    const kwh_prijs = getalOfDefault(t.kwh_prijs, 0.35);
+    const arbeid_per_uur = getalOfDefault(t.arbeid_per_uur, 15);
 
     let printer_watt = 120, machine_kost_per_uur = null;
     if (regel.printer_id) {
@@ -321,9 +331,9 @@ function berekenRegel(db, regel, t) {
       ? materiaal_override
       : (parseFloat(regel.geschat_gewicht_g) || 0) / 1000 * filament_prijs_per_kg * faalfactor * aantal;
     const energie_kost = (printer_watt / 1000) * totale_tijd_u * kwh_prijs * aantal;
-    const machine_kost = totale_tijd_u * (machine_kost_per_uur != null ? machine_kost_per_uur : (t.machine_per_uur || 0.13)) * aantal;
+    const machine_kost = totale_tijd_u * (machine_kost_per_uur != null ? machine_kost_per_uur : (getalOfDefault(t.machine_per_uur, 0.13))) * aantal;
     const arbeid_kost = ((parseInt(regel.voorbereiding_min) || 0) + (parseInt(regel.nabewerking_min) || 0)) / 60 * arbeid_per_uur;
-    const bmcu = regel.is_multicolor ? (t.bmcu_per_job || 0.10) : 0;
+    const bmcu = regel.is_multicolor ? (getalOfDefault(t.bmcu_per_job, 0.10)) : 0;
 
     return {
       bedrag: materiaal_kost + energie_kost + machine_kost + arbeid_kost + bmcu,
@@ -341,11 +351,38 @@ function berekenRegel(db, regel, t) {
   if (type === 'artikel') {
     const ft = haalArtikelType(db, regel.filament_type_id);
     if (!ft) return { bedrag: 0, vaste_prijs: false, tijd_u: 0 };
+    // Bugfix: 'artikel' hergebruikte de bovenste `aantal` (parseInt, bedoeld
+    // voor het GEHEEL aantal kopieën van een 'printen'-regel) — maar bij
+    // eenheid 'gram'/'ml' is een decimale hoeveelheid (bv. 12,5 gram) heel
+    // normaal, en werd die stil afgekapt. Hier bewust een eigen parseFloat.
+    const aantalArtikel = parseFloat(regel.aantal) || 1;
     const deler = ft.eenheid === 'gram' ? 1000 : 1;
-    return { bedrag: (aantal / deler) * (ft.inkoop_prijs_per_kg || 0), vaste_prijs: !!ft.vaste_prijs, tijd_u: 0 };
+    return { bedrag: (aantalArtikel / deler) * (ft.inkoop_prijs_per_kg || 0), vaste_prijs: !!ft.vaste_prijs, tijd_u: 0 };
   }
 
   return { bedrag: 0, vaste_prijs: false, tijd_u: 0 };
+}
+
+// Valideert de regels-array vóór opslag. Voorheen werd bv. een negatief
+// aantal (tikfout, of niet-gevalideerde frontend-state) gewoon meegerekend
+// in materiaal-/energie-/machinekost — de offerte-totaalprijs kon daardoor
+// dalen of zelfs negatief worden, zonder enige foutmelding. De legacy
+// offerte_artikelen-subroutes hadden al wel een "aantal > 0"-check; deze
+// nieuwe regels-array nog niet.
+function valideerRegels(regels) {
+  const GELDIGE_TYPES = ['ontwerp', 'aanpassing', 'printen', 'extra', 'artikel'];
+  for (const regel of (regels || [])) {
+    if (!GELDIGE_TYPES.includes(regel?.type)) {
+      return `Ongeldig regeltype: "${regel?.type}"`;
+    }
+    if (regel.aantal !== undefined && regel.aantal !== null && regel.aantal !== '') {
+      const n = parseFloat(regel.aantal);
+      if (!Number.isFinite(n) || n <= 0) {
+        return `Aantal moet groter zijn dan 0 (regel "${regel.object_naam || regel.type}")`;
+      }
+    }
+  }
+  return null;
 }
 
 // Berekent de volledige offerte op basis van de regels-array. Marge-drempel
@@ -364,8 +401,8 @@ function berekenOfferteRegels(db, regels, t) {
     return { ...regel, _berekend: r };
   });
 
-  const marge_grens = t.marge_grens_uur || 4;
-  const marge_pct = totale_tijd_u >= marge_grens ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
+  const marge_grens = getalOfDefault(t.marge_grens_uur, 4);
+  const marge_pct = totale_tijd_u >= marge_grens ? (getalOfDefault(t.marge_groot_pct, 10)) : (getalOfDefault(t.marge_klein_pct, 18));
   const verkoopprijs_basis = subtotaal_marge * (1 + marge_pct / 100);
   const verkoopprijs = verkoopprijs_basis + subtotaal_vast;
 
@@ -739,12 +776,14 @@ r.post('/', (req, res) => {
   const { klant_id, object_link, regels = [], btw_pct = 21, geldig_tot, levertermijn, notities } = req.body;
 
   if (!klant_id) return res.status(400).json({ error: 'Klant is verplicht' });
+  const regelFout = valideerRegels(regels);
+  if (regelFout) return res.status(400).json({ error: regelFout });
 
   const ber = berekenOfferteRegels(db, regels, t);
   const btw_bedrag = Math.round(ber.verkoopprijs_basis * (parseFloat(btw_pct) || 0)) / 100;
   const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
   const nummer = nextNummer(db);
-  const arbeid_per_uur = t.arbeid_per_uur || 15;
+  const arbeid_per_uur = getalOfDefault(t.arbeid_per_uur, 15);
   const object_naam = objectNaamSamenvatting(regels);
 
   const result = db.prepare(`
@@ -775,12 +814,14 @@ r.put('/:id', (req, res) => {
 
   const data = { ...existing, ...req.body };
   const regels = Array.isArray(data.regels) ? data.regels : [];
+  const regelFout = valideerRegels(regels);
+  if (regelFout) return res.status(400).json({ error: regelFout });
 
   const ber = berekenOfferteRegels(db, regels, t);
   const btw_pct = parseFloat(data.btw_pct) || 0;
   const btw_bedrag = Math.round(ber.verkoopprijs_basis * btw_pct) / 100;
   const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
-  const arbeid_per_uur = t.arbeid_per_uur || 15;
+  const arbeid_per_uur = getalOfDefault(t.arbeid_per_uur, 15);
   const object_naam = objectNaamSamenvatting(regels);
 
   db.prepare(`

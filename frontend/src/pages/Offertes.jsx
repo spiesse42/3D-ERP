@@ -201,13 +201,16 @@ function PrintenVelden({ regel, onChange, onChangeSilent, printFilamentTypes, al
   // toelichting bij set()/setSilent() in OfferteModal).
   useEffect(() => {
     if (!regel.filament_type_id) { setRollenVoorType([]); return; }
+    let genegeerd = false;
     api.get(`/filament/rollen/by-type/${regel.filament_type_id}`)
       .then(r => {
+        if (genegeerd) return; // filament_type_id is intussen alweer gewijzigd — dit antwoord is verouderd
         setRollenVoorType(r);
         if (r.length === 1 && !regel.filament_rol_id) onChangeSilent({ filament_rol_id: r[0].id });
         else if (regel.filament_rol_id && !r.some(x => x.id === parseInt(regel.filament_rol_id))) onChangeSilent({ filament_rol_id: '' });
       })
-      .catch(() => setRollenVoorType([]));
+      .catch(() => { if (!genegeerd) setRollenVoorType([]); });
+    return () => { genegeerd = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [regel.filament_type_id]);
 
@@ -679,15 +682,16 @@ export default function Offertes() {
   const [offerteModal, setOfferteModal] = useState(null); // null = dicht, {} = nieuw, object = bewerken
   const [jobStatus,    setJobStatus]    = useState('');
 
-  const load = () => api.get('/offertes2').then(setOffertes);
+  const load = () => api.get('/offertes2').then(setOffertes).catch(e => alert('Kon offertes niet laden: ' + e.message));
 
   useEffect(() => {
     load();
-    api.get('/klanten').then(setKlanten);
-    api.get('/printers').then(setPrinters);
-    api.get('/filament/types').then(setFilamentTypes);
-    api.get('/filament/rollen').then(setAllRollen);
-    api.get('/tarieven').then(rows => setTarieven(Object.fromEntries(rows.map(r => [r.sleutel, r.waarde]))));
+    api.get('/klanten').then(setKlanten).catch(e => alert('Kon klanten niet laden: ' + e.message));
+    api.get('/printers').then(setPrinters).catch(e => alert('Kon printers niet laden: ' + e.message));
+    api.get('/filament/types').then(setFilamentTypes).catch(e => alert('Kon filamenttypes niet laden: ' + e.message));
+    api.get('/filament/rollen').then(setAllRollen).catch(e => alert('Kon filamentrollen niet laden: ' + e.message));
+    api.get('/tarieven').then(rows => setTarieven(Object.fromEntries(rows.map(r => [r.sleutel, r.waarde]))))
+      .catch(e => alert('Kon tarieven niet laden: ' + e.message));
   }, []);
 
   async function openDetail(id) {
@@ -696,9 +700,11 @@ export default function Offertes() {
   }
 
   async function updateStatus(id, status) {
-    await api.patch(`/offertes2/${id}/status`, { status });
-    load();
-    if (detail?.id === id) setDetail(d => ({ ...d, status }));
+    try {
+      await api.patch(`/offertes2/${id}/status`, { status });
+      load();
+      if (detail?.id === id) setDetail(d => ({ ...d, status }));
+    } catch(e) { alert(e.message); }
   }
 
   async function maakJob(id) {

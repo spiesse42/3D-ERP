@@ -194,23 +194,31 @@ r.delete('/:id', (req, res) => {
 r.post('/:id/materialen', (req, res) => {
   const db = getDb();
   const { filament_rol_id, gram_gebruikt } = req.body;
-  if (!filament_rol_id || !gram_gebruikt) return res.status(400).json({ error: 'filament_rol_id en gram_gebruikt zijn verplicht' });
+  // Bugfix: `!gram_gebruikt` laat elk negatief getal door (enkel 0/leeg werd
+  // geweigerd) — een tikfout zoals "-50" i.p.v. "50" verhoogde de voorraad
+  // i.p.v. te verlagen, en trok de materiaalkost van de job af. Nu expliciet
+  // op een geldig, positief getal gecontroleerd.
+  const gram = parseFloat(gram_gebruikt);
+  if (!filament_rol_id || !Number.isFinite(gram) || gram <= 0) {
+    return res.status(400).json({ error: 'filament_rol_id en gram_gebruikt (> 0) zijn verplicht' });
+  }
   const result = db.prepare(
     'INSERT INTO job_materialen (job_id,filament_rol_id,gram_gebruikt) VALUES (?,?,?)'
-  ).run(req.params.id, filament_rol_id, gram_gebruikt);
+  ).run(req.params.id, filament_rol_id, gram);
   db.prepare('UPDATE filament_rollen SET gewicht_gram_huidig = gewicht_gram_huidig - ? WHERE id = ?')
-    .run(gram_gebruikt, filament_rol_id);
+    .run(gram, filament_rol_id);
   res.status(201).json({ id: result.lastInsertRowid });
 });
 
 r.put('/:jobId/materialen/:id', (req, res) => {
   const db = getDb();
   const { gram_gebruikt } = req.body;
-  if (!gram_gebruikt || isNaN(parseFloat(gram_gebruikt))) return res.status(400).json({ error: 'gram_gebruikt is verplicht' });
+  const gram = parseFloat(gram_gebruikt);
+  if (!Number.isFinite(gram) || gram <= 0) return res.status(400).json({ error: 'gram_gebruikt (> 0) is verplicht' });
   const mat = db.prepare('SELECT * FROM job_materialen WHERE id = ?').get(req.params.id);
   if (!mat) return res.status(404).json({ error: 'Niet gevonden' });
-  const verschil = parseFloat(gram_gebruikt) - mat.gram_gebruikt;
-  db.prepare('UPDATE job_materialen SET gram_gebruikt = ? WHERE id = ?').run(parseFloat(gram_gebruikt), req.params.id);
+  const verschil = gram - mat.gram_gebruikt;
+  db.prepare('UPDATE job_materialen SET gram_gebruikt = ? WHERE id = ?').run(gram, req.params.id);
   db.prepare('UPDATE filament_rollen SET gewicht_gram_huidig = gewicht_gram_huidig - ? WHERE id = ?').run(verschil, mat.filament_rol_id);
   res.json({ ok: true });
 });

@@ -21,50 +21,63 @@ export function migrateDbV13(db) {
       }
     }
 
-    // Maak nieuwe tabel met uitgebreide CHECK
-    db.prepare(`
-      CREATE TABLE IF NOT EXISTS jobs_new (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        klant_id INTEGER REFERENCES klanten(id) ON DELETE SET NULL,
-        printer_id INTEGER NOT NULL REFERENCES printers(id) ON DELETE RESTRICT,
-        naam TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'gepland'
-          CHECK (status IN ('gepland','bezig','voltooid','gecontroleerd','gefactureerd','betaald','gefaald','geannuleerd')),
-        stl_bestandsnaam TEXT,
-        print_uren_geschat REAL,
-        print_uren_werkelijk REAL,
-        is_multicolor INTEGER NOT NULL DEFAULT 0,
-        aantal_kleuren INTEGER NOT NULL DEFAULT 1,
-        aangemaakt_op TEXT NOT NULL DEFAULT (datetime('now')),
-        gestart_op TEXT,
-        voltooid_op TEXT,
-        notities TEXT,
-        offerte_id INTEGER,
-        klant_id_cached INTEGER,
-        betaald INTEGER NOT NULL DEFAULT 0,
-        betaald_op TEXT,
-        kwh_start REAL,
-        gewicht_geschat REAL
-      )
-    `).run();
+    // Tabel-rebuild: FK's tijdelijk uit (kan niet binnen een transactie gewijzigd
+    // worden, dus moet vóór de transactie) + alles in één transactie. Zonder dit
+    // faalt DROP TABLE jobs zodra een andere tabel (bv. offertes_v2.job_id) nog
+    // naar bestaande jobs verwijst, en blijft de migratie bij elke herstart hangen.
+    const fkWasAan = db.pragma('foreign_keys', { simple: true });
+    db.pragma('foreign_keys = OFF');
+    try {
+      const rebuild = db.transaction(() => {
+        // Maak nieuwe tabel met uitgebreide CHECK
+        db.prepare(`
+          CREATE TABLE IF NOT EXISTS jobs_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            klant_id INTEGER REFERENCES klanten(id) ON DELETE SET NULL,
+            printer_id INTEGER NOT NULL REFERENCES printers(id) ON DELETE RESTRICT,
+            naam TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'gepland'
+              CHECK (status IN ('gepland','bezig','voltooid','gecontroleerd','gefactureerd','betaald','gefaald','geannuleerd')),
+            stl_bestandsnaam TEXT,
+            print_uren_geschat REAL,
+            print_uren_werkelijk REAL,
+            is_multicolor INTEGER NOT NULL DEFAULT 0,
+            aantal_kleuren INTEGER NOT NULL DEFAULT 1,
+            aangemaakt_op TEXT NOT NULL DEFAULT (datetime('now')),
+            gestart_op TEXT,
+            voltooid_op TEXT,
+            notities TEXT,
+            offerte_id INTEGER,
+            klant_id_cached INTEGER,
+            betaald INTEGER NOT NULL DEFAULT 0,
+            betaald_op TEXT,
+            kwh_start REAL,
+            gewicht_geschat REAL
+          )
+        `).run();
 
-    // Kopieer data
-    db.prepare(`
-      INSERT INTO jobs_new SELECT
-        id, klant_id, printer_id, naam, status, stl_bestandsnaam,
-        print_uren_geschat, print_uren_werkelijk, is_multicolor, aantal_kleuren,
-        aangemaakt_op, gestart_op, voltooid_op, notities,
-        offerte_id, klant_id_cached, betaald, betaald_op, kwh_start, gewicht_geschat
-      FROM jobs
-    `).run();
+        // Kopieer data
+        db.prepare(`
+          INSERT INTO jobs_new SELECT
+            id, klant_id, printer_id, naam, status, stl_bestandsnaam,
+            print_uren_geschat, print_uren_werkelijk, is_multicolor, aantal_kleuren,
+            aangemaakt_op, gestart_op, voltooid_op, notities,
+            offerte_id, klant_id_cached, betaald, betaald_op, kwh_start, gewicht_geschat
+          FROM jobs
+        `).run();
 
-    db.prepare("DROP TABLE jobs").run();
-    db.prepare("ALTER TABLE jobs_new RENAME TO jobs").run();
+        db.prepare("DROP TABLE jobs").run();
+        db.prepare("ALTER TABLE jobs_new RENAME TO jobs").run();
 
-    // Herstel indexen
-    db.prepare("CREATE INDEX IF NOT EXISTS idx_jobs_klant ON jobs(klant_id)").run();
-    db.prepare("CREATE INDEX IF NOT EXISTS idx_jobs_printer ON jobs(printer_id)").run();
-    db.prepare("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)").run();
+        // Herstel indexen
+        db.prepare("CREATE INDEX IF NOT EXISTS idx_jobs_klant ON jobs(klant_id)").run();
+        db.prepare("CREATE INDEX IF NOT EXISTS idx_jobs_printer ON jobs(printer_id)").run();
+        db.prepare("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)").run();
+      });
+      rebuild();
+    } finally {
+      if (fkWasAan) db.pragma('foreign_keys = ON');
+    }
 
     console.log('Migratie v13: nieuwe statussen (gecontroleerd, gefactureerd, betaald) toegevoegd');
   } catch(e) {

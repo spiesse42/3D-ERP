@@ -152,8 +152,8 @@ export default function Jobs() {
 
   useEffect(() => {
     loadJobs();
-    api.get('/printers').then(setPrinters);
-    api.get('/klanten').then(setKlanten);
+    api.get('/printers').then(setPrinters).catch(e => alert('Kon printers niet laden: ' + e.message));
+    api.get('/klanten').then(setKlanten).catch(e => alert('Kon klanten niet laden: ' + e.message));
     const interval = setInterval(loadJobs, 10000);
 
     return () => {
@@ -167,8 +167,10 @@ export default function Jobs() {
 
   async function deleteJob(id) {
     if (!confirm('Job verwijderen?')) return;
-    await api.delete(`/jobs/${id}`);
-    loadJobs();
+    try {
+      await api.delete(`/jobs/${id}`);
+      loadJobs();
+    } catch(e) { alert(e.message); }
   }
 
 
@@ -253,12 +255,14 @@ export default function Jobs() {
                             checked={j.status === 'betaald'}
                             style={{ width:16, height:16, cursor:'pointer', accentColor:'var(--accent2)' }}
                             onChange={async e => {
-                              if (e.target.checked) {
-                                await api.patch(`/jobs/${j.id}/status`, { status: 'betaald' });
-                              } else {
-                                await api.patch(`/jobs/${j.id}/status`, { status: 'gefactureerd' });
-                              }
-                              loadJobs();
+                              try {
+                                if (e.target.checked) {
+                                  await api.patch(`/jobs/${j.id}/status`, { status: 'betaald' });
+                                } else {
+                                  await api.patch(`/jobs/${j.id}/status`, { status: 'gefactureerd' });
+                                }
+                                loadJobs();
+                              } catch(err) { alert(err.message); }
                             }} />
                         : <span style={{ color:'var(--muted)' }}>—</span>
                       }
@@ -350,8 +354,10 @@ export default function Jobs() {
           <div className="form-group" style={{ marginBottom:'0.75rem' }}>
             <label style={{ fontSize:11 }}>Status</label>
             <select value={selectedJob.status} onChange={async e => {
-              await api.patch(`/jobs/${selectedJob.id}/status`, { status: e.target.value });
-              loadJobs();
+              try {
+                await api.patch(`/jobs/${selectedJob.id}/status`, { status: e.target.value });
+                loadJobs();
+              } catch(err) { alert(err.message); }
             }}>
               {STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -363,8 +369,10 @@ export default function Jobs() {
               <input type="checkbox" checked={!!selectedJob.betaald}
                 style={{ width:16, height:16, cursor:'pointer', accentColor:'var(--accent2)' }}
                 onChange={async e => {
-                  await api.patch(`/jobs/${selectedJob.id}/betaald`, { betaald: e.target.checked });
-                  loadJobs();
+                  try {
+                    await api.patch(`/jobs/${selectedJob.id}/betaald`, { betaald: e.target.checked });
+                    loadJobs();
+                  } catch(err) { alert(err.message); }
                 }} />
               <span>Betaald</span>
               {selectedJob.betaald_op && <span style={{ color:'var(--muted)', fontSize:11 }}>{selectedJob.betaald_op.split('T')[0]}</span>}

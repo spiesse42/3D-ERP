@@ -218,10 +218,15 @@ r.post('/', (req, res) => {
 });
 
 r.put('/:id', (req, res) => {
-  const { referentie, notities } = req.body;
-  getDb().prepare('UPDATE bestellingen SET referentie=?, notities=? WHERE id=?')
-    .run(referentie || null, notities || null, req.params.id);
-  res.json({ ok: true });
+  try {
+    const { referentie, notities } = req.body;
+    const info = getDb().prepare('UPDATE bestellingen SET referentie=?, notities=? WHERE id=?')
+      .run(referentie || null, notities || null, req.params.id);
+    if (info.changes === 0) return res.status(404).json({ error: 'Bestelling niet gevonden' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 r.delete('/:id', (req, res) => {

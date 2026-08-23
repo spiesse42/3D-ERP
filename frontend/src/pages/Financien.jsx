@@ -190,8 +190,10 @@ function FacturatieTab() {
   }, [status]);
 
   const markeerBetaald = async (job) => {
-    await api.patch(`/jobs/${job.id}/status`, { status: 'betaald' });
-    api.get(`/rapportage/facturatie?status=${status}`).then(setData).catch(() => {});
+    try {
+      await api.patch(`/jobs/${job.id}/status`, { status: 'betaald' });
+      api.get(`/rapportage/facturatie?status=${status}`).then(setData).catch(() => {});
+    } catch (e) { alert(e.message); }
   };
 
   return (

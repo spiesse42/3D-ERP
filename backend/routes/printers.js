@@ -123,18 +123,26 @@ r.post('/', (req, res) => {
 });
 
 r.put('/:id', (req, res) => {
-  const db = getDb();
-  const { naam, type, ha_entity_prefix, kwh_entity, watt_entity, machine_kost_per_uur, heeft_bmcu, actief, gem_verbruik_watt,
-    pause_entity, resume_entity, cancel_entity, camera_entity } = req.body;
-  db.prepare(`UPDATE printers SET naam=?,type=?,ha_entity_prefix=?,kwh_entity=?,watt_entity=?,
-    machine_kost_per_uur=?,heeft_bmcu=?,actief=?,gem_verbruik_watt=?,
-    pause_entity=?,resume_entity=?,cancel_entity=?,camera_entity=? WHERE id=?`)
-    .run(naam, type, ha_entity_prefix||null, kwh_entity||null, watt_entity||null,
-      machine_kost_per_uur, heeft_bmcu?1:0, actief?1:0,
-      (gem_verbruik_watt !== undefined && gem_verbruik_watt !== '') ? parseFloat(gem_verbruik_watt) : null,
-      pause_entity || null, resume_entity || null, cancel_entity || null, camera_entity || null,
-      req.params.id);
-  res.json({ ok: true });
+  try {
+    const db = getDb();
+    const { naam, type, ha_entity_prefix, kwh_entity, watt_entity, machine_kost_per_uur, heeft_bmcu, actief, gem_verbruik_watt,
+      pause_entity, resume_entity, cancel_entity, camera_entity } = req.body;
+    if (!naam || !naam.trim()) return res.status(400).json({ error: 'Naam is verplicht' });
+    const machineKost = (machine_kost_per_uur !== undefined && machine_kost_per_uur !== '') ? parseFloat(machine_kost_per_uur) : 0.13;
+    if (!Number.isFinite(machineKost) || machineKost < 0) return res.status(400).json({ error: 'Machinekost per uur moet een getal (0 of hoger) zijn' });
+    const result = db.prepare(`UPDATE printers SET naam=?,type=?,ha_entity_prefix=?,kwh_entity=?,watt_entity=?,
+      machine_kost_per_uur=?,heeft_bmcu=?,actief=?,gem_verbruik_watt=?,
+      pause_entity=?,resume_entity=?,cancel_entity=?,camera_entity=? WHERE id=?`)
+      .run(naam.trim(), type, ha_entity_prefix||null, kwh_entity||null, watt_entity||null,
+        machineKost, heeft_bmcu?1:0, actief?1:0,
+        (gem_verbruik_watt !== undefined && gem_verbruik_watt !== '') ? parseFloat(gem_verbruik_watt) : null,
+        pause_entity || null, resume_entity || null, cancel_entity || null, camera_entity || null,
+        req.params.id);
+    if (result.changes === 0) return res.status(404).json({ error: 'Printer niet gevonden' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Lichte toggle voor auto-job-aanmaak — bedoeld om vanuit de printerkaart zelf

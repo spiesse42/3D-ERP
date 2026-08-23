@@ -2,6 +2,15 @@ import { Router } from 'express';
 import { getDb } from '../db.js';
 const r = Router();
 
+// Valt terug op `fallback` enkel als er écht niets bruikbaars werd
+// meegegeven — niet bij een bewust ingevulde 0 (bv. "deze rol is helemaal
+// op"). Met een gewone `||`-fallback ging zo'n ingevulde 0 altijd verloren
+// en werd het huidige gewicht stilzwijgend teruggezet op het startgewicht.
+function getalOfDefault(v, fallback) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 // Genereer automatisch lotnummer: MERK-MAT-001
 export function nextLotnummer(db, filament_type_id) {
   const type = db.prepare('SELECT merk, materiaal FROM filament_types WHERE id = ?').get(filament_type_id);
@@ -34,20 +43,27 @@ r.get('/types', (req, res) => {
 });
 
 r.post('/types', (req, res) => {
-  const db = getDb();
-  const { merk, materiaal, inkoop_prijs_per_kg, dichtheid_g_per_cm3, leverancier, notities,
-          categorie, eenheid, marge_pct, min_voorraad, vaste_prijs } = req.body;
-  if (!merk || !materiaal) return res.status(400).json({ error: 'Merk en materiaal zijn verplicht' });
-  const prijs = parseFloat(inkoop_prijs_per_kg);
-  // prijs is optioneel — 0 toegestaan
-  const result = db.prepare(
-    'INSERT INTO filament_types (merk,materiaal,inkoop_prijs_per_kg,dichtheid_g_per_cm3,leverancier,notities,categorie,eenheid,marge_pct,min_voorraad,vaste_prijs) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(merk, materiaal, prijs, parseFloat(dichtheid_g_per_cm3) || 1.24, leverancier || null, notities || null,
-        categorie || 'filament', eenheid || 'gram',
-        (marge_pct !== undefined && marge_pct !== '') ? parseFloat(marge_pct) : null,
-        (min_voorraad !== undefined && min_voorraad !== '') ? parseFloat(min_voorraad) : null,
-        vaste_prijs ? 1 : 0);
-  res.status(201).json({ id: result.lastInsertRowid });
+  try {
+    const db = getDb();
+    const { merk, materiaal, inkoop_prijs_per_kg, dichtheid_g_per_cm3, leverancier, notities,
+            categorie, eenheid, marge_pct, min_voorraad, vaste_prijs } = req.body;
+    if (!merk || !materiaal) return res.status(400).json({ error: 'Merk en materiaal zijn verplicht' });
+    // prijs is optioneel — niet ingevuld/leeg wordt 0; wél moet het een geldig getal zijn
+    // (anders crasht de INSERT verderop hard op een NaN-binding richting SQLite)
+    const prijs = (inkoop_prijs_per_kg === undefined || inkoop_prijs_per_kg === null || inkoop_prijs_per_kg === '')
+      ? 0 : parseFloat(inkoop_prijs_per_kg);
+    if (!Number.isFinite(prijs) || prijs < 0) return res.status(400).json({ error: 'Prijs moet een getal (0 of hoger) zijn' });
+    const result = db.prepare(
+      'INSERT INTO filament_types (merk,materiaal,inkoop_prijs_per_kg,dichtheid_g_per_cm3,leverancier,notities,categorie,eenheid,marge_pct,min_voorraad,vaste_prijs) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+    ).run(merk, materiaal, prijs, parseFloat(dichtheid_g_per_cm3) || 1.24, leverancier || null, notities || null,
+          categorie || 'filament', eenheid || 'gram',
+          (marge_pct !== undefined && marge_pct !== '') ? parseFloat(marge_pct) : null,
+          (min_voorraad !== undefined && min_voorraad !== '') ? parseFloat(min_voorraad) : null,
+          vaste_prijs ? 1 : 0);
+    res.status(201).json({ id: result.lastInsertRowid });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 r.put('/types/:id', (req, res) => {
@@ -221,7 +237,7 @@ r.post('/rollen', (req, res) => {
     const gram = parseFloat(gewicht_gram_start);
     if (!gram || isNaN(gram) || gram <= 0) return res.status(400).json({ error: 'Aantal/gewicht is verplicht en moet groter zijn dan 0' });
     const huidigGram = (req.body.gewicht_gram_huidig !== undefined && req.body.gewicht_gram_huidig !== '')
-      ? (parseFloat(req.body.gewicht_gram_huidig) || gram)
+      ? getalOfDefault(req.body.gewicht_gram_huidig, gram)
       : gram;
     const prijsRaw = (aankoopprijs_eur !== undefined && aankoopprijs_eur !== '') ? parseFloat(aankoopprijs_eur) : null;
     const prijs = (prijsRaw != null && !isNaN(prijsRaw) && prijsRaw > 0) ? prijsRaw : null;
@@ -250,7 +266,7 @@ r.put('/rollen/:id', (req, res) => {
     const { filament_type_id, gewicht_gram_start, gewicht_gram_huidig, kleur, kleur_hex, locatie, actief, aankoopprijs_eur, lotnummer, gekocht_op } = req.body;
     const startG = parseFloat(gewicht_gram_start);
     if (!startG || isNaN(startG) || startG <= 0) return res.status(400).json({ error: 'Aantal/gewicht is verplicht en moet groter zijn dan 0' });
-    const huidigG = parseFloat(gewicht_gram_huidig) || startG;
+    const huidigG = getalOfDefault(gewicht_gram_huidig, startG);
     const prijsRaw = (aankoopprijs_eur !== undefined && aankoopprijs_eur !== '') ? parseFloat(aankoopprijs_eur) : null;
     const prijs   = (prijsRaw != null && !isNaN(prijsRaw) && prijsRaw > 0) ? prijsRaw : null;
     db.prepare(
