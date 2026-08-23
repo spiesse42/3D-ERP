@@ -163,7 +163,11 @@ function berekenMultiMateriaalKost(db, filamentRollen, faalfactor, aantal) {
 // null terug als er niets specifieks gekozen is, zodat de normale
 // typeprijs-berekening in berekenOfferte() als fallback dient.
 function bepaalMateriaalKostOverride(db, { is_multicolor, filament_rollen, filament_rol_id, geschat_gewicht_g, aantal }, faalfactor) {
-  if (parseInt(is_multicolor)) {
+  // is_multicolor komt als JS boolean (true/false) uit de nieuwe regels-flow
+  // (checkbox in de frontend) maar als SQLite-integer (0/1) uit de legacy-
+  // synthese — parseInt(true) geeft NaN (dus falsy!), dus hier bewust een
+  // gewone truthy-check i.p.v. parseInt.
+  if (is_multicolor) {
     return berekenMultiMateriaalKost(db, filament_rollen, faalfactor, aantal);
   }
   if (filament_rol_id) {
@@ -252,12 +256,220 @@ function herbereken(db, offerteId) {
   return { ...ber, btw_bedrag, totaal };
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// REGELS-GEBASEERDE OFFERTE (herontwerp — vrije lijst diensten/objecten
+// i.p.v. 1 vast hoofdobject + vaste opsplitsing object/arbeid/kosten)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Elke regel: { type, object_naam, aantal?, ...type-specifieke velden }.
+// type ∈ 'ontwerp' | 'aanpassing' | 'printen' | 'extra' | 'artikel'.
+// 'extra' en 'artikel' verwijzen optioneel naar een filament_type (categorie
+// ≠ 'filament', Filament-tab) — diens vaste_prijs-vlag bepaalt of er marge
+// op komt, exact dezelfde regel als vandaag al geldt voor offerte-artikelen
+// (verzendkosten e.d.: vaste_prijs = geen marge, niet in BTW-grondslag).
+const REGEL_TYPE_LABELS = {
+  ontwerp: 'Ontwerp + digitaal bestand aanleveren',
+  aanpassing: 'Aanpassing op bestaand ontwerp/bestand',
+  printen: 'Printen',
+  extra: 'Extra kosten/dienst',
+  artikel: 'Artikel',
+};
+
+function haalArtikelType(db, id) {
+  if (!id) return null;
+  return db.prepare('SELECT id, merk, materiaal, inkoop_prijs_per_kg, eenheid, vaste_prijs FROM filament_types WHERE id = ?').get(id);
+}
+
+// Berekent 1 regel — geeft { bedrag, vaste_prijs, tijd_u, detail? } terug.
+// tijd_u telt enkel mee voor 'printen' (bepaalt samen met andere printen-
+// regels de marge-drempel, zie berekenOfferteRegels).
+function berekenRegel(db, regel, t) {
+  const type = regel.type;
+  const aantal = parseInt(regel.aantal) || 1;
+
+  if (type === 'ontwerp' || type === 'aanpassing') {
+    const minuten = parseFloat(regel.minuten) || 0;
+    const tarief = parseFloat(regel.tarief) || (type === 'ontwerp' ? (t.ontwerp_tarief || 15) : (t.nabewerking_tarief || 15));
+    return { bedrag: minuten / 60 * tarief, vaste_prijs: false, tijd_u: 0 };
+  }
+
+  if (type === 'printen') {
+    const faalfactor = 1 + (t.faalfactor_pct || 10) / 100;
+    const kwh_prijs = t.kwh_prijs || 0.35;
+    const arbeid_per_uur = t.arbeid_per_uur || 15;
+
+    let printer_watt = 120, machine_kost_per_uur = null;
+    if (regel.printer_id) {
+      const p = db.prepare('SELECT naam, gem_verbruik_watt, machine_kost_per_uur FROM printers WHERE id = ?').get(regel.printer_id);
+      printer_watt = bepaalPrinterWatt(p, t);
+      machine_kost_per_uur = p?.machine_kost_per_uur > 0 ? p.machine_kost_per_uur : null;
+    }
+
+    const materiaal_override = bepaalMateriaalKostOverride(db, {
+      is_multicolor: regel.is_multicolor, filament_rollen: regel.filament_rollen || [],
+      filament_rol_id: regel.filament_rol_id, geschat_gewicht_g: regel.geschat_gewicht_g, aantal,
+    }, faalfactor);
+
+    let filament_prijs_per_kg = 0;
+    if (regel.filament_type_id) {
+      const ft = db.prepare('SELECT inkoop_prijs_per_kg FROM filament_types WHERE id = ?').get(regel.filament_type_id);
+      filament_prijs_per_kg = ft?.inkoop_prijs_per_kg || 0;
+    }
+
+    const totale_tijd_u = (parseInt(regel.geschatte_tijd_u) || 0) + (parseInt(regel.geschatte_tijd_min) || 0) / 60;
+    const materiaal_kost = materiaal_override != null
+      ? materiaal_override
+      : (parseFloat(regel.geschat_gewicht_g) || 0) / 1000 * filament_prijs_per_kg * faalfactor * aantal;
+    const energie_kost = (printer_watt / 1000) * totale_tijd_u * kwh_prijs * aantal;
+    const machine_kost = totale_tijd_u * (machine_kost_per_uur != null ? machine_kost_per_uur : (t.machine_per_uur || 0.13)) * aantal;
+    const arbeid_kost = ((parseInt(regel.voorbereiding_min) || 0) + (parseInt(regel.nabewerking_min) || 0)) / 60 * arbeid_per_uur;
+    const bmcu = regel.is_multicolor ? (t.bmcu_per_job || 0.10) : 0;
+
+    return {
+      bedrag: materiaal_kost + energie_kost + machine_kost + arbeid_kost + bmcu,
+      vaste_prijs: false,
+      tijd_u: totale_tijd_u * aantal,
+      detail: { materiaal_kost, energie_kost, machine_kost, arbeid_kost, bmcu },
+    };
+  }
+
+  if (type === 'extra') {
+    const ft = haalArtikelType(db, regel.filament_type_id);
+    return { bedrag: parseFloat(regel.bedrag) || 0, vaste_prijs: !!ft?.vaste_prijs, tijd_u: 0 };
+  }
+
+  if (type === 'artikel') {
+    const ft = haalArtikelType(db, regel.filament_type_id);
+    if (!ft) return { bedrag: 0, vaste_prijs: false, tijd_u: 0 };
+    const deler = ft.eenheid === 'gram' ? 1000 : 1;
+    return { bedrag: (aantal / deler) * (ft.inkoop_prijs_per_kg || 0), vaste_prijs: !!ft.vaste_prijs, tijd_u: 0 };
+  }
+
+  return { bedrag: 0, vaste_prijs: false, tijd_u: 0 };
+}
+
+// Berekent de volledige offerte op basis van de regels-array. Marge-drempel
+// (klein/groot tarief) wordt bepaald door de SOM van de geschatte tijd van
+// alle 'printen'-regels samen — zelfde principe als vroeger met 1
+// hoofdobject, nu opgeteld over eventueel meerdere printen-regels.
+// Retourneert regels MET hun berekening ingebed (regel._berekend) — dat is
+// precies wat er in regels_json bewaard wordt, zodat een latere PDF/detail-
+// weergave die bevroren waarden gewoon uitleest i.p.v. te herberekenen.
+function berekenOfferteRegels(db, regels, t) {
+  let subtotaal_marge = 0, subtotaal_vast = 0, totale_tijd_u = 0;
+  const berekend = (regels || []).map(regel => {
+    const r = berekenRegel(db, regel, t);
+    if (r.vaste_prijs) subtotaal_vast += r.bedrag; else subtotaal_marge += r.bedrag;
+    totale_tijd_u += r.tijd_u || 0;
+    return { ...regel, _berekend: r };
+  });
+
+  const marge_grens = t.marge_grens_uur || 4;
+  const marge_pct = totale_tijd_u >= marge_grens ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
+  const verkoopprijs_basis = subtotaal_marge * (1 + marge_pct / 100);
+  const verkoopprijs = verkoopprijs_basis + subtotaal_vast;
+
+  return {
+    regels: berekend,
+    subtotaal: Math.round((subtotaal_marge + subtotaal_vast) * 1000) / 1000,
+    marge_pct,
+    verkoopprijs_basis: Math.round(verkoopprijs_basis * 100) / 100,
+    verkoopprijs: Math.round(verkoopprijs * 100) / 100,
+    totale_tijd_u,
+  };
+}
+
+// Klantgerichte regel-lijst voor een regels-gebaseerde offerte — 1 lijn per
+// regel, vorm "Dienstnaam: Objectnaam", marge al verwerkt. Leest de
+// bevroren berekening uit regel._berekend (zie berekenOfferteRegels) i.p.v.
+// live te herrekenen, zodat PDF/detail altijd het bij opslaan bevroren
+// bedrag tonen, ook als tarieven nadien wijzigen — zelfde principe als
+// elders in de app.
+function offerteRegelsUitRegels(berekening) {
+  const margeFactor = 1 + (berekening.marge_pct || 0) / 100;
+  return berekening.regels.map(regel => {
+    const r = regel._berekend || { bedrag: 0, vaste_prijs: false };
+    const factor = r.vaste_prijs ? 1 : margeFactor;
+    const totaal = r.bedrag * factor;
+    const label = REGEL_TYPE_LABELS[regel.type] || regel.type;
+    const naam = regel.object_naam ? `${label}: ${regel.object_naam}` : label;
+    const aantal = (regel.type === 'printen' || regel.type === 'artikel') ? (parseInt(regel.aantal) || 1) : 1;
+    return {
+      omschrijving: naam,
+      aantal,
+      eenheidsprijs: aantal > 0 ? totaal / aantal : 0,
+      totaal,
+    };
+  });
+}
+
+// Zet een OUDE offerte (regels_json = NULL, van vóór het herontwerp) om
+// naar dezelfde regels-vorm — enkel voor weergave/bewerken, NIET opgeslagen
+// tenzij de gebruiker de offerte zelf heropent en opslaat (dan migreert hij
+// vanzelf, zie PUT). De bedragen worden hier NIET herrekend maar 1-op-1
+// afgeleid uit de al-bevroren legacy-kolommen, zodat het totaal exact
+// hetzelfde blijft als vóór de migratie.
+function synthetiseerRegelsUitLegacy(offerte, artikelen = []) {
+  const regels = [];
+  const arbeid_per_uur = offerte.arbeid_per_uur || 15;
+
+  const heeftPrintData = offerte.printer_id || offerte.filament_type_id || offerte.geschat_gewicht_g > 0;
+  if (heeftPrintData) {
+    let filament_rollen = [];
+    try { filament_rollen = JSON.parse(offerte.filament_rollen_json || '[]'); } catch { filament_rollen = []; }
+    const voorbNabewBedrag = ((offerte.voorbereiding_min || 0) + (offerte.nabewerking_min || 0)) / 60 * arbeid_per_uur;
+    const bmcu = offerte.is_multicolor ? 0.10 : 0; // exact bedrag niet meer los bekend; verwaarloosbaar t.o.v. totaal
+    regels.push({
+      type: 'printen', object_naam: offerte.object_naam || '',
+      printer_id: offerte.printer_id, filament_type_id: offerte.filament_type_id, filament_rol_id: offerte.filament_rol_id,
+      geschat_gewicht_g: offerte.geschat_gewicht_g, geschatte_tijd_u: offerte.geschatte_tijd_u, geschatte_tijd_min: offerte.geschatte_tijd_min,
+      voorbereiding_min: offerte.voorbereiding_min, nabewerking_min: offerte.nabewerking_min,
+      is_multicolor: offerte.is_multicolor, filament_rollen, aantal: offerte.aantal || 1,
+      _berekend: {
+        bedrag: (offerte.materiaal_kost || 0) + (offerte.energie_kost_schat || 0) + (offerte.machine_kost || 0) + voorbNabewBedrag + bmcu,
+        vaste_prijs: false, tijd_u: 0,
+      },
+    });
+  }
+  if (offerte.ontwerp_min > 0) {
+    regels.push({
+      type: 'ontwerp', object_naam: offerte.object_naam || '',
+      minuten: offerte.ontwerp_min, tarief: offerte.ontwerp_tarief,
+      _berekend: { bedrag: offerte.ontwerp_min / 60 * (offerte.ontwerp_tarief || 15), vaste_prijs: false, tijd_u: 0 },
+    });
+  }
+  if (offerte.nabewerking_extra_min > 0) {
+    regels.push({
+      type: 'aanpassing', object_naam: offerte.object_naam || '',
+      minuten: offerte.nabewerking_extra_min, tarief: offerte.nabewerking_extra_tarief,
+      _berekend: { bedrag: offerte.nabewerking_extra_min / 60 * (offerte.nabewerking_extra_tarief || 15), vaste_prijs: false, tijd_u: 0 },
+    });
+  }
+  if (offerte.extra_totaal > 0) {
+    regels.push({
+      type: 'extra', object_naam: offerte.extra_omschrijving || '',
+      bedrag: offerte.extra_totaal,
+      _berekend: { bedrag: offerte.extra_totaal, vaste_prijs: false, tijd_u: 0 },
+    });
+  }
+  for (const a of artikelen) {
+    regels.push({
+      type: 'artikel', object_naam: `${a.merk || ''} ${a.materiaal || ''}`.trim(),
+      filament_type_id: a.filament_type_id, aantal: a.aantal,
+      _berekend: { bedrag: kostPerArtikelRegel(a), vaste_prijs: !!a.vaste_prijs, tijd_u: 0 },
+    });
+  }
+  return regels;
+}
+
 // Bouwt de nette, klantgerichte regel-lijst (aantal / omschrijving /
 // eenheidsprijs / totaal) — dezelfde regels als de ERP-detailweergave
 // gebruikt, zodat het venster in de app en het uiteindelijke document altijd
 // exact hetzelfde tonen. Interne rekendetails (faalfactor, printer, aparte
 // voorbereidings-/nabewerkingsminuten, machine-uurkost...) komen hier bewust
 // niet in voor — dat is boekhouding, geen klantinformatie.
+// LET OP: enkel nog gebruikt als fallback-referentie; nieuwe/heropgeslagen
+// offertes lopen via offerteRegelsUitRegels() hierboven.
 function offerteRegels(offerte, berekening, filamentType, artikelen = []) {
   const margeFactor = 1 + (berekening.marge_pct || 0) / 100;
   const aantal = offerte.aantal || 1;
@@ -317,9 +529,8 @@ function offerteRegels(offerte, berekening, filamentType, artikelen = []) {
   return regels;
 }
 
-function buildOfferteHtml(offerte, klant, berekening, filamentType, artikelen = [], bedrijf = {}) {
+function buildOfferteHtml(offerte, klant, berekening, regels, bedrijf = {}) {
   const nu = new Date().toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const regels = offerteRegels(offerte, berekening, filamentType, artikelen);
   const regelRijen = regels.map(r => `
     <tr>
       <td>${typeof r.aantal === 'number' ? r.aantal : r.aantal}</td>
@@ -369,6 +580,7 @@ function buildOfferteHtml(offerte, klant, berekening, filamentType, artikelen = 
     <div class="doc-nr">OFFERTE ${offerte.nummer}</div>
     <div>${nu}</div>
     ${offerte.geldig_tot ? `<div>Geldig tot: ${offerte.geldig_tot}</div>` : ''}
+    ${offerte.levertermijn ? `<div>Levertermijn: ${offerte.levertermijn}</div>` : ''}
   </div>
 </div>
 
@@ -438,8 +650,37 @@ r.get('/:id', (req, res) => {
   if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
   let filament_rollen = [];
   try { filament_rollen = JSON.parse(offerte.filament_rollen_json || '[]'); } catch { filament_rollen = []; }
-  res.json({ ...offerte, filament_rollen, artikelen: haalArtikelen(db, req.params.id) });
+  const artikelen = haalArtikelen(db, req.params.id);
+
+  // Regels: bestaande offertes (regels_json) gewoon uitlezen; oudere
+  // offertes van vóór het herontwerp krijgen ze on-the-fly gesynthetiseerd
+  // uit hun legacy-velden — zo werkt de (nieuwe) bewerk-modal voor elke
+  // offerte, en migreert een oude offerte vanzelf zodra ze heropgeslagen wordt.
+  let regels = [];
+  if (offerte.regels_json) {
+    try { regels = JSON.parse(offerte.regels_json); } catch { regels = []; }
+  } else {
+    regels = synthetiseerRegelsUitLegacy(offerte, artikelen);
+  }
+
+  res.json({ ...offerte, filament_rollen, artikelen, regels });
 });
+
+// ── LEGACY: los artikelen-beheer op offerte_artikelen ──────────────────
+// Sinds het regels-herontwerp horen artikelen bij een offerte thuis als
+// 'artikel'-regel in regels_json (opgeslagen via de gewone PUT /:id) i.p.v.
+// via deze aparte tabel/endpoints. Blijven staan voor oude, nog niet
+// gemigreerde offertes (regels_json = NULL) — herbereken() gebruikt anders
+// het oude single-object model en zou de nieuwe regels-velden overschrijven
+// met foutieve (bijna-0) bedragen, vandaar de expliciete check hieronder.
+function weigerAlsRegelsGebaseerd(db, offerteId, res) {
+  const offerte = db.prepare('SELECT regels_json FROM offertes_v2 WHERE id = ?').get(offerteId);
+  if (offerte?.regels_json) {
+    res.status(400).json({ error: 'Deze offerte gebruikt het nieuwe regels-model — artikelen aanpassen via de offerte zelf opslaan (PUT /:id) i.p.v. dit endpoint.' });
+    return true;
+  }
+  return false;
+}
 
 // GET artikelen van een offerte
 r.get('/:id/artikelen', (req, res) => {
@@ -449,6 +690,7 @@ r.get('/:id/artikelen', (req, res) => {
 // POST artikel toevoegen aan offerte (bv. verzendkosten, ringetjes...)
 r.post('/:id/artikelen', (req, res) => {
   const db = getDb();
+  if (weigerAlsRegelsGebaseerd(db, req.params.id, res)) return;
   const { filament_type_id, aantal } = req.body;
   if (!filament_type_id || !aantal || parseFloat(aantal) <= 0) {
     return res.status(400).json({ error: 'filament_type_id en aantal (> 0) zijn verplicht' });
@@ -464,6 +706,7 @@ r.post('/:id/artikelen', (req, res) => {
 // PUT artikel bijwerken (aantal aanpassen)
 r.put('/:id/artikelen/:artikelId', (req, res) => {
   const db = getDb();
+  if (weigerAlsRegelsGebaseerd(db, req.params.id, res)) return;
   const { aantal } = req.body;
   if (!aantal || parseFloat(aantal) <= 0) return res.status(400).json({ error: 'aantal (> 0) is verplicht' });
   db.prepare('UPDATE offerte_artikelen SET aantal = ? WHERE id = ? AND offerte_id = ?')
@@ -475,99 +718,55 @@ r.put('/:id/artikelen/:artikelId', (req, res) => {
 // DELETE artikel verwijderen
 r.delete('/:id/artikelen/:artikelId', (req, res) => {
   const db = getDb();
+  if (weigerAlsRegelsGebaseerd(db, req.params.id, res)) return;
   db.prepare('DELETE FROM offerte_artikelen WHERE id = ? AND offerte_id = ?').run(req.params.artikelId, req.params.id);
   const berekening = herbereken(db, req.params.id);
   res.json({ artikelen: haalArtikelen(db, req.params.id), ...berekening });
 });
 
-// POST nieuwe offerte
+// Bouwt een korte, leesbare objectnaam-samenvatting voor de offerte-lijst/
+// detailkop uit de objectnamen van de regels — puur weergave, de regels
+// zelf blijven de bron van waarheid.
+function objectNaamSamenvatting(regels) {
+  const namen = (regels || []).map(r => r.object_naam).filter(Boolean);
+  return namen.length ? namen.join(' + ').slice(0, 255) : null;
+}
+
+// POST nieuwe offerte (regels-gebaseerd — zie REGELS-GEBASEERDE OFFERTE hierboven)
 r.post('/', (req, res) => {
   const db = getDb();
   const t = getTarieven(db);
-  const {
-    klant_id, object_naam, object_link, printer_id, filament_type_id, filament_rol_id,
-    geschat_gewicht_g, geschatte_tijd_u = 0, geschatte_tijd_min = 0,
-    voorbereiding_min, nabewerking_min, ontwerp_min = 0, ontwerp_tarief,
-    nabewerking_extra_min = 0, nabewerking_extra_tarief,
-    is_multicolor = 0, extra_per_stuk = 0, extra_eenmalig = 0,
-    extra_omschrijving, aantal = 1, btw_pct = 21, geldig_tot, notities,
-    filament_rollen = [],
-  } = req.body;
+  const { klant_id, object_link, regels = [], btw_pct = 21, geldig_tot, levertermijn, notities } = req.body;
 
   if (!klant_id) return res.status(400).json({ error: 'Klant is verplicht' });
 
-  let filament_prijs_per_kg = 0;
-  if (filament_type_id) {
-    const ft = db.prepare('SELECT inkoop_prijs_per_kg FROM filament_types WHERE id = ?').get(filament_type_id);
-    filament_prijs_per_kg = ft?.inkoop_prijs_per_kg || 0;
-  }
-
-  let printer_watt = 120;
-  let machine_kost_per_uur = null;
-  if (printer_id) {
-    const p = db.prepare('SELECT naam, gem_verbruik_watt, machine_kost_per_uur FROM printers WHERE id = ?').get(printer_id);
-    printer_watt = bepaalPrinterWatt(p, t);
-    machine_kost_per_uur = p?.machine_kost_per_uur > 0 ? p.machine_kost_per_uur : null;
-  }
-
-  const faalfactor = 1 + (t.faalfactor_pct || 10) / 100;
-  const materiaal_kost_override = bepaalMateriaalKostOverride(
-    db, { is_multicolor, filament_rollen, filament_rol_id, geschat_gewicht_g, aantal }, faalfactor
-  );
-
-  const berData = {
-    geschat_gewicht_g: parseFloat(geschat_gewicht_g) || 0,
-    geschatte_tijd_u: parseInt(geschatte_tijd_u) || 0,
-    geschatte_tijd_min: parseInt(geschatte_tijd_min) || 0,
-    voorbereiding_min: getalOfDefault(voorbereiding_min, t.voorbereiding_min || 15),
-    nabewerking_min: getalOfDefault(nabewerking_min, t.nabewerking_min || 10),
-    ontwerp_min: getalOfDefault(ontwerp_min, 0),
-    ontwerp_tarief: getalOfDefault(ontwerp_tarief, t.ontwerp_tarief || 15),
-    nabewerking_extra_min: getalOfDefault(nabewerking_extra_min, 0),
-    nabewerking_extra_tarief: getalOfDefault(nabewerking_extra_tarief, t.nabewerking_tarief || 15),
-    is_multicolor: parseInt(is_multicolor) || 0,
-    extra_per_stuk: getalOfDefault(extra_per_stuk, 0),
-    extra_eenmalig: getalOfDefault(extra_eenmalig, 0),
-    aantal: parseInt(aantal) || 1,
-    filament_prijs_per_kg,
-    printer_watt,
-    machine_kost_per_uur,
-    materiaal_kost_override,
-  };
-
-  const ber = berekenOfferte(berData, t);
+  const ber = berekenOfferteRegels(db, regels, t);
   const btw_bedrag = Math.round(ber.verkoopprijs_basis * (parseFloat(btw_pct) || 0)) / 100;
   const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
   const nummer = nextNummer(db);
   const arbeid_per_uur = t.arbeid_per_uur || 15;
+  const object_naam = objectNaamSamenvatting(regels);
 
   const result = db.prepare(`
     INSERT INTO offertes_v2 (
-      klant_id, nummer, object_naam, object_link, printer_id, filament_type_id, filament_rol_id,
-      geschat_gewicht_g, geschatte_tijd_u, geschatte_tijd_min,
-      voorbereiding_min, nabewerking_min, ontwerp_min, ontwerp_tarief,
-      nabewerking_extra_min, nabewerking_extra_tarief, is_multicolor, filament_rollen_json,
-      extra_per_stuk, extra_eenmalig, extra_omschrijving, aantal,
-      materiaal_kost, energie_kost_schat, arbeid_kost, machine_kost, extra_totaal,
+      klant_id, nummer, object_naam, object_link, regels_json,
       subtotaal, marge_pct, verkoopprijs, btw_pct, btw_bedrag, totaal,
-      geldig_tot, notities, arbeid_per_uur
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      geldig_tot, levertermijn, notities, arbeid_per_uur
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(
-    klant_id, nummer, object_naam||null, object_link||null, printer_id||null, filament_type_id||null, filament_rol_id||null,
-    berData.geschat_gewicht_g, berData.geschatte_tijd_u, berData.geschatte_tijd_min,
-    berData.voorbereiding_min, berData.nabewerking_min, berData.ontwerp_min, berData.ontwerp_tarief,
-    berData.nabewerking_extra_min, berData.nabewerking_extra_tarief, berData.is_multicolor,
-    berData.is_multicolor ? JSON.stringify(filament_rollen) : null,
-    berData.extra_per_stuk, berData.extra_eenmalig, extra_omschrijving||null, berData.aantal,
-    ber.materiaal_kost, ber.energie_kost_schat, ber.arbeid_kost, ber.machine_kost, ber.extra_totaal,
+    klant_id, nummer, object_naam, object_link||null, JSON.stringify(ber.regels),
     ber.subtotaal, ber.marge_pct, ber.verkoopprijs, parseFloat(btw_pct)||0, btw_bedrag, totaal,
-    geldig_tot||null, notities||null, arbeid_per_uur
+    geldig_tot||null, levertermijn||null, notities||null, arbeid_per_uur
   );
 
   res.status(201).json({ id: result.lastInsertRowid, nummer, ...ber, btw_bedrag, totaal });
 });
 
 // PUT update offerte — MOET voor export default staan!
+// Regels-gebaseerd: elke PUT (ook van een oude, nog niet gemigreerde
+// offerte — de bewerk-modal stuurt dan de door de GET gesynthetiseerde
+// regels terug) slaat voortaan regels_json op. Zo migreert een oude
+// offerte automatisch naar het nieuwe model zodra ze heropgeslagen wordt.
 r.put('/:id', (req, res) => {
   const db = getDb();
   const t = getTarieven(db);
@@ -575,82 +774,25 @@ r.put('/:id', (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Niet gevonden' });
 
   const data = { ...existing, ...req.body };
+  const regels = Array.isArray(data.regels) ? data.regels : [];
 
-  let filament_prijs_per_kg = 0;
-  if (data.filament_type_id) {
-    const ft = db.prepare('SELECT inkoop_prijs_per_kg FROM filament_types WHERE id = ?').get(data.filament_type_id);
-    filament_prijs_per_kg = ft?.inkoop_prijs_per_kg || 0;
-  }
-
-  let printer_watt = 120;
-  let machine_kost_per_uur = null;
-  if (data.printer_id) {
-    const p = db.prepare('SELECT naam, gem_verbruik_watt, machine_kost_per_uur FROM printers WHERE id = ?').get(data.printer_id);
-    printer_watt = bepaalPrinterWatt(p, t);
-    machine_kost_per_uur = p?.machine_kost_per_uur > 0 ? p.machine_kost_per_uur : null;
-  }
-
-  const filament_rollen = Array.isArray(data.filament_rollen) ? data.filament_rollen : [];
-  const faalfactor = 1 + (t.faalfactor_pct || 10) / 100;
-  const materiaal_kost_override = bepaalMateriaalKostOverride(
-    db, { is_multicolor: data.is_multicolor, filament_rollen, filament_rol_id: data.filament_rol_id, geschat_gewicht_g: data.geschat_gewicht_g, aantal: data.aantal }, faalfactor
-  );
-
-  const berData = {
-    geschat_gewicht_g: parseFloat(data.geschat_gewicht_g) || 0,
-    geschatte_tijd_u: parseInt(data.geschatte_tijd_u) || 0,
-    geschatte_tijd_min: parseInt(data.geschatte_tijd_min) || 0,
-    voorbereiding_min: getalOfDefault(data.voorbereiding_min, t.voorbereiding_min || 15),
-    nabewerking_min: getalOfDefault(data.nabewerking_min, t.nabewerking_min || 10),
-    ontwerp_min: getalOfDefault(data.ontwerp_min, 0),
-    ontwerp_tarief: getalOfDefault(data.ontwerp_tarief, t.ontwerp_tarief || 15),
-    nabewerking_extra_min: getalOfDefault(data.nabewerking_extra_min, 0),
-    nabewerking_extra_tarief: getalOfDefault(data.nabewerking_extra_tarief, t.nabewerking_tarief || 15),
-    is_multicolor: parseInt(data.is_multicolor) || 0,
-    extra_per_stuk: getalOfDefault(data.extra_per_stuk, 0),
-    extra_eenmalig: getalOfDefault(data.extra_eenmalig, 0),
-    aantal: parseInt(data.aantal) || 1,
-    filament_prijs_per_kg,
-    printer_watt,
-    machine_kost_per_uur,
-    materiaal_kost_override,
-  };
-  // Bewaar de artikelen-bijdrage (verzendkosten enz.) — anders zou het
-  // hoofd-'Opslaan' hier de bijdrage van reeds toegevoegde artikelen wissen.
-  // Gesplitst: 'marge' krijgt de gewone offerte-marge, 'vast' (vaste_prijs-
-  // artikelen zoals verzendkosten) niet — zie berekenOfferte().
-  const artKostPut = berekenArtikelenKost(db, req.params.id);
-  berData.artikelen_kost = artKostPut.marge;
-  berData.artikelen_vast_kost = artKostPut.vast;
-
-  const ber = berekenOfferte(berData, t);
+  const ber = berekenOfferteRegels(db, regels, t);
   const btw_pct = parseFloat(data.btw_pct) || 0;
   const btw_bedrag = Math.round(ber.verkoopprijs_basis * btw_pct) / 100;
   const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
   const arbeid_per_uur = t.arbeid_per_uur || 15;
+  const object_naam = objectNaamSamenvatting(regels);
 
   db.prepare(`
     UPDATE offertes_v2 SET
-      klant_id=?, object_naam=?, object_link=?, printer_id=?, filament_type_id=?, filament_rol_id=?,
-      geschat_gewicht_g=?, geschatte_tijd_u=?, geschatte_tijd_min=?,
-      voorbereiding_min=?, nabewerking_min=?, ontwerp_min=?, ontwerp_tarief=?,
-      nabewerking_extra_min=?, nabewerking_extra_tarief=?, is_multicolor=?, filament_rollen_json=?,
-      extra_per_stuk=?, extra_eenmalig=?, extra_omschrijving=?, aantal=?,
-      materiaal_kost=?, energie_kost_schat=?, arbeid_kost=?, machine_kost=?,
-      extra_totaal=?, artikelen_kost=?, subtotaal=?, marge_pct=?, verkoopprijs=?,
-      btw_pct=?, btw_bedrag=?, totaal=?, geldig_tot=?, notities=?, arbeid_per_uur=?
+      klant_id=?, object_naam=?, object_link=?, regels_json=?,
+      subtotaal=?, marge_pct=?, verkoopprijs=?,
+      btw_pct=?, btw_bedrag=?, totaal=?, geldig_tot=?, levertermijn=?, notities=?, arbeid_per_uur=?
     WHERE id=?
   `).run(
-    data.klant_id, data.object_naam||null, data.object_link||null,
-    data.printer_id||null, data.filament_type_id||null, data.filament_rol_id||null,
-    berData.geschat_gewicht_g, berData.geschatte_tijd_u, berData.geschatte_tijd_min,
-    berData.voorbereiding_min, berData.nabewerking_min, berData.ontwerp_min, berData.ontwerp_tarief,
-    berData.nabewerking_extra_min, berData.nabewerking_extra_tarief, berData.is_multicolor,
-    berData.is_multicolor ? JSON.stringify(filament_rollen) : null,
-    berData.extra_per_stuk, berData.extra_eenmalig, data.extra_omschrijving||null, berData.aantal,
-    ber.materiaal_kost, ber.energie_kost_schat, ber.arbeid_kost, ber.machine_kost, ber.extra_totaal,
-    ber.artikelen_kost + ber.artikelen_vast_kost, ber.subtotaal, ber.marge_pct, ber.verkoopprijs, btw_pct, btw_bedrag, totaal,
-    data.geldig_tot||null, data.notities||null, arbeid_per_uur, req.params.id
+    data.klant_id, object_naam, data.object_link||null, JSON.stringify(ber.regels),
+    ber.subtotaal, ber.marge_pct, ber.verkoopprijs, btw_pct, btw_bedrag, totaal,
+    data.geldig_tot||null, data.levertermijn||null, data.notities||null, arbeid_per_uur, req.params.id
   );
 
   res.json({ ok: true, ...ber, btw_bedrag, totaal });
@@ -662,80 +804,92 @@ r.patch('/:id/status', (req, res) => {
   res.json({ ok: true });
 });
 
-// POST maak werkbon job van offerte — neemt ALLE relevante offertegegevens
-// over (filament, arbeid, extra kosten, artikelen) zodat de Werkbon
-// (KostenModal) bij het openen al volledig ingevuld staat i.p.v. leeg, en
-// niets dubbel ingegeven moet worden.
+// POST maak werkbon job(s) van offerte — 1 werkbon-job per 'printen'-regel
+// (een offerte kan sinds het herontwerp meerdere te printen objecten
+// bevatten, bv. "Ontwerp: X" + "Printen aangeleverd bestand: Y" samen).
+// Regels van het type ontwerp/aanpassing/extra/artikel worden bewust NIET
+// mee overgenomen in een job — dat zijn geen fysieke print-werkbonnen en
+// horen enkel op de offerte/factuur thuis, niet dubbel in een werkbon.
 r.post('/:id/maak-job', (req, res) => {
   const db = getDb();
+  const t = getTarieven(db);
   const offerte = db.prepare('SELECT * FROM offertes_v2 WHERE id = ?').get(req.params.id);
   if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
-  if (!offerte.printer_id) return res.status(400).json({ error: 'Offerte heeft geen printer — bewerk de offerte eerst' });
 
-  const totaleUren = (offerte.geschatte_tijd_u || 0) + (offerte.geschatte_tijd_min || 0) / 60;
-
-  let filament_rollen = [];
-  try { filament_rollen = JSON.parse(offerte.filament_rollen_json || '[]'); } catch { filament_rollen = []; }
-
-  const gewichtGeschat = offerte.is_multicolor
-    ? filament_rollen.reduce((s, fr) => s + (parseFloat(fr.gram) || 0), 0)
-    : (offerte.geschat_gewicht_g || 0);
+  let regels = [];
+  if (offerte.regels_json) {
+    try { regels = JSON.parse(offerte.regels_json); } catch { regels = []; }
+  } else {
+    regels = synthetiseerRegelsUitLegacy(offerte, haalArtikelen(db, offerte.id));
+  }
+  const printenRegels = regels.filter(r => r.type === 'printen');
+  if (printenRegels.length === 0) {
+    return res.status(400).json({ error: 'Offerte heeft geen "Printen"-regel — bewerk de offerte eerst' });
+  }
+  if (printenRegels.some(r => !r.printer_id)) {
+    return res.status(400).json({ error: 'Eén of meer printen-regels hebben geen printer gekozen — bewerk de offerte eerst' });
+  }
 
   try {
-    const jobId = db.transaction(() => {
-      const result = db.prepare(`
-        INSERT INTO jobs (klant_id, printer_id, naam, status, print_uren_geschat, is_multicolor, gewicht_geschat, notities, offerte_id)
-        VALUES (?,?,?,?,?,?,?,?,?)
-      `).run(
-        offerte.klant_id, offerte.printer_id,
-        offerte.object_naam || `Job van offerte ${offerte.nummer}`,
-        'gepland', totaleUren, offerte.is_multicolor, gewichtGeschat || null,
-        `Werkbon van offerte ${offerte.nummer}`, offerte.id
-      );
-      const id = result.lastInsertRowid;
+    const jobIds = db.transaction(() => {
+      const ids = [];
+      for (const regel of printenRegels) {
+        const totaleUren = (parseInt(regel.geschatte_tijd_u) || 0) + (parseInt(regel.geschatte_tijd_min) || 0) / 60;
+        const filament_rollen = Array.isArray(regel.filament_rollen) ? regel.filament_rollen : [];
+        const gewichtGeschat = regel.is_multicolor
+          ? filament_rollen.reduce((s, fr) => s + (parseFloat(fr.gram) || 0), 0)
+          : (parseFloat(regel.geschat_gewicht_g) || 0);
 
-      // Arbeid/extra — 1-op-1 overname naar job_kosten (de echte materiaal-
-      // /energie-/machinekost wordt door de Werkbon zelf herberekend zodra
-      // die opent, op basis van de hieronder overgenomen materialen/diensten).
-      db.prepare(`
-        INSERT INTO job_kosten (
-          job_id, aantal, voorbereiding_min, nabewerking_min,
-          ontwerp_min, ontwerp_tarief, nabewerking_extra_min, nabewerking_extra_tarief,
-          extra_per_stuk, extra_eenmalig, extra_omschrijving
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-      `).run(
-        id, offerte.aantal || 1, offerte.voorbereiding_min || 0, offerte.nabewerking_min || 0,
-        offerte.ontwerp_min || 0, offerte.ontwerp_tarief || 15,
-        offerte.nabewerking_extra_min || 0, offerte.nabewerking_extra_tarief || 15,
-        offerte.extra_per_stuk || 0, offerte.extra_eenmalig || 0, offerte.extra_omschrijving || null
-      );
+        const result = db.prepare(`
+          INSERT INTO jobs (klant_id, printer_id, naam, status, print_uren_geschat, is_multicolor, gewicht_geschat, notities, offerte_id)
+          VALUES (?,?,?,?,?,?,?,?,?)
+        `).run(
+          offerte.klant_id, regel.printer_id,
+          regel.object_naam || `Job van offerte ${offerte.nummer}`,
+          'gepland', totaleUren, regel.is_multicolor ? 1 : 0, gewichtGeschat || null,
+          `Werkbon van offerte ${offerte.nummer}`, offerte.id
+        );
+        const id = result.lastInsertRowid;
 
-      // Filament → job_materialen
-      if (offerte.is_multicolor) {
-        for (const fr of filament_rollen) {
-          const gram = parseFloat(fr.gram);
-          if (gram > 0 && fr.filament_rol_id) {
-            db.prepare('INSERT INTO job_materialen (job_id, filament_rol_id, gram_gebruikt) VALUES (?,?,?)')
-              .run(id, fr.filament_rol_id, gram);
+        // Materiaal-/energie-/machinekost wordt door de Werkbon zelf
+        // herberekend zodra die opent, op basis van de hier overgenomen
+        // materialen — enkel de arbeid (voorbereiding/afwerking) nemen we
+        // letterlijk over. Ontwerp/aanpassing horen niet bij dit specifieke
+        // printen-regel en worden hier bewust op 0 gelaten.
+        db.prepare(`
+          INSERT INTO job_kosten (
+            job_id, aantal, voorbereiding_min, nabewerking_min,
+            ontwerp_min, ontwerp_tarief, nabewerking_extra_min, nabewerking_extra_tarief,
+            extra_per_stuk, extra_eenmalig, extra_omschrijving
+          ) VALUES (?,?,?,?,0,15,0,15,0,0,NULL)
+        `).run(
+          id, parseInt(regel.aantal) || 1, regel.voorbereiding_min || 0, regel.nabewerking_min || 0
+        );
+
+        if (regel.is_multicolor) {
+          for (const fr of filament_rollen) {
+            const gram = parseFloat(fr.gram);
+            if (gram > 0 && fr.filament_rol_id) {
+              db.prepare('INSERT INTO job_materialen (job_id, filament_rol_id, gram_gebruikt) VALUES (?,?,?)')
+                .run(id, fr.filament_rol_id, gram);
+            }
           }
+        } else if (regel.filament_rol_id && regel.geschat_gewicht_g > 0) {
+          db.prepare('INSERT INTO job_materialen (job_id, filament_rol_id, gram_gebruikt) VALUES (?,?,?)')
+            .run(id, regel.filament_rol_id, regel.geschat_gewicht_g);
         }
-      } else if (offerte.filament_rol_id && offerte.geschat_gewicht_g > 0) {
-        db.prepare('INSERT INTO job_materialen (job_id, filament_rol_id, gram_gebruikt) VALUES (?,?,?)')
-          .run(id, offerte.filament_rol_id, offerte.geschat_gewicht_g);
+
+        ids.push(id);
       }
 
-      // Offerte-artikelen (bv. verzendkosten) → job_diensten, zelfde model
-      // (prijs op typeniveau, geen voorraadreservering)
-      for (const a of haalArtikelen(db, offerte.id)) {
-        db.prepare('INSERT INTO job_diensten (job_id, filament_type_id, aantal, prijs_per_eenheid) VALUES (?,?,?,?)')
-          .run(id, a.filament_type_id, a.aantal, a.inkoop_prijs_per_kg || 0);
-      }
-
-      db.prepare('UPDATE offertes_v2 SET job_id = ?, status = ? WHERE id = ?').run(id, 'goedgekeurd', offerte.id);
-      return id;
+      // Eerste job als hoofdreferentie op de offerte (voor de "✓ Werkbon
+      // job: #.."-weergave) — bij meerdere printen-regels staan de overige
+      // job-id's mee in de notitie van elke job zelf.
+      db.prepare('UPDATE offertes_v2 SET job_id = ?, status = ? WHERE id = ?').run(ids[0], 'goedgekeurd', offerte.id);
+      return ids;
     })();
 
-    res.status(201).json({ job_id: jobId });
+    res.status(201).json({ job_id: jobIds[0], job_ids: jobIds });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -754,21 +908,20 @@ r.get('/:id/pdf', async (req, res) => {
   const klant = { naam: offerte.klant_naam, voornaam: offerte.voornaam, email: offerte.email,
     straat: offerte.straat, huisnummer: offerte.huisnummer, postcode: offerte.postcode,
     gemeente: offerte.gemeente, btw_nummer: offerte.btw_nummer };
-  const ft = offerte.filament_type_id ? db.prepare('SELECT * FROM filament_types WHERE id = ?').get(offerte.filament_type_id) : null;
-  const t = getTarieven(db);
-  const ber = {
-    materiaal_kost: offerte.materiaal_kost, energie_kost_schat: offerte.energie_kost_schat,
-    arbeid_kost: offerte.arbeid_kost, machine_kost: offerte.machine_kost,
-    bmcu: offerte.is_multicolor ? (t.bmcu_per_job || 0.10) : 0,
-    extra_totaal: offerte.extra_totaal, subtotaal: offerte.subtotaal,
-    marge_pct: offerte.marge_pct, verkoopprijs: offerte.verkoopprijs,
-    // Bevroren tarief van bij het (laatst) opslaan van de offerte — zodat de
-    // regels hier altijd optellen tot het getoonde totaal, ook als het
-    // algemene arbeidstarief in Instellingen nadien wijzigt.
-    arbeid_per_uur: offerte.arbeid_per_uur || t.arbeid_per_uur || 15
-  };
 
-  const html = buildOfferteHtml(offerte, klant, ber, ft, haalArtikelen(db, req.params.id), getBedrijfsgegevens(db));
+  // Regels + hun bevroren berekening uitlezen (of synthetiseren voor een
+  // offerte van vóór het herontwerp) — zelfde bron als GET /:id, zodat het
+  // PDF altijd exact toont wat er in de app te zien is.
+  let regels = [];
+  if (offerte.regels_json) {
+    try { regels = JSON.parse(offerte.regels_json); } catch { regels = []; }
+  } else {
+    regels = synthetiseerRegelsUitLegacy(offerte, haalArtikelen(db, req.params.id));
+  }
+  const ber = { marge_pct: offerte.marge_pct, verkoopprijs: offerte.verkoopprijs, regels };
+  const regelRijen = offerteRegelsUitRegels(ber);
+
+  const html = buildOfferteHtml(offerte, klant, ber, regelRijen, getBedrijfsgegevens(db));
   try {
     const pdfBuffer = await renderHtmlNaarPdf(html);
     res.setHeader('Content-Type', 'application/pdf');
