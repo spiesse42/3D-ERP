@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePrinterData } from '../lib/usePrinterData.js';
 import { useSearchParams } from 'react-router-dom';
 import { api, BASE } from '../lib/api.js';
@@ -235,15 +235,27 @@ function WerkbonnenTab({ jobs, reloadJobs }) {
   const [openId, setOpenId] = useState(null);
   const [details, setDetails] = useState({});
   const [laden, setLaden] = useState(true);
+  const openIdRef = useRef(null);
 
   const loadList = () => api.get('/werkbonnen').then(setWerkbonnen).catch(e => alert('Kon werkbons niet laden: ' + e.message));
   const loadDetail = (id) => api.get(`/werkbonnen/${id}`).then(d => setDetails(prev => ({ ...prev, [id]: d }))).catch(e => alert(e.message));
 
-  useEffect(() => { loadList().finally(() => setLaden(false)); }, []);
+  useEffect(() => {
+    loadList().finally(() => setLaden(false));
+    // Live-update, zelfde als de Printopdrachten-tabel — dit tabblad had voorheen
+    // helemaal geen periodieke herlaad, enkel bij het openen of na een actie.
+    const interval = setInterval(() => {
+      loadList();
+      if (openIdRef.current != null) loadDetail(openIdRef.current);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   function toggle(w) {
     const willOpen = openId !== w.id;
-    setOpenId(willOpen ? w.id : null);
+    const nieuwId = willOpen ? w.id : null;
+    setOpenId(nieuwId);
+    openIdRef.current = nieuwId;
     if (willOpen) loadDetail(w.id);
   }
 
@@ -467,7 +479,9 @@ export default function Jobs() {
     loadKoppelbaar();
     api.get('/printers').then(setPrinters).catch(e => alert('Kon printers niet laden: ' + e.message));
     api.get('/klanten').then(setKlanten).catch(e => alert('Kon klanten niet laden: ' + e.message));
-    const interval = setInterval(loadJobs, 10000);
+    // Koppelbare regels mee in dezelfde interval, zodat de koppel-dropdowns ook
+    // vers blijven als een werkbon in een andere tab/sessie gewijzigd wordt.
+    const interval = setInterval(() => { loadJobs(); loadKoppelbaar(); }, 10000);
 
     return () => {
       clearInterval(interval);

@@ -4,7 +4,6 @@ import { api } from './api.js';
 
 const _kwhAccum = {};       // lopende kWh delta in geheugen
 const _lastPoll  = {};
-const _prevStatus = {};
 const _failedStreak = {};   // aantal opeenvolgende polls met failed/cancelled-status
 const _kwhLoaded = {};      // is delta al uit DB geladen voor deze printer?
 const _kwhLastSave = {};    // timestamp laatste DB save
@@ -60,7 +59,10 @@ export function usePrinterData() {
         const isActief = ['running','printing','prepare'].includes(statusLower);
         // 'free' en 'stoped' (sic) zijn de Kobra/Anycubic S1 MQTT Bridge-termen
         // voor "geen actieve job" — bevestigd via de broncode van de addon.
-        const isIdle   = ['idle','standby','finish','complete','offline','unavailable','failed','cancelled','free','stoped'].includes(statusLower);
+        // 'finished' (met -ed) toegevoegd naast 'finish': de AnyCubic Kobra S1 Pro
+        // rapporteert in de praktijk "finished", niet "finish" — zonder deze
+        // toevoeging bleef een voltooide print onopgemerkt (job bleef op "bezig").
+        const isIdle   = ['idle','standby','finish','finished','complete','offline','unavailable','failed','cancelled','free','stoped'].includes(statusLower);
 
         if (p.type === 'bambu') {
           // Enkel live doortellen zolang de printer effectief actief is. De
@@ -154,13 +156,14 @@ export function usePrinterData() {
                         _lastPoll[p.id] = now;
 
         // Auto-status: robuust, niet afhankelijk van vorige poll-status
-        // 'done' = Kobra/Anycubic S1 MQTT Bridge (bevestigd via broncode).
-        const isDone   = ['finish','complete','success','done'].includes(statusLower);
+        // 'done' = Kobra/Anycubic S1 MQTT Bridge (bevestigd via broncode);
+        // 'finished' toegevoegd — de effectief waargenomen status op de
+        // AnyCubic Kobra S1 Pro, zie toelichting bij isIdle hierboven.
+        const isDone   = ['finish','finished','complete','success','done'].includes(statusLower);
         const isFailed = statusLower === 'failed' || statusLower === 'cancelled';
-        const wasBusy  = _prevStatus[p.id];
 
-        // Finish: zet bezig job op voltooid. Werkt ook bij opstart (wasBusy undefined)
-        // omdat we checken op een bestaande bezig-job, niet op de transitie.
+        // Finish: zet bezig job op voltooid. Werkt op elke poll opnieuw (niet enkel
+        // bij een gedetecteerde overgang) omdat we checken op een bestaande bezig-job.
         // Ook zelfherstellend: als een job eerder onterecht op "geannuleerd" werd
         // gezet door een kortstondige sensor-glitch (bv. AMS-kleurwissel bij
         // multicolor), corrigeert dit hem alsnog naar "voltooid" zodra de printer
@@ -189,10 +192,15 @@ export function usePrinterData() {
 
         // Automatische jobaanmaak bij start van een print — optioneel per printer,
         // pauzeerbaar via de toggle in de printerkaart (bv. tijdens filament-
-        // kalibratie). Enkel bij een echte overgang náár actief printen, en enkel
-        // als er nog geen bezig/gepland job voor deze printer bestaat (anders zou
-        // dit botsen met de wachtrij-logica).
-        if (p.auto_job_aanmaken && isActief && !['running', 'printing', 'prepare'].includes(wasBusy)) {
+        // kalibratie). Zelfherstellend, net als de finish/failed-detectie hierboven:
+        // elke poll opnieuw checken i.p.v. enkel bij een gedetecteerde overgang naar
+        // actief printen. Dat laatste (wasBusy-transitie) miste een print zodra Auto-job
+        // pas ná de start werd aangezet, of de printer al actief was bij het openen
+        // van een nieuwe browsersessie — dan kwam er nooit meer een job bij, want de
+        // "overgang" was al voorbij. De heeftAlJob-check hieronder blijft de enige en
+        // afdoende bescherming tegen dubbele aanmaak (blokkeert ook bij een bestaande
+        // geplande/wachtrij-job, zoals voorheen).
+        if (p.auto_job_aanmaken && isActief) {
           api.get(`/jobs?printer_id=${p.id}`).then(jobs => {
             const heeftAlJob = jobs.some(j => ['bezig', 'gepland', 'in te plannen'].includes(j.status));
             if (!heeftAlJob) {
@@ -210,8 +218,6 @@ export function usePrinterData() {
             }
           }).catch(() => {});
         }
-
-        _prevStatus[p.id] = statusLower;
 
         // kwhDelta = huidig kWh - start kWh
         // _kwhAccum bevat nu de delta zelf (Watt-accumulatie)

@@ -8,7 +8,7 @@ import { api, BASE } from '../lib/api.js';
 function StatusDot({ status }) {
   const colors = {
     running:'#ef4444', printing:'#ef4444',
-    finish:'#22c55e', complete:'#22c55e', success:'#22c55e',
+    finish:'#22c55e', finished:'#22c55e', complete:'#22c55e', success:'#22c55e',
     idle:'#f59e0b', standby:'#f59e0b', offline:'#555',
     unavailable:'#555', failed:'#ef4444', pause:'#f59e0b',
   };
@@ -35,7 +35,7 @@ export default function PrinterCard({ printerId, naam, data, klanten, onJobCreat
   const name      = naam || data?.naam || '—';
   const status    = data?.status || 'unavailable';
   const isRunning = ['running','printing'].includes(status.toLowerCase());
-  const isDone    = ['finish','complete','success'].includes(status.toLowerCase());
+  const isDone    = ['finish','finished','complete','success'].includes(status.toLowerCase());
   const color     = isRunning ? '#ef4444' : isDone ? '#22c55e' : '#f59e0b';
   const pct       = parseFloat(data?.progress) || 0;
 
