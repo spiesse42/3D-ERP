@@ -22,11 +22,13 @@ r.get('/', (req, res) => {
   const { status, klant_id, printer_id, volgnummer } = req.query;
   let sql = `
     SELECT j.*, k.naam as klant_naam, k.voornaam as klant_voornaam, p.naam as printer_naam,
-      jk.verkoopprijs, jk.totaal_kost, jk.materiaal_kost, jk.energie_kost, jk.machine_kost, jk.arbeid_kost
+      jk.verkoopprijs, jk.totaal_kost, jk.materiaal_kost, jk.energie_kost, jk.machine_kost, jk.arbeid_kost,
+      w.volgnummer as werkbon_volgnummer, w.regels_json as werkbon_regels_json
     FROM jobs j
     LEFT JOIN klanten k ON k.id = j.klant_id
     LEFT JOIN printers p ON p.id = j.printer_id
     LEFT JOIN job_kosten jk ON jk.job_id = j.id
+    LEFT JOIN werkbonnen w ON w.id = j.werkbon_id
     WHERE 1=1
   `;
   const params = [];
@@ -102,18 +104,17 @@ r.put('/:id', (req, res) => {
   const db = getDb();
   const { klant_id, printer_id, naam, type, dienst_categorie, status, stl_bestandsnaam, print_uren_geschat,
           print_uren_werkelijk, is_multicolor, aantal_kleuren, gestart_op, voltooid_op,
-          notities, betaald, betaald_op } = req.body;
+          notities } = req.body;
   const jobType = type === 'dienst' ? 'dienst' : 'print';
   if (jobType === 'print' && !printer_id) return res.status(400).json({ error: 'printer_id is verplicht voor een print-job' });
   db.prepare(`
     UPDATE jobs SET klant_id=?,printer_id=?,naam=?,type=?,dienst_categorie=?,status=?,stl_bestandsnaam=?,
       print_uren_geschat=?,print_uren_werkelijk=?,is_multicolor=?,aantal_kleuren=?,
-      gestart_op=?,voltooid_op=?,notities=?,betaald=?,betaald_op=? WHERE id=?
+      gestart_op=?,voltooid_op=?,notities=? WHERE id=?
   `).run(klant_id||null, jobType === 'dienst' ? (printer_id||null) : printer_id, naam, jobType,
          dienst_categorie||null, status||'gepland', stl_bestandsnaam||null,
          print_uren_geschat||null, print_uren_werkelijk||null, is_multicolor?1:0,
-         aantal_kleuren||1, gestart_op||null, voltooid_op||null, notities||null,
-         betaald?1:0, betaald_op||null, req.params.id);
+         aantal_kleuren||1, gestart_op||null, voltooid_op||null, notities||null, req.params.id);
   res.json({ ok: true });
 });
 
@@ -160,15 +161,6 @@ r.patch('/:id/kwh_start', (req, res) => {
 r.patch('/:id/kwh_start_clear', (req, res) => {
   const db = getDb();
   db.prepare('UPDATE jobs SET kwh_start = NULL WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
-});
-
-r.patch('/:id/betaald', (req, res) => {
-  const db = getDb();
-  const betaald = req.body.betaald ? 1 : 0;
-  const betaald_op = betaald ? new Date().toISOString() : null;
-  db.prepare(`UPDATE jobs SET betaald=?, betaald_op=? WHERE id=?`)
-    .run(betaald, betaald_op, req.params.id);
   res.json({ ok: true });
 });
 

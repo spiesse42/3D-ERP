@@ -71,6 +71,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 .badge.verstuurd  { background: #1e2a3a; color: #93c5fd; }
 .badge.goedgekeurd { background: #1e3a2a; color: #6ee7b7; }
 .badge.betaald    { background: #1e3a1e; color: #86efac; }
+.badge.gecontroleerd { background: #232323; color: #d4d4d8; }
+.badge.gefactureerd  { background: #1e2a3a; color: #93c5fd; }
+.badge.werkbon-link  { background: #241b3a; color: #c4b5fd; }
 
 table { width: 100%; border-collapse: collapse; }
 th { text-align: left; font-size: 11px; font-weight: 600; color: var(--muted);

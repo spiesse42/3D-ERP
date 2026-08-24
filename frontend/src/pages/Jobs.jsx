@@ -1,11 +1,25 @@
 import { useState, useEffect } from 'react';
 import { usePrinterData } from '../lib/usePrinterData.js';
 import { useSearchParams } from 'react-router-dom';
-import { api } from '../lib/api.js';
+import { api, BASE } from '../lib/api.js';
 import KostenModal from '../components/KostenModal.jsx';
 import PrinterCard from '../components/PrinterCard.jsx';
 
-const STATUSSEN = ['in te plannen','gepland','bezig','voltooid','gecontroleerd','gefactureerd','betaald','gefaald','geannuleerd'];
+// Sinds de werkbon/printopdracht-ontkoppeling (sessienotities deel 11) is
+// jobs.status uitsluitend nog een PRODUCTIEstatus — de facturatie-lifecycle
+// (gecontroleerd/gefactureerd/betaald) leeft voortaan op de werkbon.
+const PRODUCTIE_STATUSSEN = ['in te plannen', 'gepland', 'bezig', 'voltooid', 'gefaald', 'geannuleerd'];
+const WERKBON_STATUSSEN = ['in te plannen', 'gepland', 'bezig', 'voltooid', 'gecontroleerd', 'gefactureerd', 'betaald', 'gefaald', 'geannuleerd'];
+
+// Zelfde labels als REGEL_TYPE_LABELS in backend/routes/werkbonnen.js —
+// bewust een eigen frontend-kopie, zelfde conventie als elders in de app.
+const REGEL_TYPE_LABELS = {
+  ontwerp: 'Ontwerp',
+  aanpassing: 'Aanpassing',
+  printen: 'Printen',
+  extra: 'Extra',
+  artikel: 'Artikel',
+};
 
 // Statuswaarden kunnen spaties bevatten (bv. "in te plannen") — CSS-classnamen
 // mogen geen spaties bevatten, dus voor de badge-klasse zetten we die om naar
@@ -26,6 +40,53 @@ function toFileUrl(pad) {
 // Enkel als een "echt" pad-achtig iets (map + bestand), niet een blote bestandsnaam
 function isVolledigPad(pad) {
   return !!pad && (pad.includes('/') || pad.includes('\\'));
+}
+
+// Uit de bevroren werkbon_regels_json op een job de regel-omschrijving
+// halen — voor de "gekoppeld aan"-badge op de Printopdrachten-tabel.
+function werkbonRegelLabel(j) {
+  if (!j.werkbon_id) return null;
+  let regel = null;
+  try {
+    const regels = JSON.parse(j.werkbon_regels_json || '[]');
+    regel = regels[j.werkbon_regel_index];
+  } catch { /* regels_json ontbreekt/ongeldig — val terug op enkel het volgnummer */ }
+  const naam = regel?.object_naam || `regel ${(j.werkbon_regel_index ?? 0) + 1}`;
+  return `${j.werkbon_volgnummer} · ${naam}`;
+}
+
+// Korte inhoudspreview van een werkbon (voor de rij vóór het uitklappen) —
+// gebaseerd op de object-namen van de regels.
+function werkbonOmschrijving(w) {
+  let regels = [];
+  try { regels = JSON.parse(w.regels_json || '[]'); } catch { regels = []; }
+  const namen = regels.map(r => r.object_naam).filter(Boolean);
+  if (!namen.length) return <span style={{ color: 'var(--muted)' }}>—</span>;
+  return namen.length > 2 ? `${namen.slice(0, 2).join(', ')} +${namen.length - 2}` : namen.join(', ');
+}
+
+// Hoeveel van de printen-regels op deze werkbon al een gekoppelde
+// printopdracht hebben — gebaseerd op de al-geladen jobs-lijst (geen aparte
+// fetch nodig). Regels van een ander type ("geen printopdracht nodig") tellen
+// niet mee.
+function KoppelBadge({ werkbon, jobs }) {
+  let regels = [];
+  try { regels = JSON.parse(werkbon.regels_json || '[]'); } catch { regels = []; }
+  const printenCount = regels.filter(r => r.type === 'printen').length;
+  if (printenCount === 0) {
+    return <span className="badge" style={{ background: 'var(--bg3)', color: 'var(--muted)' }}>geen printopdracht nodig</span>;
+  }
+  const gekoppeldeIdx = new Set(
+    jobs.filter(j => j.werkbon_id === werkbon.id && j.werkbon_regel_index != null).map(j => j.werkbon_regel_index)
+  );
+  let gekoppeld = 0;
+  regels.forEach((r, i) => { if (r.type === 'printen' && gekoppeldeIdx.has(i)) gekoppeld++; });
+  const volledig = gekoppeld === printenCount;
+  return (
+    <span className="badge" style={{ background: volledig ? '#1e3a2a' : '#3a2a12', color: volledig ? '#34d399' : '#fbbf24' }}>
+      {gekoppeld} / {printenCount} gekoppeld
+    </span>
+  );
 }
 
 function JobModal({ job, printers, klanten, onClose, onSaved }) {
@@ -89,7 +150,7 @@ const [form, setForm] = useState(job ? {
         <div className="form-row">
           <div className="form-group"><label>Status</label>
             <select value={form.status} onChange={e => set('status', e.target.value)}>
-              {STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
+              {PRODUCTIE_STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           <div className="form-group"><label>Print uren (geschat)</label>
@@ -132,6 +193,254 @@ const [form, setForm] = useState(job ? {
   );
 }
 
+// Gekoppeld-cel voor een losse printopdracht (Printopdrachten-tabel én
+// detailpaneel) — toont ofwel de gekoppelde werkbon-regel met een
+// ontkoppelknop, ofwel een select om meteen aan een openstaande werkbon-regel
+// te koppelen.
+function GekoppeldCel({ job, koppelbareRegels, onKoppel, onOntkoppel }) {
+  if (job.werkbon_id) {
+    return (
+      <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+        <span className="badge werkbon-link">{werkbonRegelLabel(job)}</span>
+        <button className="btn danger" style={{ fontSize:10, padding:'3px 7px' }} title="Ontkoppelen"
+          onClick={() => onOntkoppel(job)}>✕</button>
+      </div>
+    );
+  }
+  if (job.type !== 'print') return <span style={{ color:'var(--muted)', fontSize:11 }}>n.v.t.</span>;
+  if (!koppelbareRegels.length) return <span style={{ color:'var(--muted)', fontSize:11 }}>— niet gekoppeld</span>;
+  return (
+    <select style={{ fontSize:11, padding:'4px 6px', width:'auto' }} value=""
+      onChange={e => {
+        const [wid, idx] = e.target.value.split(':');
+        if (wid) onKoppel(job.id, parseInt(wid), parseInt(idx));
+      }}>
+      <option value="">— koppelen —</option>
+      {koppelbareRegels.map(rg => (
+        <option key={`${rg.werkbon_id}:${rg.regel_index}`} value={`${rg.werkbon_id}:${rg.regel_index}`}>
+          {rg.werkbon_volgnummer} · {rg.object_naam || `regel ${rg.regel_index + 1}`} ({rg.klant_naam})
+        </option>
+      ))}
+    </select>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Tabblad Werkbons — facturatiedocumenten, los van de printopdrachten.
+// Elke rij is uitklapbaar naar de regels + het koppel-widget per
+// printen-regel + financieel overzicht + status/betaald/PDF/mail.
+// ═══════════════════════════════════════════════════════════════════════
+function WerkbonnenTab({ jobs, reloadJobs }) {
+  const [werkbonnen, setWerkbonnen] = useState([]);
+  const [openId, setOpenId] = useState(null);
+  const [details, setDetails] = useState({});
+  const [laden, setLaden] = useState(true);
+
+  const loadList = () => api.get('/werkbonnen').then(setWerkbonnen).catch(e => alert('Kon werkbons niet laden: ' + e.message));
+  const loadDetail = (id) => api.get(`/werkbonnen/${id}`).then(d => setDetails(prev => ({ ...prev, [id]: d }))).catch(e => alert(e.message));
+
+  useEffect(() => { loadList().finally(() => setLaden(false)); }, []);
+
+  function toggle(w) {
+    const willOpen = openId !== w.id;
+    setOpenId(willOpen ? w.id : null);
+    if (willOpen) loadDetail(w.id);
+  }
+
+  async function ontkoppel(werkbonId, idx, jobId) {
+    if (!confirm('Deze printopdracht ontkoppelen van de werkbon?')) return;
+    try {
+      await api.delete(`/werkbonnen/${werkbonId}/regels/${idx}/koppel/${jobId}`);
+      loadDetail(werkbonId); loadList(); reloadJobs();
+    } catch (e) { alert(e.message); }
+  }
+
+  async function koppel(werkbonId, idx, jobId) {
+    try {
+      await api.post(`/werkbonnen/${werkbonId}/regels/${idx}/koppel`, { job_id: jobId });
+      loadDetail(werkbonId); loadList(); reloadJobs();
+    } catch (e) { alert(e.message); }
+  }
+
+  async function nieuwePrintopdracht(werkbonId, idx) {
+    if (!confirm('Nieuwe printopdracht aanmaken vanuit deze regel? Printer/materiaal worden overgenomen van de regel.')) return;
+    try {
+      await api.post(`/werkbonnen/${werkbonId}/regels/${idx}/nieuwe-printopdracht`);
+      loadDetail(werkbonId); loadList(); reloadJobs();
+    } catch (e) { alert(e.message); }
+  }
+
+  async function gebruikGemetenData(werkbonId, idx, jobId) {
+    try {
+      await api.post(`/werkbonnen/${werkbonId}/regels/${idx}/gebruik-gemeten-data`, { job_id: jobId });
+      loadDetail(werkbonId); loadList();
+    } catch (e) { alert(e.message); }
+  }
+
+  async function zetStatus(werkbonId, status) {
+    try {
+      await api.patch(`/werkbonnen/${werkbonId}/status`, { status });
+      loadDetail(werkbonId); loadList();
+    } catch (e) { alert(e.message); }
+  }
+
+  async function zetBetaald(werkbonId, betaald) {
+    try {
+      await api.patch(`/werkbonnen/${werkbonId}/betaald`, { betaald });
+      loadDetail(werkbonId); loadList();
+    } catch (e) { alert(e.message); }
+  }
+
+  async function stuurMail(werkbonId, to) {
+    try {
+      await api.post(`/werkbonnen/${werkbonId}/email`, { to });
+      alert('Werkbon verstuurd naar ' + to);
+    } catch (e) { alert('Versturen mislukt: ' + e.message); }
+  }
+
+  if (laden) return <div className="empty">Laden...</div>;
+  if (!werkbonnen.length) return <div className="empty">Geen werkbons gevonden</div>;
+
+  const onbekoppeldeJobs = jobs.filter(j => j.type === 'print' && !j.werkbon_id);
+
+  return (
+    <div className="card" style={{ padding: 0 }}>
+      <table>
+        <thead>
+          <tr>
+            <th style={{ width: 20 }}></th>
+            <th>Werkbon</th>
+            <th>Klant</th>
+            <th>Status</th>
+            <th>Prijs</th>
+            <th>Betaald</th>
+            <th>Printopdrachten</th>
+          </tr>
+        </thead>
+        <tbody>
+          {werkbonnen.flatMap(w => {
+            const open = openId === w.id;
+            const detail = details[w.id];
+            const rows = [];
+            rows.push(
+                <tr key={w.id} style={{ cursor: 'pointer', background: open ? 'var(--bg3)' : undefined }} onClick={() => toggle(w)}>
+                  <td style={{ color: 'var(--muted)' }}>{open ? '▾' : '▸'}</td>
+                  <td>
+                    <div style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12, color: 'var(--accent)' }}>{w.volgnummer}</div>
+                    <div style={{ fontSize: 12, marginTop: 2 }}>{werkbonOmschrijving(w)}</div>
+                  </td>
+                  <td>{w.klant_voornaam ? `${w.klant_voornaam} ${w.klant_naam}` : w.klant_naam}</td>
+                  <td><span className={`badge ${statusKlasse(w.status)}`}>{w.status}</span></td>
+                  <td>€{(w.totaal ?? 0).toFixed(2)}</td>
+                  <td>{w.betaald
+                    ? <span style={{ color: 'var(--accent2)' }}>✓{w.betaald_op ? ' ' + w.betaald_op.split('T')[0] : ''}</span>
+                    : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
+                  <td><KoppelBadge werkbon={w} jobs={jobs} /></td>
+                </tr>
+            );
+            if (open) {
+              rows.push(
+                <tr key={`${w.id}-detail`}>
+                    <td colSpan={7} style={{ background: 'var(--bg)', padding: '1rem 1.25rem' }}>
+                      {!detail ? <div style={{ color: 'var(--muted)' }}>Laden...</div> : (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 24 }}>
+                          <div>
+                            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 8 }}>
+                              Regels op deze werkbon
+                            </div>
+                            {detail.regels.map((regel, idx) => (
+                              <div key={idx} className="card" style={{ marginBottom: 8, padding: '0.6rem 0.75rem' }}>
+                                <div>
+                                  <span className="badge" style={{ background: 'var(--bg3)', color: 'var(--muted)', marginRight: 6 }}>
+                                    {REGEL_TYPE_LABELS[regel.type] || regel.type}
+                                  </span>
+                                  <span style={{ fontWeight: 500 }}>{regel.object_naam || REGEL_TYPE_LABELS[regel.type]}</span>
+                                </div>
+                                {regel.type !== 'printen' ? (
+                                  <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)', fontStyle: 'italic' }}>
+                                    Geen printopdracht van toepassing op dit regeltype.
+                                  </div>
+                                ) : (
+                                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)' }}>
+                                    {(regel.gekoppelde_jobs || []).length > 0 ? regel.gekoppelde_jobs.map(job => (
+                                      <div key={job.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12, flexWrap: 'wrap' }}>
+                                        <span className={`badge ${statusKlasse(job.status)}`}>{job.status}</span>
+                                        <span style={{ flex: 1, minWidth: 120 }}>{job.naam}{job.printer_naam ? ` · ${job.printer_naam}` : ''}</span>
+                                        {job.verkoopprijs != null && (
+                                          <button className="btn" style={{ fontSize: 10, padding: '3px 7px' }}
+                                            onClick={() => gebruikGemetenData(w.id, idx, job.id)}>
+                                            Gebruik gemeten data (€{job.verkoopprijs.toFixed(2)})
+                                          </button>
+                                        )}
+                                        <button className="btn danger" style={{ fontSize: 10, padding: '3px 7px' }}
+                                          onClick={() => ontkoppel(w.id, idx, job.id)}>✕ Ontkoppel</button>
+                                      </div>
+                                    )) : (
+                                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Nog geen printopdracht gekoppeld.</div>
+                                    )}
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                      {onbekoppeldeJobs.length > 0 && (
+                                        <select style={{ fontSize: 11, padding: '4px 6px', width: 'auto' }} value=""
+                                          onChange={e => { if (e.target.value) koppel(w.id, idx, parseInt(e.target.value)); }}>
+                                          <option value="">Koppel bestaande printopdracht…</option>
+                                          {onbekoppeldeJobs.map(j => (
+                                            <option key={j.id} value={j.id}>{j.naam} · {j.printer_naam} · {j.status}</option>
+                                          ))}
+                                        </select>
+                                      )}
+                                      <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
+                                        onClick={() => nieuwePrintopdracht(w.id, idx)}>+ Nieuwe printopdracht</button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+
+                          <div>
+                            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 8 }}>
+                              Financieel
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Vrijgesteld van BTW — art. 56bis</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 16, padding: '6px 0', borderTop: '1px solid var(--border)', marginBottom: 12 }}>
+                              <span>Totaal</span><span style={{ color: 'var(--accent2)' }}>€{(detail.totaal ?? 0).toFixed(2)}</span>
+                            </div>
+
+                            <div className="form-group">
+                              <label>Status</label>
+                              <select value={detail.status} onChange={e => zetStatus(w.id, e.target.value)}>
+                                {WERKBON_STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                              <input type="checkbox" checked={!!detail.betaald}
+                                style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent2)' }}
+                                onChange={e => zetBetaald(w.id, e.target.checked)} />
+                              <span>Betaald</span>
+                              {detail.betaald_op && <span style={{ color: 'var(--muted)', fontSize: 11 }}>{detail.betaald_op.split('T')[0]}</span>}
+                            </div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <a className="btn" href={`${BASE}/werkbonnen/${w.id}/pdf`} download>↓ PDF</a>
+                              <button className="btn" onClick={() => {
+                                const to = prompt('E-mailadres', detail.email || '');
+                                if (to) stuurMail(w.id, to);
+                              }}>✉ Mail</button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </td>
+                </tr>
+              );
+            }
+            return rows;
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function Jobs() {
   const [jobs,        setJobs]        = useState([]);
   const [printers,    setPrinters]    = useState([]);
@@ -141,6 +450,8 @@ export default function Jobs() {
   const [filter,      setFilter]      = useState('');
   const [zoekVolgnummer, setZoekVolgnummer] = useState('');
   const [selectedJob, setSelectedJob] = useState(null);
+  const [tab,          setTab]         = useState('printopdrachten');
+  const [koppelbareRegels, setKoppelbareRegels] = useState([]);
   const { printerConfig, printerData, reloadPrinterConfig } = usePrinterData();
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get('highlight') ? parseInt(searchParams.get('highlight')) : null;
@@ -149,9 +460,11 @@ export default function Jobs() {
     setJobs(data);
     setSelectedJob(prev => prev ? data.find(j => j.id === prev.id) || null : null);
   });
+  const loadKoppelbaar = () => api.get('/werkbonnen/regels/koppelbaar').then(setKoppelbareRegels).catch(() => {});
 
   useEffect(() => {
     loadJobs();
+    loadKoppelbaar();
     api.get('/printers').then(setPrinters).catch(e => alert('Kon printers niet laden: ' + e.message));
     api.get('/klanten').then(setKlanten).catch(e => alert('Kon klanten niet laden: ' + e.message));
     const interval = setInterval(loadJobs, 10000);
@@ -173,20 +486,36 @@ export default function Jobs() {
     } catch(e) { alert(e.message); }
   }
 
+  async function koppelJobAanRegel(jobId, werkbonId, idx) {
+    try {
+      await api.post(`/werkbonnen/${werkbonId}/regels/${idx}/koppel`, { job_id: jobId });
+      loadJobs(); loadKoppelbaar();
+    } catch (e) { alert(e.message); }
+  }
+
+  async function ontkoppelJob(job) {
+    if (!confirm('Deze printopdracht ontkoppelen van de werkbon?')) return;
+    try {
+      await api.delete(`/werkbonnen/${job.werkbon_id}/regels/${job.werkbon_regel_index}/koppel/${job.id}`);
+      loadJobs(); loadKoppelbaar();
+    } catch (e) { alert(e.message); }
+  }
 
   return (
     <div>
       <div className="page-header">
         <h1>Jobs</h1>
-        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-          <select value={filter} onChange={e => setFilter(e.target.value)} style={{ width:'auto' }}>
-            <option value="">Alle statussen</option>
-            {STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <input value={zoekVolgnummer} onChange={e => setZoekVolgnummer(e.target.value)}
-            placeholder="Zoek op volgnummer..." style={{ width:170 }} />
-          <button className="btn primary" onClick={() => setModal({})}>+ Nieuwe job</button>
-        </div>
+        {tab === 'printopdrachten' && (
+          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <select value={filter} onChange={e => setFilter(e.target.value)} style={{ width:'auto' }}>
+              <option value="">Alle statussen</option>
+              {PRODUCTIE_STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <input value={zoekVolgnummer} onChange={e => setZoekVolgnummer(e.target.value)}
+              placeholder="Zoek op volgnummer..." style={{ width:170 }} />
+            <button className="btn primary" onClick={() => setModal({})}>+ Nieuwe job</button>
+          </div>
+        )}
       </div>
 
       <div style={{ display:'flex', gap:'1rem', marginBottom:'1.5rem' }}>
@@ -209,13 +538,21 @@ export default function Jobs() {
         ))}
       </div>
 
+      <div style={{ display:'flex', gap:4, marginBottom:'1rem' }}>
+        <button className={`btn${tab === 'printopdrachten' ? ' primary' : ''}`} onClick={() => setTab('printopdrachten')}>Printopdrachten</button>
+        <button className={`btn${tab === 'werkbonnen' ? ' primary' : ''}`} onClick={() => setTab('werkbonnen')}>Werkbons</button>
+      </div>
+
+      {tab === 'werkbonnen' ? (
+        <WerkbonnenTab jobs={jobs} reloadJobs={() => { loadJobs(); loadKoppelbaar(); }} />
+      ) : (
       <div style={{ display:'grid', gridTemplateColumns: selectedJob ? '1fr 380px' : '1fr', gap:'1rem', alignItems:'start' }}>
       <div>
       {filtered.length === 0
         ? <div className="empty">Geen jobs gevonden</div>
         : <div className="card" style={{ padding:0 }}>
             <table>
-<thead><tr><th>Naam</th><th>Klant</th><th>Printer</th><th>Status</th><th>Uren</th><th>Prijs</th><th>Betaald</th><th>Acties</th></tr></thead>
+<thead><tr><th>Naam</th><th>Klant</th><th>Printer</th><th>Status</th><th>Uren</th><th>Prijs</th><th>Gekoppeld</th><th>Acties</th></tr></thead>
 	<tbody>
                 {filtered.map(j => (
                   <tr key={j.id}
@@ -250,22 +587,7 @@ export default function Jobs() {
                         : <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span>
                       : <span style={{ color:'var(--muted)' }}>—</span>}</td>
                     <td onClick={e => e.stopPropagation()}>
-                      {['voltooid','gecontroleerd','gefactureerd','betaald'].includes(j.status)
-                        ? <input type="checkbox"
-                            checked={j.status === 'betaald'}
-                            style={{ width:16, height:16, cursor:'pointer', accentColor:'var(--accent2)' }}
-                            onChange={async e => {
-                              try {
-                                if (e.target.checked) {
-                                  await api.patch(`/jobs/${j.id}/status`, { status: 'betaald' });
-                                } else {
-                                  await api.patch(`/jobs/${j.id}/status`, { status: 'gefactureerd' });
-                                }
-                                loadJobs();
-                              } catch(err) { alert(err.message); }
-                            }} />
-                        : <span style={{ color:'var(--muted)' }}>—</span>
-                      }
+                      <GekoppeldCel job={j} koppelbareRegels={koppelbareRegels} onKoppel={koppelJobAanRegel} onOntkoppel={ontkoppelJob} />
                     </td>
                     <td>
                       <div style={{ display:'flex', gap:6 }}>
@@ -314,6 +636,12 @@ export default function Jobs() {
             )}
           </div>
 
+          {/* Gekoppelde werkbon */}
+          <div style={{ marginBottom:'0.75rem' }}>
+            <div style={{ color:'var(--muted)', fontSize:10, marginBottom:4 }}>Gekoppelde werkbon</div>
+            <GekoppeldCel job={selectedJob} koppelbareRegels={koppelbareRegels} onKoppel={koppelJobAanRegel} onOntkoppel={ontkoppelJob} />
+          </div>
+
           {/* Details grid */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:5, fontSize:12, marginBottom:'0.75rem' }}>
             {[
@@ -359,25 +687,9 @@ export default function Jobs() {
                 loadJobs();
               } catch(err) { alert(err.message); }
             }}>
-              {STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
+              {PRODUCTIE_STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
-
-          {/* Betaald */}
-          {selectedJob.status === 'voltooid' && selectedJob.klant_id && (
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:'0.75rem', fontSize:13 }}>
-              <input type="checkbox" checked={!!selectedJob.betaald}
-                style={{ width:16, height:16, cursor:'pointer', accentColor:'var(--accent2)' }}
-                onChange={async e => {
-                  try {
-                    await api.patch(`/jobs/${selectedJob.id}/betaald`, { betaald: e.target.checked });
-                    loadJobs();
-                  } catch(err) { alert(err.message); }
-                }} />
-              <span>Betaald</span>
-              {selectedJob.betaald_op && <span style={{ color:'var(--muted)', fontSize:11 }}>{selectedJob.betaald_op.split('T')[0]}</span>}
-            </div>
-          )}
 
           {/* Notities */}
           {selectedJob.notities && (
@@ -395,6 +707,7 @@ export default function Jobs() {
         </div>
       )}
       </div>
+      )}
 
       {modal !== null && (
         <JobModal job={modal?.id ? modal : null} printers={printers} klanten={klanten}

@@ -186,6 +186,43 @@ r.get('/', (req, res) => {
   res.json(db.prepare(sql).all(...params));
 });
 
+// ── GET printen-regels die nog een printopdracht kunnen koppelen ───────
+// Voor de koppel-widget vanuit een LOSSE printopdracht (Jobs-tab, tabblad
+// Printopdrachten, kolom "Gekoppeld") — daar moet je net andersom kunnen
+// zoeken: "bij welke werkbon-regel hoort deze print?". Enkel regels van
+// nog-niet-afgesloten werkbonnen (een koppeling op een al gefactureerde/
+// betaalde/geannuleerde werkbon zou de bevroren prijs toch nooit meer
+// beïnvloeden). Bewust GEEN filter op "al gekoppeld" — 1 regel mag
+// meerdere printopdrachten hebben (mislukte poging + herprint).
+// Let op: deze route moet vóór GET /:id geregistreerd staan, anders vangt
+// die "regels" op als :id.
+r.get('/regels/koppelbaar', (req, res) => {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT w.id as werkbon_id, w.volgnummer as werkbon_volgnummer, w.regels_json,
+      k.naam as klant_naam, k.voornaam as klant_voornaam
+    FROM werkbonnen w JOIN klanten k ON k.id = w.klant_id
+    WHERE w.status NOT IN ('gefactureerd', 'betaald', 'geannuleerd')
+    ORDER BY w.aangemaakt_op DESC
+  `).all();
+  const resultaat = [];
+  for (const w of rows) {
+    let regels = [];
+    try { regels = JSON.parse(w.regels_json || '[]'); } catch { regels = []; }
+    regels.forEach((regel, idx) => {
+      if (regel.type !== 'printen') return;
+      resultaat.push({
+        werkbon_id: w.werkbon_id,
+        werkbon_volgnummer: w.werkbon_volgnummer,
+        klant_naam: w.klant_voornaam ? `${w.klant_voornaam} ${w.klant_naam}` : w.klant_naam,
+        regel_index: idx,
+        object_naam: regel.object_naam || null,
+      });
+    });
+  }
+  res.json(resultaat);
+});
+
 // ── GET 1 werkbon (incl. gekoppelde printopdrachten per regel) ─────────
 r.get('/:id', (req, res) => {
   const db = getDb();
