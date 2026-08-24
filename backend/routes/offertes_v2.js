@@ -381,6 +381,12 @@ function valideerRegels(regels) {
         return `Aantal moet groter zijn dan 0 (regel "${regel.object_naam || regel.type}")`;
       }
     }
+    if (regel.handmatig_bedrag !== undefined && regel.handmatig_bedrag !== null && regel.handmatig_bedrag !== '') {
+      const n = parseFloat(regel.handmatig_bedrag);
+      if (!Number.isFinite(n) || n < 0) {
+        return `Handmatig bedrag moet 0 of hoger zijn (regel "${regel.object_naam || regel.type}")`;
+      }
+    }
   }
   return null;
 }
@@ -389,21 +395,45 @@ function valideerRegels(regels) {
 // (klein/groot tarief) wordt bepaald door de SOM van de geschatte tijd van
 // alle 'printen'-regels samen — zelfde principe als vroeger met 1
 // hoofdobject, nu opgeteld over eventueel meerdere printen-regels.
+//
+// Twee doorgangen: de marge (klein/groot%) hangt af van de totale printtijd,
+// die zelf niet beïnvloed wordt door een handmatige bedrag-aanpassing —
+// daarom eerst de "natuurlijke" (berekende) waarde per regel bepalen, dán
+// pas de marge vaststellen, en pas dáárna een eventuele handmatig_bedrag-
+// override toepassen. Zo'n override is het EINDBEDRAG (incl. marge, exact
+// wat de gebruiker in de offerte-regel intypt) en wordt vóór de marge-
+// vermenigvuldiging "teruggerekend" (gedeeld door de margefactor, behalve
+// bij vaste-prijs-regels die toch al geen marge krijgen) zodat het bedrag
+// dat straks overal getoond wordt (live-preview, PDF, detail) exact het
+// ingetypte bedrag blijft, ook al zit er de normale marge-vermenigvuldiging
+// nog overheen. BTW blijft normaal op deze regel berekend — een handmatige
+// aanpassing is een prijscorrectie, geen vaste-prijs-artikel.
+//
 // Retourneert regels MET hun berekening ingebed (regel._berekend) — dat is
 // precies wat er in regels_json bewaard wordt, zodat een latere PDF/detail-
 // weergave die bevroren waarden gewoon uitleest i.p.v. te herberekenen.
 function berekenOfferteRegels(db, regels, t) {
-  let subtotaal_marge = 0, subtotaal_vast = 0, totale_tijd_u = 0;
-  const berekend = (regels || []).map(regel => {
-    const r = berekenRegel(db, regel, t);
-    if (r.vaste_prijs) subtotaal_vast += r.bedrag; else subtotaal_marge += r.bedrag;
-    totale_tijd_u += r.tijd_u || 0;
-    return { ...regel, _berekend: r };
-  });
+  const natuurlijk = (regels || []).map(regel => berekenRegel(db, regel, t));
+  const totale_tijd_u = natuurlijk.reduce((s, r) => s + (r.tijd_u || 0), 0);
 
   const marge_grens = getalOfDefault(t.marge_grens_uur, 4);
   const marge_pct = totale_tijd_u >= marge_grens ? (getalOfDefault(t.marge_groot_pct, 10)) : (getalOfDefault(t.marge_klein_pct, 18));
-  const verkoopprijs_basis = subtotaal_marge * (1 + marge_pct / 100);
+  const margeFactor = 1 + marge_pct / 100;
+
+  let subtotaal_marge = 0, subtotaal_vast = 0;
+  const berekend = (regels || []).map((regel, i) => {
+    let r = natuurlijk[i];
+    const override = parseFloat(regel.handmatig_bedrag);
+    const heeftOverride = regel.handmatig_bedrag !== undefined && regel.handmatig_bedrag !== null
+      && regel.handmatig_bedrag !== '' && Number.isFinite(override);
+    if (heeftOverride) {
+      r = { ...r, bedrag: r.vaste_prijs ? override : override / margeFactor, handmatig: true };
+    }
+    if (r.vaste_prijs) subtotaal_vast += r.bedrag; else subtotaal_marge += r.bedrag;
+    return { ...regel, _berekend: r };
+  });
+
+  const verkoopprijs_basis = subtotaal_marge * margeFactor;
   const verkoopprijs = verkoopprijs_basis + subtotaal_vast;
 
   return {

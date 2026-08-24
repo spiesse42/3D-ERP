@@ -119,17 +119,34 @@ function berekenRegelClient(regel, tarieven, allRollen, printers, filamentTypes)
   return { bedrag: 0, vaste_prijs: false, tijd_u: 0 };
 }
 
+// Twee doorgangen — zelfde reden/aanpak als de backend-tegenhanger
+// berekenOfferteRegels(): de marge-drempel hangt af van de totale printtijd
+// (onafhankelijk van een handmatige bedrag-aanpassing), dus eerst de
+// natuurlijke waarde + tijd bepalen, dán de marge, en pas dáárna een
+// eventuele handmatig_bedrag-override (= het EINDBEDRAG incl. marge, exact
+// wat de gebruiker intypt) terugrekenen naar de waarde vóór marge.
 function berekenOfferteRegelsClient(regels, tarieven, allRollen, printers, filamentTypes) {
-  let margeSom = 0, vastSom = 0, tijdSom = 0;
-  const berekend = (regels || []).map(regel => {
-    const r = berekenRegelClient(regel, tarieven, allRollen, printers, filamentTypes);
-    if (r.vaste_prijs) vastSom += r.bedrag; else margeSom += r.bedrag;
-    tijdSom += r.tijd_u || 0;
-    return { ...regel, _berekend: r };
-  });
+  const natuurlijk = (regels || []).map(regel => berekenRegelClient(regel, tarieven, allRollen, printers, filamentTypes));
+  const tijdSom = natuurlijk.reduce((s, r) => s + (r.tijd_u || 0), 0);
+
   const margeGrens = tarieven.marge_grens_uur || 4;
   const marge_pct = tijdSom >= margeGrens ? (tarieven.marge_groot_pct || 10) : (tarieven.marge_klein_pct || 18);
-  const verkoopprijs_basis = margeSom * (1 + marge_pct / 100);
+  const margeFactor = 1 + marge_pct / 100;
+
+  let margeSom = 0, vastSom = 0;
+  const berekend = (regels || []).map((regel, i) => {
+    let r = natuurlijk[i];
+    const override = parseFloat(regel.handmatig_bedrag);
+    const heeftOverride = regel.handmatig_bedrag !== undefined && regel.handmatig_bedrag !== null
+      && regel.handmatig_bedrag !== '' && Number.isFinite(override);
+    if (heeftOverride) {
+      r = { ...r, bedrag: r.vaste_prijs ? override : override / margeFactor, handmatig: true };
+    }
+    if (r.vaste_prijs) vastSom += r.bedrag; else margeSom += r.bedrag;
+    return { ...regel, _berekend: r };
+  });
+
+  const verkoopprijs_basis = margeSom * margeFactor;
   const verkoopprijs = verkoopprijs_basis + vastSom;
   return { regels: berekend, marge_pct, verkoopprijs_basis, verkoopprijs };
 }
@@ -408,8 +425,18 @@ function ArtikelVelden({ regel, onChange, artikelTypes }) {
 }
 
 // 1 kaart per regel — kiest bovenaan het type + objectnaam, toont daaronder
-// de type-specifieke velden. bedrag (indien gekend) wordt rechtsboven getoond.
-function RegelCard({ regel, index, onChange, onChangeSilent, onRemove, printFilamentTypes, artikelTypes, allRollen, printers, tarieven, bedrag }) {
+// de type-specifieke velden. Het eindbedrag (incl. marge, indien gekend)
+// wordt rechtsboven getoond — en is hier zelf ook aanpasbaar: normaal staat
+// hier gewoon het berekende bedrag, maar je kan er manueel overheen typen om
+// een ander eindbedrag voor deze regel af te dwingen (bv. een ronde prijs of
+// een uitzondering). Dat overschreven bedrag wordt vóór de marge-berekening
+// "teruggerekend" zodat precies dit bedrag overal (preview/PDF/detail)
+// getoond blijft — zie berekenOfferteRegelsClient()/berekenOfferteRegels()
+// in de backend. BTW blijft er wél gewoon op berekend, dit is geen vaste-
+// prijs-artikel. Een ↺-knopje verschijnt zodra er een override actief is, om
+// terug te schakelen naar het berekende bedrag.
+function RegelCard({ regel, index, onChange, onChangeSilent, onRemove, printFilamentTypes, artikelTypes, allRollen, printers, tarieven, bedrag, handmatig }) {
+  const bedragWeergave = regel.handmatig_bedrag ?? (typeof bedrag === 'number' ? bedrag.toFixed(2) : '');
   return (
     <div style={{ background:'var(--bg3)', border:'1px solid var(--border)', borderRadius:'var(--radius)', marginBottom:10, overflow:'hidden' }}>
       <div style={{ display:'flex', gap:8, alignItems:'center', padding:'0.6rem 0.75rem', background:'rgba(91,141,238,.06)', borderBottom:'1px solid var(--border)' }}>
@@ -420,7 +447,21 @@ function RegelCard({ regel, index, onChange, onChangeSilent, onRemove, printFila
         </select>
         <input value={regel.object_naam || ''} onChange={e => onChange({ object_naam: e.target.value })}
           placeholder="Objectnaam / omschrijving" style={{ flex:1, fontSize:12 }} />
-        {typeof bedrag === 'number' && <span style={{ fontSize:12, color:'var(--accent2)', whiteSpace:'nowrap', fontWeight:500 }}>€{bedrag.toFixed(2)}</span>}
+        {typeof bedrag === 'number' && (
+          <div style={{ display:'flex', alignItems:'center', gap:3 }}>
+            <span style={{ fontSize:11, color:'var(--muted)' }}>€</span>
+            <input
+              type="number" min="0" step="0.01" value={bedragWeergave}
+              onChange={e => onChange({ handmatig_bedrag: e.target.value })}
+              title={handmatig ? 'Handmatig aangepast eindbedrag — klik ↺ om terug te zetten naar het berekende bedrag' : 'Berekend eindbedrag — pas eventueel manueel aan'}
+              style={{ width:76, fontSize:12, fontWeight:500, textAlign:'right', color: handmatig ? 'var(--warn)' : 'var(--accent2)' }}
+            />
+            {handmatig && (
+              <button type="button" onClick={() => onChange({ handmatig_bedrag: undefined })} title="Terug naar berekend bedrag"
+                style={{ background:'none', border:'none', color:'var(--muted)', cursor:'pointer', fontSize:13, lineHeight:1, padding:0 }}>↺</button>
+            )}
+          </div>
+        )}
         <button onClick={onRemove} style={{ background:'none', border:'none', color:'var(--danger)', cursor:'pointer', fontSize:15, lineHeight:1 }}>✕</button>
       </div>
       <div style={{ padding:'0.75rem 0.85rem' }}>
@@ -501,6 +542,10 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
       if (r.type === 'printen' && !r.filament_rol_id) return alert('Selecteer voor elke "Printen"-regel een filamentrol');
       if (r.type === 'printen' && r.is_multicolor && (r.filament_rollen || []).some(fr => !fr.filament_rol_id))
         return alert('Selecteer voor elke kleur een filamentrol');
+      if (r.handmatig_bedrag !== undefined && r.handmatig_bedrag !== null && r.handmatig_bedrag !== '') {
+        const n = parseFloat(r.handmatig_bedrag);
+        if (!Number.isFinite(n) || n < 0) return alert(`Handmatig bedrag moet 0 of hoger zijn (regel "${r.object_naam || r.type}")`);
+      }
     }
     setSaving(true);
     try {
@@ -573,7 +618,7 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
                 onRemove={() => verwijderRegel(i)}
                 printFilamentTypes={printFilamentTypes} artikelTypes={artikelTypes}
                 allRollen={allRollen} printers={printers} tarieven={tarieven}
-                bedrag={bedrag}
+                bedrag={bedrag} handmatig={!!berekend?.handmatig}
               />
             );
           })}
