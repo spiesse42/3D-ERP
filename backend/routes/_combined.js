@@ -351,46 +351,48 @@ rapportage.get('/dashboard/operationeel', (req, res) => {
     LIMIT 20
   `).all();
 
+  // Sinds de werkbon/printopdracht-ontkoppeling (zie sessie-notities deel 11)
+  // leeft de facturatiestatus (gecontroleerd/gefactureerd/betaald) niet meer
+  // op jobs.status — die kolom is voortaan een zuivere productiestatus. Deze
+  // rapportage leest daarom nu de werkbonnen.
   const controle_facturatie = db.prepare(`
-    SELECT j.*, k.naam as klant_naam, k.voornaam as klant_voornaam, p.naam as printer_naam,
-      jk.verkoopprijs
-    FROM jobs j
-    LEFT JOIN klanten k ON k.id = j.klant_id
-    LEFT JOIN printers p ON p.id = j.printer_id
-    LEFT JOIN job_kosten jk ON jk.job_id = j.id
-    WHERE j.status IN ('gecontroleerd','gefactureerd')
-      AND j.klant_id IS NOT NULL
-      AND (j.betaald = 0 OR j.betaald IS NULL)
-    ORDER BY j.voltooid_op DESC
+    SELECT w.*, k.naam as klant_naam, k.voornaam as klant_voornaam
+    FROM werkbonnen w
+    LEFT JOIN klanten k ON k.id = w.klant_id
+    WHERE w.status IN ('gecontroleerd','gefactureerd')
+      AND w.klant_id IS NOT NULL
+      AND (w.betaald = 0 OR w.betaald IS NULL)
+    ORDER BY w.aangemaakt_op DESC
   `).all();
   const controle_facturatie_totaal = Math.round(
-    controle_facturatie.reduce((s, j) => s + (j.verkoopprijs || 0), 0) * 100
+    controle_facturatie.reduce((s, w) => s + (w.totaal || 0), 0) * 100
   ) / 100;
 
   res.json({ gepland, bezig, voltooid, controle_facturatie, controle_facturatie_totaal });
 });
 
-// Facturatie: volledige lijst (open / betaald / alles) t.b.v. de Financiën-pagina
+// Facturatie: volledige lijst (open / betaald / alles) t.b.v. de Financiën-pagina.
+// Leest sinds de werkbon/printopdracht-ontkoppeling de werkbonnen i.p.v. jobs
+// (zie toelichting bij controle_facturatie hierboven).
 rapportage.get('/facturatie', (req, res) => {
   const db = getDb();
   const status = req.query.status || 'open'; // 'open' | 'betaald' | 'alles'
 
-  let where = `j.status IN ('gecontroleerd','gefactureerd','betaald') AND j.klant_id IS NOT NULL`;
-  if (status === 'open') where += ` AND (j.betaald = 0 OR j.betaald IS NULL)`;
-  else if (status === 'betaald') where += ` AND j.betaald = 1`;
+  let where = `w.status IN ('gecontroleerd','gefactureerd','betaald') AND w.klant_id IS NOT NULL`;
+  if (status === 'open') where += ` AND (w.betaald = 0 OR w.betaald IS NULL)`;
+  else if (status === 'betaald') where += ` AND w.betaald = 1`;
 
   const rows = db.prepare(`
-    SELECT j.id, j.naam, j.status, j.betaald, j.betaald_op, j.voltooid_op,
+    SELECT w.id, w.volgnummer, w.object_naam as naam, w.status, w.betaald, w.betaald_op, w.aangemaakt_op,
       k.id as klant_id, k.naam as klant_naam, k.voornaam as klant_voornaam,
-      jk.verkoopprijs
-    FROM jobs j
-    LEFT JOIN klanten k ON k.id = j.klant_id
-    LEFT JOIN job_kosten jk ON jk.job_id = j.id
+      w.totaal
+    FROM werkbonnen w
+    LEFT JOIN klanten k ON k.id = w.klant_id
     WHERE ${where}
-    ORDER BY j.voltooid_op DESC
+    ORDER BY w.aangemaakt_op DESC
   `).all();
 
-  const totaal = Math.round(rows.reduce((s, r) => s + (r.verkoopprijs || 0), 0) * 100) / 100;
+  const totaal = Math.round(rows.reduce((s, r) => s + (r.totaal || 0), 0) * 100) / 100;
   res.json({ rows, totaal, aantal: rows.length });
 });
 
@@ -399,11 +401,13 @@ rapportage.get('/facturatie', (req, res) => {
 rapportage.get('/stats/financien', (req, res) => {
   const db = getDb();
 
+  // Sinds de werkbon/printopdracht-ontkoppeling leeft de betaald-vlag op de
+  // werkbon, niet meer op jobs (zie toelichting bij /facturatie hierboven).
   const inkomsten = db.prepare(`
-    SELECT strftime('%Y-%m', j.betaald_op) as maand,
-      ROUND(SUM(jk.verkoopprijs), 2) as bedrag
-    FROM jobs j JOIN job_kosten jk ON jk.job_id = j.id
-    WHERE j.betaald = 1 AND j.betaald_op IS NOT NULL
+    SELECT strftime('%Y-%m', betaald_op) as maand,
+      ROUND(SUM(totaal), 2) as bedrag
+    FROM werkbonnen
+    WHERE betaald = 1 AND betaald_op IS NOT NULL
     GROUP BY maand
   `).all();
 

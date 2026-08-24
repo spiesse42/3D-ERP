@@ -674,7 +674,7 @@ ${offerte.object_naam || offerte.object_link ? `
   <div>
     <div class="totaal-label">TOTAAL</div>
   </div>
-  <div class="totaal-bedrag">€${berekening.verkoopprijs.toFixed(2)}</div>
+  <div class="totaal-bedrag">€${(offerte.totaal ?? berekening.verkoopprijs).toFixed(2)}</div>
 </div>
 
 ${offerte.notities ? `<div class="opmerking">📝 ${offerte.notities}</div>` : ''}
@@ -718,6 +718,7 @@ r.get('/:id', (req, res) => {
   let filament_rollen = [];
   try { filament_rollen = JSON.parse(offerte.filament_rollen_json || '[]'); } catch { filament_rollen = []; }
   const artikelen = haalArtikelen(db, req.params.id);
+  const werkbon = db.prepare('SELECT id, volgnummer, status FROM werkbonnen WHERE offerte_id = ?').get(req.params.id) || null;
 
   // Regels: bestaande offertes (regels_json) gewoon uitlezen; oudere
   // offertes van vóór het herontwerp krijgen ze on-the-fly gesynthetiseerd
@@ -730,7 +731,7 @@ r.get('/:id', (req, res) => {
     regels = synthetiseerRegelsUitLegacy(offerte, artikelen);
   }
 
-  res.json({ ...offerte, filament_rollen, artikelen, regels });
+  res.json({ ...offerte, filament_rollen, artikelen, regels, werkbon });
 });
 
 // ── LEGACY: los artikelen-beheer op offerte_artikelen ──────────────────
@@ -803,7 +804,9 @@ function objectNaamSamenvatting(regels) {
 r.post('/', (req, res) => {
   const db = getDb();
   const t = getTarieven(db);
-  const { klant_id, object_link, regels = [], btw_pct = 21, geldig_tot, levertermijn, notities } = req.body;
+  // Standaard 0% BTW — vrijstellingsregel (art. 56bis BTW-wetboek) geldt
+  // altijd, ongeacht klanttype (zie sessie-notities deel 11).
+  const { klant_id, object_link, regels = [], btw_pct = 0, geldig_tot, levertermijn, notities } = req.body;
 
   if (!klant_id) return res.status(400).json({ error: 'Klant is verplicht' });
   const regelFout = valideerRegels(regels);
@@ -875,17 +878,56 @@ r.patch('/:id/status', (req, res) => {
   res.json({ ok: true });
 });
 
-// POST maak werkbon job(s) van offerte — 1 werkbon-job per 'printen'-regel
-// (een offerte kan sinds het herontwerp meerdere te printen objecten
-// bevatten, bv. "Ontwerp: X" + "Printen aangeleverd bestand: Y" samen).
-// Regels van het type ontwerp/aanpassing/extra/artikel worden bewust NIET
-// mee overgenomen in een job — dat zijn geen fysieke print-werkbonnen en
-// horen enkel op de offerte/factuur thuis, niet dubbel in een werkbon.
-r.post('/:id/maak-job', (req, res) => {
+// Bevroren totalen berekenen puur uit de regels' al-opgeslagen _berekend
+// (dus GEEN herberekening met de actuele tarieven — de offerte werd al
+// goedgekeurd met deze bedragen, een werkbon mag daar nooit stilzwijgend
+// van afwijken). Zelfde tweede-pas-formule als berekenOfferteRegels()
+// hierboven, maar dan uitgaand van de al bevroren regel-bedragen.
+function bevrorenTotaalVanRegels(regels, marge_pct) {
+  const margeFactor = 1 + (marge_pct || 0) / 100;
+  let subtotaal_marge = 0, subtotaal_vast = 0;
+  for (const regel of (regels || [])) {
+    const rr = regel._berekend || { bedrag: 0, vaste_prijs: false };
+    if (rr.vaste_prijs) subtotaal_vast += rr.bedrag; else subtotaal_marge += rr.bedrag;
+  }
+  const verkoopprijs_basis = subtotaal_marge * margeFactor;
+  const verkoopprijs = verkoopprijs_basis + subtotaal_vast;
+  return {
+    subtotaal: Math.round((subtotaal_marge + subtotaal_vast) * 1000) / 1000,
+    verkoopprijs_basis: Math.round(verkoopprijs_basis * 100) / 100,
+    verkoopprijs: Math.round(verkoopprijs * 100) / 100,
+  };
+}
+
+function volgendWerkbonVolgnummer(db) {
+  const jaar = new Date().getFullYear();
+  const sleutel = `werkbon_volgnummer_teller_${jaar}`;
+  const rij = db.prepare('SELECT waarde FROM instellingen WHERE sleutel = ?').get(sleutel);
+  const teller = (rij ? parseInt(rij.waarde) || 0 : 0) + 1;
+  db.prepare(`
+    INSERT INTO instellingen (sleutel, waarde) VALUES (?,?)
+    ON CONFLICT(sleutel) DO UPDATE SET waarde = excluded.waarde
+  `).run(sleutel, String(teller));
+  return `WB-${jaar}-${String(teller).padStart(4, '0')}`;
+}
+
+// POST maak werkbon van offerte — sinds de werkbon/printopdracht-ontkoppeling
+// (zie sessie-notities deel 11) maakt dit ÉÉN werkbon-rij aan met ALLE
+// regeltypes (niet enkel 'printen' — een offerte met bv. enkel een ontwerp-
+// regel kreeg voorheen NOOIT een werkbon, dat was het knelpunt). De werkbon
+// draagt voortaan de volledige facturatiestatus-lifecycle; er wordt hier
+// bewust GEEN printopdracht (job) meer aangemaakt — dat gebeurt apart,
+// automatisch (printer-start) of manueel op de Jobs-pagina, en kan nadien
+// gekoppeld worden aan een printen-regel (POST /werkbonnen/:id/regels/:idx/koppel).
+r.post('/:id/maak-werkbon', (req, res) => {
   const db = getDb();
-  const t = getTarieven(db);
   const offerte = db.prepare('SELECT * FROM offertes_v2 WHERE id = ?').get(req.params.id);
   if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
+
+  const bestaande = db.prepare('SELECT id, volgnummer FROM werkbonnen WHERE offerte_id = ?').get(offerte.id);
+  if (bestaande) {
+    return res.status(400).json({ error: `Er bestaat al een werkbon (${bestaande.volgnummer}) voor deze offerte` });
+  }
 
   let regels = [];
   if (offerte.regels_json) {
@@ -893,74 +935,34 @@ r.post('/:id/maak-job', (req, res) => {
   } else {
     regels = synthetiseerRegelsUitLegacy(offerte, haalArtikelen(db, offerte.id));
   }
-  const printenRegels = regels.filter(r => r.type === 'printen');
-  if (printenRegels.length === 0) {
-    return res.status(400).json({ error: 'Offerte heeft geen "Printen"-regel — bewerk de offerte eerst' });
-  }
-  if (printenRegels.some(r => !r.printer_id)) {
-    return res.status(400).json({ error: 'Eén of meer printen-regels hebben geen printer gekozen — bewerk de offerte eerst' });
+  if (regels.length === 0) {
+    return res.status(400).json({ error: 'Offerte heeft geen regels — bewerk de offerte eerst' });
   }
 
   try {
-    const jobIds = db.transaction(() => {
-      const ids = [];
-      for (const regel of printenRegels) {
-        const totaleUren = (parseInt(regel.geschatte_tijd_u) || 0) + (parseInt(regel.geschatte_tijd_min) || 0) / 60;
-        const filament_rollen = Array.isArray(regel.filament_rollen) ? regel.filament_rollen : [];
-        const gewichtGeschat = regel.is_multicolor
-          ? filament_rollen.reduce((s, fr) => s + (parseFloat(fr.gram) || 0), 0)
-          : (parseFloat(regel.geschat_gewicht_g) || 0);
+    const werkbonId = db.transaction(() => {
+      const volgnummer = volgendWerkbonVolgnummer(db);
+      const totalen = bevrorenTotaalVanRegels(regels, offerte.marge_pct);
+      const btw_pct = parseFloat(offerte.btw_pct) || 0;
+      const btw_bedrag = Math.round(totalen.verkoopprijs_basis * btw_pct) / 100;
+      const totaal = Math.round((totalen.verkoopprijs + btw_bedrag) * 100) / 100;
 
-        const result = db.prepare(`
-          INSERT INTO jobs (klant_id, printer_id, naam, status, print_uren_geschat, is_multicolor, gewicht_geschat, notities, offerte_id)
-          VALUES (?,?,?,?,?,?,?,?,?)
-        `).run(
-          offerte.klant_id, regel.printer_id,
-          regel.object_naam || `Job van offerte ${offerte.nummer}`,
-          'gepland', totaleUren, regel.is_multicolor ? 1 : 0, gewichtGeschat || null,
-          `Werkbon van offerte ${offerte.nummer}`, offerte.id
-        );
-        const id = result.lastInsertRowid;
-
-        // Materiaal-/energie-/machinekost wordt door de Werkbon zelf
-        // herberekend zodra die opent, op basis van de hier overgenomen
-        // materialen — enkel de arbeid (voorbereiding/afwerking) nemen we
-        // letterlijk over. Ontwerp/aanpassing horen niet bij dit specifieke
-        // printen-regel en worden hier bewust op 0 gelaten.
-        db.prepare(`
-          INSERT INTO job_kosten (
-            job_id, aantal, voorbereiding_min, nabewerking_min,
-            ontwerp_min, ontwerp_tarief, nabewerking_extra_min, nabewerking_extra_tarief,
-            extra_per_stuk, extra_eenmalig, extra_omschrijving
-          ) VALUES (?,?,?,?,0,15,0,15,0,0,NULL)
-        `).run(
-          id, parseInt(regel.aantal) || 1, regel.voorbereiding_min || 0, regel.nabewerking_min || 0
-        );
-
-        if (regel.is_multicolor) {
-          for (const fr of filament_rollen) {
-            const gram = parseFloat(fr.gram);
-            if (gram > 0 && fr.filament_rol_id) {
-              db.prepare('INSERT INTO job_materialen (job_id, filament_rol_id, gram_gebruikt) VALUES (?,?,?)')
-                .run(id, fr.filament_rol_id, gram);
-            }
-          }
-        } else if (regel.filament_rol_id && regel.geschat_gewicht_g > 0) {
-          db.prepare('INSERT INTO job_materialen (job_id, filament_rol_id, gram_gebruikt) VALUES (?,?,?)')
-            .run(id, regel.filament_rol_id, regel.geschat_gewicht_g);
-        }
-
-        ids.push(id);
-      }
-
-      // Eerste job als hoofdreferentie op de offerte (voor de "✓ Werkbon
-      // job: #.."-weergave) — bij meerdere printen-regels staan de overige
-      // job-id's mee in de notitie van elke job zelf.
-      db.prepare('UPDATE offertes_v2 SET job_id = ?, status = ? WHERE id = ?').run(ids[0], 'goedgekeurd', offerte.id);
-      return ids;
+      const result = db.prepare(`
+        INSERT INTO werkbonnen (
+          offerte_id, klant_id, volgnummer, object_naam, regels_json,
+          subtotaal, marge_pct, verkoopprijs_basis, verkoopprijs, btw_pct, btw_bedrag, totaal,
+          status, geldig_tot, levertermijn, notities
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `).run(
+        offerte.id, offerte.klant_id, volgnummer, offerte.object_naam, JSON.stringify(regels),
+        totalen.subtotaal, offerte.marge_pct, totalen.verkoopprijs_basis, totalen.verkoopprijs,
+        btw_pct, btw_bedrag, totaal, 'in te plannen', offerte.geldig_tot, offerte.levertermijn, offerte.notities
+      );
+      db.prepare('UPDATE offertes_v2 SET status = ? WHERE id = ?').run('goedgekeurd', offerte.id);
+      return result.lastInsertRowid;
     })();
 
-    res.status(201).json({ job_id: jobIds[0], job_ids: jobIds });
+    res.status(201).json({ werkbon_id: werkbonId });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1010,16 +1012,11 @@ r.delete('/:id', (req, res) => {
     const offerte = db.prepare('SELECT * FROM offertes_v2 WHERE id = ?').get(req.params.id);
     if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
 
-    // Als er een gekoppelde job is, verwijder die eerst (inclusief zijn koppelingen)
-    if (offerte.job_id) {
-      db.prepare('UPDATE offertes_v2 SET job_id = NULL WHERE id = ?').run(req.params.id);
-      db.prepare('UPDATE jobs SET offerte_id = NULL WHERE id = ?').run(offerte.job_id);
-      db.prepare('DELETE FROM job_kosten WHERE job_id = ?').run(offerte.job_id);
-      db.prepare('DELETE FROM job_materialen WHERE job_id = ?').run(offerte.job_id);
-      db.prepare('DELETE FROM jobs WHERE id = ?').run(offerte.job_id);
-    }
-
-    // Verwijder offerte zelf
+    // Een gekoppelde werkbon (indien aangemaakt) blijft gewoon bestaan —
+    // enkel offerte_id valt terug op leeg (ON DELETE SET NULL). Printop-
+    // drachten (jobs) staan sinds de werkbon/printopdracht-ontkoppeling los
+    // van de offerte en worden hier NOOIT verwijderd — dat zijn onafhankelijke
+    // productierijen, ook al is de offerte er ooit uit ontstaan.
     db.prepare('DELETE FROM offertes_v2 WHERE id = ?').run(req.params.id);
     res.json({ ok: true });
   } catch (e) {

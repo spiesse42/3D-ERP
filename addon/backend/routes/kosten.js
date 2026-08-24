@@ -42,14 +42,10 @@ function buildPdfHtml(kosten, klant, extraInfo = {}, bedrijf = {}) {
   const toon = v => `€${(v||0).toFixed(2)}`;
   const { voorbMin=15, nabMin=10, arbTarief=15, ontwerpMin=0, ontwerpTarief=15,
           nabExtraMin=0, nabExtraTarief=15, extraTotaal=0, extraOmschrijving='',
-          aantal=1, matDetails=[], dienstDetails=[], btw=false } = extraInfo;
-  // BTW enkel op het marge-gebaseerde deel — het vast_prijs_totaal-deel (bv.
-  // verzendkosten met "vaste prijs, geen marge, incl. BTW") is per definitie
-  // al incl. BTW en telt dus niet nogmaals mee in de grondslag. Zelfde
-  // principe als bij offertes (offertes_v2.js, verkoopprijs_basis).
-  const btwGrondslag = (kosten.verkoopprijs||0) - (kosten.vast_prijs_totaal||0);
-  const btwBedrag = btw ? btwGrondslag * 0.21 : 0;
-  const totaalInclBtw = (kosten.verkoopprijs||0) + btwBedrag;
+          aantal=1, matDetails=[], dienstDetails=[] } = extraInfo;
+  // Sinds de vrijstellingsregel (art. 56bis BTW-wetboek) geldt voor alle
+  // klanten, niet enkel particuliere — geen zakelijk/particulier-schakelaar
+  // meer, altijd 1 eindprijs (verkoopprijs) + de vrijstellingstekst.
 
   const margeFactor = 1 + (kosten.winstmarge_pct || 0) / 100;
   const eenheidLabel = e => e === 'stuk' ? 'stuks' : e === 'ml' ? 'ml' : 'g';
@@ -127,16 +123,9 @@ ${klant ? `<div class="klant"><h3>Klant</h3>
   <div style="font-size:.85rem;color:#a0a0a0">VERKOOPPRIJS${aantal > 1 ? ` (${aantal}× — €${((kosten.verkoopprijs||0)/aantal).toFixed(2)}/stuk)` : ''}</div>
   <div class="totaal-bedrag">€${(kosten.verkoopprijs||0).toFixed(2)}</div>
 </div>
-${btw ? `
-<table style="margin-top:12px">
-  <tbody>
-    <tr><td colspan="2">BTW 21%</td><td>${toon(btwBedrag)}</td></tr>
-    <tr style="font-weight:700;font-size:1.05rem"><td colspan="2">Totaal incl. BTW</td><td>€${totaalInclBtw.toFixed(2)}</td></tr>
-  </tbody>
-</table>` : ''}
 ${kosten.opmerking ? `<div class="opmerking">📝 ${kosten.opmerking}</div>` : ''}
 <div class="footer">
-  ${bedrijf.naam || '3D Print ERP'} &nbsp;|&nbsp; ${nu} &nbsp;|&nbsp; ${btw ? `BTW 21% inbegrepen &nbsp;|&nbsp; ${klant?.btw_nummer ? 'BTW: '+klant.btw_nummer : ''}` : 'Vrijgesteld van BTW — art. 56bis BTW-wetboek'}
+  ${bedrijf.naam || '3D Print ERP'} &nbsp;|&nbsp; ${nu} &nbsp;|&nbsp; Vrijgesteld van BTW — art. 56bis BTW-wetboek
   ${bedrijf.iban ? `<br>IBAN: ${bedrijf.iban}` : ''}
 </div>
 </body></html>`;
@@ -323,9 +312,6 @@ r.get('/pdf/:jobId', async (req, res) => {
 
   const t = getTarieven(db);
   const volledigeKosten = { ...kosten, job_naam:job?.naam, printer_naam:job?.printer_naam, opmerking:job?.notities||'', volgnummer:job?.volgnummer||'', type:job?.type||'print', dienst_categorie:job?.dienst_categorie||'' };
-  const klantType = job?.klant_id ? db.prepare('SELECT type FROM klanten WHERE id = ?').get(job.klant_id)?.type : null;
-  const btwParam = req.query.btw;
-  const btw = btwParam != null ? btwParam === '1' || btwParam === 'true' : klantType === 'zakelijk';
   const extraInfo = {
     voorbMin: kosten.voorbereiding_min ?? getalOfDefault(t.voorbereiding_min, 15),
     nabMin: kosten.nabewerking_min ?? getalOfDefault(t.nabewerking_min, 10),
@@ -337,7 +323,6 @@ r.get('/pdf/:jobId', async (req, res) => {
     extraTotaal: (parseFloat(kosten.extra_per_stuk)||0) * (parseInt(kosten.aantal)||1) + (parseFloat(kosten.extra_eenmalig)||0),
     extraOmschrijving: kosten.extra_omschrijving || '',
     aantal: parseInt(req.query.aantal) || kosten.aantal || 1,
-    btw,
     matDetails: db.prepare(`
       SELECT jm.gram_gebruikt as gram, ft.eenheid,
         COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start, 0) * (CASE WHEN ft.eenheid = 'gram' THEN 1000.0 ELSE 1.0 END), ft.inkoop_prijs_per_kg) as prijs,
@@ -378,10 +363,6 @@ r.post('/email/:jobId', async (req, res) => {
   const t = getTarieven(db);
   const klant = job?.klant_id ? { naam:job.klant_naam, voornaam:job.voornaam, email:job.email, straat:job.straat, huisnummer:job.huisnummer, postcode:job.postcode, gemeente:job.gemeente, btw_nummer:job.btw_nummer } : null;
   const volledigeKosten = { ...kosten, job_naam:job?.naam, printer_naam:job?.printer_naam, opmerking:job?.notities||'', volgnummer:job?.volgnummer||'', type:job?.type||'print', dienst_categorie:job?.dienst_categorie||'' };
-  const klantTypeEmail = job?.klant_id ? db.prepare('SELECT type FROM klanten WHERE id = ?').get(job.klant_id)?.type : null;
-  const btwEmail = extra_velden.btw != null ? !!extra_velden.btw : klantTypeEmail === 'zakelijk';
-  const btwGrondslagEmail = (kosten.verkoopprijs||0) - (kosten.vast_prijs_totaal||0);
-  const btwBedragEmail = btwEmail ? btwGrondslagEmail * 0.21 : 0;
   const extraInfo = {
     voorbMin: kosten.voorbereiding_min ?? getalOfDefault(t.voorbereiding_min, 15),
     nabMin: kosten.nabewerking_min ?? getalOfDefault(t.nabewerking_min, 10),
@@ -393,7 +374,6 @@ r.post('/email/:jobId', async (req, res) => {
     extraTotaal: (parseFloat(kosten.extra_per_stuk)||0) * (parseInt(extra_velden.aantal || kosten.aantal)||1) + (parseFloat(kosten.extra_eenmalig)||0),
     extraOmschrijving: kosten.extra_omschrijving || '',
     aantal: extra_velden.aantal || kosten.aantal || 1,
-    btw: btwEmail,
     matDetails: db.prepare(`SELECT jm.gram_gebruikt as gram, ft.eenheid, COALESCE(r.aankoopprijs_eur / NULLIF(r.gewicht_gram_start, 0) * (CASE WHEN ft.eenheid = 'gram' THEN 1000.0 ELSE 1.0 END), ft.inkoop_prijs_per_kg) as prijs, ft.merk || ' ' || ft.materiaal || COALESCE(' ' || r.kleur, '') as naam FROM job_materialen jm JOIN filament_rollen r ON r.id = jm.filament_rol_id JOIN filament_types ft ON ft.id = r.filament_type_id WHERE jm.job_id = ?`).all(req.params.jobId),
     dienstDetails: db.prepare(`SELECT jd.aantal, jd.prijs_per_eenheid, ft.eenheid, ft.vaste_prijs, ft.merk || ' ' || ft.materiaal as naam FROM job_diensten jd JOIN filament_types ft ON ft.id = jd.filament_type_id WHERE jd.job_id = ?`).all(req.params.jobId),
   };
@@ -401,7 +381,7 @@ r.post('/email/:jobId', async (req, res) => {
   try {
     const pdfBuffer = await renderHtmlNaarPdf(pdfHtml);
     await sendPdfEmail({ to: emailTo, subject: `Werkbon — ${job?.naam||'print'}`,
-      html: `<p>Beste${klant ? ` ${klant.voornaam||''} ${klant.naam}` : ''},</p><p>Hierbij de werkbon voor <strong>${job?.naam||'uw print'}</strong>.</p><p>Verkoopprijs: <strong>€${(kosten.verkoopprijs||0).toFixed(2)}</strong>${btwEmail ? `<br>BTW 21%: <strong>€${btwBedragEmail.toFixed(2)}</strong><br>Totaal incl. BTW: <strong>€${((kosten.verkoopprijs||0)+btwBedragEmail).toFixed(2)}</strong>` : ''}</p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
+      html: `<p>Beste${klant ? ` ${klant.voornaam||''} ${klant.naam}` : ''},</p><p>Hierbij de werkbon voor <strong>${job?.naam||'uw print'}</strong>.</p><p>Prijs: <strong>€${(kosten.verkoopprijs||0).toFixed(2)}</strong></p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
       pdfBuffer, filename: `werkbon-${(job?.naam||'print').replace(/\s+/g,'-')}.pdf` });
     res.json({ ok: true, to: emailTo });
   } catch(e) { res.status(500).json({ error: e.message }); }

@@ -189,9 +189,9 @@ function FacturatieTab() {
     api.get(`/rapportage/facturatie?status=${status}`).then(d => { setData(d); setLaden(false); }).catch(() => setLaden(false));
   }, [status]);
 
-  const markeerBetaald = async (job) => {
+  const markeerBetaald = async (werkbon) => {
     try {
-      await api.patch(`/jobs/${job.id}/status`, { status: 'betaald' });
+      await api.patch(`/werkbonnen/${werkbon.id}/status`, { status: 'betaald' });
       api.get(`/rapportage/facturatie?status=${status}`).then(setData).catch(() => {});
     } catch (e) { alert(e.message); }
   };
@@ -219,27 +219,27 @@ function FacturatieTab() {
           ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>Niets te tonen.</p>
           : <table>
               <thead>
-                <tr><th>Job</th><th>Klant</th><th>Status</th><th>Voltooid op</th><th>Bedrag</th><th></th></tr>
+                <tr><th>Werkbon</th><th>Klant</th><th>Status</th><th>Aangemaakt op</th><th>Bedrag</th><th></th></tr>
               </thead>
               <tbody>
-                {data.rows.map(j => (
-                  <tr key={j.id}>
-                    <td style={{ fontWeight: 500 }}>{j.naam}</td>
-                    <td>{j.klant_voornaam ? `${j.klant_voornaam} ${j.klant_naam}` : j.klant_naam || '—'}</td>
+                {data.rows.map(w => (
+                  <tr key={w.id}>
+                    <td style={{ fontWeight: 500 }}>{w.volgnummer ? `${w.volgnummer} — ${w.naam}` : w.naam}</td>
+                    <td>{w.klant_voornaam ? `${w.klant_voornaam} ${w.klant_naam}` : w.klant_naam || '—'}</td>
                     <td>
                       <span style={{
                         fontSize: 10, padding: '1px 6px', borderRadius: 3,
-                        background: j.status === 'betaald' ? 'rgba(34,197,94,0.2)' : j.status === 'gefactureerd' ? 'rgba(245,158,11,0.2)' : 'rgba(139,92,246,0.2)',
-                        color: j.status === 'betaald' ? 'var(--accent2)' : j.status === 'gefactureerd' ? 'var(--warn)' : '#8b5cf6',
-                      }}>{j.status}</span>
+                        background: w.status === 'betaald' ? 'rgba(34,197,94,0.2)' : w.status === 'gefactureerd' ? 'rgba(245,158,11,0.2)' : 'rgba(139,92,246,0.2)',
+                        color: w.status === 'betaald' ? 'var(--accent2)' : w.status === 'gefactureerd' ? 'var(--warn)' : '#8b5cf6',
+                      }}>{w.status}</span>
                     </td>
-                    <td style={{ color: 'var(--muted)', fontSize: 12 }}>{j.voltooid_op ? j.voltooid_op.split('T')[0] : '—'}</td>
+                    <td style={{ color: 'var(--muted)', fontSize: 12 }}>{w.aangemaakt_op ? w.aangemaakt_op.split('T')[0].split(' ')[0] : '—'}</td>
                     <td style={{ color: 'var(--accent2)', fontWeight: 600 }}>
-                      {j.verkoopprijs != null ? `€${j.verkoopprijs.toFixed(2)}` : '—'}
+                      {w.totaal != null ? `€${w.totaal.toFixed(2)}` : '—'}
                     </td>
                     <td>
-                      {j.status !== 'betaald' && (
-                        <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => markeerBetaald(j)}>
+                      {w.status !== 'betaald' && (
+                        <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => markeerBetaald(w)}>
                           ✓ Betaald
                         </button>
                       )}

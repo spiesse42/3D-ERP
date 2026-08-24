@@ -483,7 +483,7 @@ function OfferteModal({ offerte, klanten, printers, filamentTypes, allRollen, ta
   const [form, setForm] = useState({
     klant_id: '', object_link: '',
     geldig_tot: standaardGeldigTot(), levertermijn: '3 weken',
-    btw_pct: 21, notities: '',
+    btw_pct: 0, notities: '', // vrijstellingsregel art. 56bis — standaard 0% BTW
     regels: [],
     ...offerte,
   });

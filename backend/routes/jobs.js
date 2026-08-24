@@ -117,36 +117,33 @@ r.put('/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// Sinds de werkbon/printopdracht-ontkoppeling (zie sessie-notities deel 11)
+// is dit uitsluitend nog een PRODUCTIEstatus (in te plannen/gepland/bezig/
+// voltooid/gefaald/geannuleerd) — de facturatiestatus (gecontroleerd/
+// gefactureerd/betaald) en de betaald-vlag leven voortaan op de gekoppelde
+// werkbon (zie routes/werkbonnen.js PATCH /:id/status). De oude 'betaald'-
+// statuswaarde/kolom blijven om historische redenen in de databank bestaan
+// (zie db_migration_v42.js), maar worden hier bewust niet meer gezet.
+const PRODUCTIE_STATUSSEN = ['in te plannen', 'gepland', 'bezig', 'voltooid', 'gefaald', 'geannuleerd'];
 r.patch('/:id/status', (req, res) => {
   const db = getDb();
   const { status } = req.body;
-  const updates = { status };
-  if (status === 'bezig')    updates.gestart_op  = new Date().toISOString();
-  if (status === 'voltooid') updates.voltooid_op = new Date().toISOString();
+  if (!PRODUCTIE_STATUSSEN.includes(status)) {
+    return res.status(400).json({ error: `Ongeldige productiestatus: "${status}" — facturatiestatussen horen bij de werkbon` });
+  }
+  const gestart_op = status === 'bezig' ? new Date().toISOString() : null;
 
-  // 'betaald' is zowel een status-waarde als een apart betaald/betaald_op-veld
-  // (dat laatste wordt ook los bewerkt via PATCH /:id/betaald). Hou ze gesynchroniseerd:
-  // bij status -> 'betaald' de vlag+datum zetten, bij status weg van 'betaald' weer wissen.
-  const betaald    = status === 'betaald' ? 1 : 0;
-  const betaaldOpSql = status === 'betaald'
-    ? `COALESCE(betaald_op, ?)`
-    : `NULL`;
-  const betaaldOpParam = status === 'betaald' ? new Date().toISOString() : null;
-
-  // voltooid_op mag NIET verloren gaan zodra de status verder gaat dan 'voltooid'
-  // (gecontroleerd/gefactureerd/betaald) — enkel overschrijven als deze patch de
-  // status net NAAR 'voltooid' zet, anders de bestaande waarde behouden.
-  const params = [status, updates.gestart_op || null];
+  // voltooid_op mag niet verloren gaan bij een latere statuswijziging —
+  // enkel zetten als deze patch de status net NAAR 'voltooid' brengt.
+  const params = [status, gestart_op];
   let sql = `UPDATE jobs SET status=?,gestart_op=COALESCE(?,gestart_op),`;
   if (status === 'voltooid') {
-    sql += `voltooid_op=?,`;
-    params.push(updates.voltooid_op);
+    sql += `voltooid_op=?`;
+    params.push(new Date().toISOString());
   } else {
-    sql += `voltooid_op=voltooid_op,`;
+    sql += `voltooid_op=voltooid_op`;
   }
-  sql += `betaald=?,betaald_op=${betaaldOpSql} WHERE id=?`;
-  params.push(betaald);
-  if (status === 'betaald') params.push(betaaldOpParam);
+  sql += ` WHERE id=?`;
   params.push(req.params.id);
 
   db.prepare(sql).run(...params);
