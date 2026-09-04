@@ -23,6 +23,13 @@ import { getDb } from '../db.js';
 import { LOGO_DATA_URI } from '../lib/logo.js';
 import { renderHtmlNaarPdf } from '../lib/pdf.js';
 import { sendPdfEmail } from '../email.js';
+// Zelfde gedeelde rekenmotor als offertes_v2.js (zie backend/lib/regelmotor.js)
+// — gebruikt voor een standalone werkbon (POST /, zonder offerte). Onder een
+// alias, want dit bestand heeft hieronder al een EIGEN valideerRegels()
+// (bewust een andere, kleinere validatie — enkel handmatig_bedrag, geen
+// aantal-check — die werkt op reeds-bevroren regels bij PUT /:id). Beide
+// blijven naast elkaar bestaan i.p.v. de bestaande PUT-validatie te wijzigen.
+import { berekenOfferteRegels, valideerRegels as valideerNieuweRegels } from '../lib/regelmotor.js';
 
 const r = Router();
 
@@ -57,6 +64,13 @@ const REGEL_TYPE_LABELS = {
 };
 
 const STATUSSEN = ['in te plannen', 'gepland', 'bezig', 'voltooid', 'gecontroleerd', 'gefactureerd', 'betaald', 'gefaald', 'geannuleerd'];
+
+// Regeltypes die een telbaar aantal fysieke stuks voorstellen (in
+// tegenstelling tot 'ontwerp'/'aanpassing'/'extra', die diensten/eenmalige
+// kosten zijn) — zelfde conventie als LEVERBARE_TYPES in pakbonnen.js. Enkel
+// deze regeltypes kunnen een printopdracht koppelen/aanmaken en tonen een
+// "X van de Y gepland"-voortgang.
+const LEVERBARE_TYPES = ['printen', 'artikel'];
 
 function volgendWerkbonVolgnummer(db) {
   const jaar = new Date().getFullYear();
@@ -151,7 +165,7 @@ function haalWerkbon(db, id) {
 // werkelijk gebruikte materialen (voor weergave, niet voor herberekening).
 function haalGekoppeldeJobs(db, werkbonId) {
   const jobs = db.prepare(`
-    SELECT j.id, j.naam, j.status, j.werkbon_regel_index, j.print_uren_werkelijk,
+    SELECT j.id, j.naam, j.status, j.werkbon_regel_index, j.werkbon_regel_aantal, j.print_uren_werkelijk,
       j.print_uren_geschat, j.voltooid_op, p.naam as printer_naam,
       jk.verkoopprijs, jk.kwh_verbruikt
     FROM jobs j
@@ -186,6 +200,42 @@ r.get('/', (req, res) => {
   res.json(db.prepare(sql).all(...params));
 });
 
+// ── POST nieuwe standalone werkbon (zonder offerte) ─────────────────────
+// Voor productie die nooit een offertetraject doorloopt (bv. een vaste-
+// prijs-bestelling zoals 150× "Fuzzy Bubble Letters" à €1,75/stuk) — zelfde
+// regelmotor (berekenOfferteRegels/valideerRegels, zie backend/lib/
+// regelmotor.js) als een offerte, enkel zonder offerte_id (NULL, het schema
+// ondersteunt dat al sinds migratie v42).
+r.post('/', (req, res) => {
+  const db = getDb();
+  const t = getTarieven(db);
+  const { klant_id, regels = [], btw_pct = 0, geldig_tot, levertermijn, notities } = req.body;
+  if (!klant_id) return res.status(400).json({ error: 'Klant is verplicht' });
+  if (!Array.isArray(regels) || !regels.length) return res.status(400).json({ error: 'Een werkbon moet minstens 1 regel bevatten' });
+  const regelFout = valideerNieuweRegels(regels);
+  if (regelFout) return res.status(400).json({ error: regelFout });
+
+  const ber = berekenOfferteRegels(db, regels, t);
+  const btwPctNum = parseFloat(btw_pct) || 0;
+  const btw_bedrag = Math.round(ber.verkoopprijs_basis * btwPctNum) / 100;
+  const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
+  const volgnummer = volgendWerkbonVolgnummer(db);
+  const object_naam = regels.map(r2 => r2.object_naam).filter(Boolean).join(', ') || null;
+
+  const result = db.prepare(`
+    INSERT INTO werkbonnen (
+      offerte_id, klant_id, volgnummer, object_naam, regels_json,
+      subtotaal, marge_pct, verkoopprijs_basis, verkoopprijs, btw_pct, btw_bedrag, totaal,
+      status, geldig_tot, levertermijn, notities
+    ) VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).run(
+    klant_id, volgnummer, object_naam, JSON.stringify(ber.regels),
+    ber.subtotaal, ber.marge_pct, ber.verkoopprijs_basis, ber.verkoopprijs,
+    btwPctNum, btw_bedrag, totaal, 'in te plannen', geldig_tot || null, levertermijn || null, notities || null
+  );
+  res.status(201).json({ id: result.lastInsertRowid, volgnummer, ...ber, btw_bedrag, totaal });
+});
+
 // ── GET printen-regels die nog een printopdracht kunnen koppelen ───────
 // Voor de koppel-widget vanuit een LOSSE printopdracht (Jobs-tab, tabblad
 // Printopdrachten, kolom "Gekoppeld") — daar moet je net andersom kunnen
@@ -210,7 +260,7 @@ r.get('/regels/koppelbaar', (req, res) => {
     let regels = [];
     try { regels = JSON.parse(w.regels_json || '[]'); } catch { regels = []; }
     regels.forEach((regel, idx) => {
-      if (regel.type !== 'printen') return;
+      if (!LEVERBARE_TYPES.includes(regel.type)) return;
       resultaat.push({
         werkbon_id: w.werkbon_id,
         werkbon_volgnummer: w.werkbon_volgnummer,
@@ -231,7 +281,20 @@ r.get('/:id', (req, res) => {
   let regels = [];
   try { regels = JSON.parse(w.regels_json || '[]'); } catch { regels = []; }
   const perRegel = haalGekoppeldeJobs(db, w.id);
-  regels = regels.map((regel, i) => ({ ...regel, gekoppelde_jobs: perRegel.get(i) || [] }));
+  // aantal_gepland: som van werkbon_regel_aantal van alle gekoppelde jobs die
+  // geen mislukte/geannuleerde poging zijn (die tellen niet mee — zelfde
+  // principe als elders in de app, bv. de werkbon-status-afleiding in
+  // db_migration_v42.js) — enkel zinvol voor leverbare (telbare) regeltypes.
+  regels = regels.map((regel, i) => {
+    const gekoppeld = perRegel.get(i) || [];
+    const out = { ...regel, gekoppelde_jobs: gekoppeld };
+    if (LEVERBARE_TYPES.includes(regel.type)) {
+      out.aantal_gepland = gekoppeld
+        .filter(j => !['gefaald', 'geannuleerd'].includes(j.status))
+        .reduce((s, j) => s + (j.werkbon_regel_aantal || 0), 0);
+    }
+    return out;
+  });
   res.json({ ...w, regels });
 });
 
@@ -298,13 +361,14 @@ r.post('/:id/regels/:idx/koppel', (req, res) => {
   const idx = parseInt(req.params.idx);
   let regels = [];
   try { regels = JSON.parse(werkbon.regels_json || '[]'); } catch { regels = []; }
-  if (!regels[idx] || regels[idx].type !== 'printen') {
-    return res.status(400).json({ error: 'Enkel een "printen"-regel kan een printopdracht koppelen' });
+  if (!regels[idx] || !LEVERBARE_TYPES.includes(regels[idx].type)) {
+    return res.status(400).json({ error: 'Enkel een "printen"- of "artikel"-regel kan een printopdracht koppelen' });
   }
-  const { job_id } = req.body;
+  const { job_id, aantal } = req.body;
   const job = db.prepare('SELECT id FROM jobs WHERE id = ?').get(job_id);
   if (!job) return res.status(404).json({ error: 'Printopdracht niet gevonden' });
-  db.prepare('UPDATE jobs SET werkbon_id = ?, werkbon_regel_index = ? WHERE id = ?').run(werkbon.id, idx, job_id);
+  db.prepare('UPDATE jobs SET werkbon_id = ?, werkbon_regel_index = ?, werkbon_regel_aantal = ? WHERE id = ?')
+    .run(werkbon.id, idx, aantal != null && aantal !== '' ? (parseInt(aantal) || null) : null, job_id);
   res.json({ ok: true });
 });
 
@@ -321,6 +385,14 @@ r.delete('/:id/regels/:idx/koppel/:jobId', (req, res) => {
 // de geschatte printer/gewicht/tijd van de regel, maar meteen als een eigen,
 // vrij herplanbare rij (andere printer, andere status...), en meteen
 // gekoppeld. Zelfde volgnummer-reeks als jobs.js POST /.
+// Nieuwe printopdracht aanmaken vanuit een leverbare werkbon-regel ('printen'
+// of 'artikel', zie LEVERBARE_TYPES) — dekt `aantal` stuks van de regel (niet
+// per se de volledige regel, zie werkbon_regel_aantal), en accepteert
+// optionele OVERRIDES bovenop de regel zelf. Een 'printen'-regel heeft al
+// printer/tijd/gewicht-velden (die gelden dan als fallback, huidig gedrag
+// blijft ongewijzigd als er niets wordt meegegeven); een 'artikel'-regel
+// heeft die velden NIET (enkel geprijsd, geen productiedetails) — daar MOET
+// de aanroeper minstens printer_id zelf meegeven.
 r.post('/:id/regels/:idx/nieuwe-printopdracht', (req, res) => {
   const db = getDb();
   const werkbon = db.prepare('SELECT * FROM werkbonnen WHERE id = ?').get(req.params.id);
@@ -329,10 +401,19 @@ r.post('/:id/regels/:idx/nieuwe-printopdracht', (req, res) => {
   let regels = [];
   try { regels = JSON.parse(werkbon.regels_json || '[]'); } catch { regels = []; }
   const regel = regels[idx];
-  if (!regel || regel.type !== 'printen') {
-    return res.status(400).json({ error: 'Enkel een "printen"-regel kan een printopdracht aanmaken' });
+  if (!regel || !LEVERBARE_TYPES.includes(regel.type)) {
+    return res.status(400).json({ error: 'Enkel een "printen"- of "artikel"-regel kan een printopdracht aanmaken' });
   }
-  if (!regel.printer_id) return res.status(400).json({ error: 'Deze regel heeft geen printer gekozen' });
+
+  const aantalJob = parseInt(req.body.aantal) || 1;
+  const printerId = req.body.printer_id || regel.printer_id;
+  if (!printerId) return res.status(400).json({ error: 'Kies een printer voor deze printopdracht' });
+  const isMulti = req.body.is_multicolor != null ? !!req.body.is_multicolor : !!regel.is_multicolor;
+  const tijdU = req.body.geschatte_tijd_u != null ? req.body.geschatte_tijd_u : regel.geschatte_tijd_u;
+  const tijdMin = req.body.geschatte_tijd_min != null ? req.body.geschatte_tijd_min : regel.geschatte_tijd_min;
+  const gewichtG = req.body.geschat_gewicht_g != null ? req.body.geschat_gewicht_g : regel.geschat_gewicht_g;
+  const filamentRolId = req.body.filament_rol_id != null ? req.body.filament_rol_id : regel.filament_rol_id;
+  const filamentRollenInput = req.body.filament_rollen != null ? req.body.filament_rollen : regel.filament_rollen;
 
   const jaar = new Date().getFullYear();
   const sleutel = `volgnummer_teller_${jaar}`;
@@ -341,32 +422,38 @@ r.post('/:id/regels/:idx/nieuwe-printopdracht', (req, res) => {
   db.prepare(`INSERT INTO instellingen (sleutel, waarde) VALUES (?,?) ON CONFLICT(sleutel) DO UPDATE SET waarde = excluded.waarde`).run(sleutel, String(teller));
   const volgnummer = `${jaar}-${String(teller).padStart(4, '0')}`;
 
-  const totaleUren = (parseInt(regel.geschatte_tijd_u) || 0) + (parseInt(regel.geschatte_tijd_min) || 0) / 60;
-  const filamentRollen = Array.isArray(regel.filament_rollen) ? regel.filament_rollen : [];
-  const gewichtGeschat = regel.is_multicolor
-    ? filamentRollen.reduce((s, fr) => s + (parseFloat(fr.gram) || 0), 0)
-    : (parseFloat(regel.geschat_gewicht_g) || 0);
+  // BELANGRIJK: geschatte_tijd_u/-min/geschat_gewicht_g/elke fr.gram zijn
+  // elders in de app PER-STUK-waarden (regelmotor.js berekenRegel()'s
+  // 'printen'-tak vermenigvuldigt telkens met `aantal`) — deze job dekt
+  // `aantalJob` stuks van de regel, dus hier zelf met aantalJob
+  // vermenigvuldigen. Bewuste gedragswijziging t.o.v. voorheen (toen nam de
+  // job de regel-waarden 1-op-1 over, alsof hij altijd 1 stuk dekte).
+  const totaleUren = ((parseInt(tijdU) || 0) + (parseInt(tijdMin) || 0) / 60) * aantalJob;
+  const filamentRollen = Array.isArray(filamentRollenInput) ? filamentRollenInput : [];
+  const gewichtGeschat = isMulti
+    ? filamentRollen.reduce((s, fr) => s + (parseFloat(fr.gram) || 0), 0) * aantalJob
+    : (parseFloat(gewichtG) || 0) * aantalJob;
 
   const result = db.prepare(`
     INSERT INTO jobs (klant_id, printer_id, naam, type, volgnummer, status, print_uren_geschat,
-      is_multicolor, gewicht_geschat, notities, offerte_id, werkbon_id, werkbon_regel_index)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+      is_multicolor, gewicht_geschat, notities, offerte_id, werkbon_id, werkbon_regel_index, werkbon_regel_aantal)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(
-    werkbon.klant_id, regel.printer_id, regel.object_naam || `Printopdracht voor ${werkbon.volgnummer}`,
-    'print', volgnummer, 'in te plannen', totaleUren, regel.is_multicolor ? 1 : 0, gewichtGeschat || null,
-    `Printopdracht voor werkbon ${werkbon.volgnummer}`, werkbon.offerte_id, werkbon.id, idx
+    werkbon.klant_id, printerId, regel.object_naam || `Printopdracht voor ${werkbon.volgnummer}`,
+    'print', volgnummer, 'in te plannen', totaleUren, isMulti ? 1 : 0, gewichtGeschat || null,
+    `Printopdracht voor werkbon ${werkbon.volgnummer}`, werkbon.offerte_id, werkbon.id, idx, aantalJob
   );
   const jobId = result.lastInsertRowid;
 
-  if (regel.is_multicolor) {
+  if (isMulti) {
     for (const fr of filamentRollen) {
-      const gram = parseFloat(fr.gram);
+      const gram = (parseFloat(fr.gram) || 0) * aantalJob;
       if (gram > 0 && fr.filament_rol_id) {
         db.prepare('INSERT INTO job_materialen (job_id, filament_rol_id, gram_gebruikt) VALUES (?,?,?)').run(jobId, fr.filament_rol_id, gram);
       }
     }
-  } else if (regel.filament_rol_id && regel.geschat_gewicht_g > 0) {
-    db.prepare('INSERT INTO job_materialen (job_id, filament_rol_id, gram_gebruikt) VALUES (?,?,?)').run(jobId, regel.filament_rol_id, regel.geschat_gewicht_g);
+  } else if (filamentRolId && gewichtG > 0) {
+    db.prepare('INSERT INTO job_materialen (job_id, filament_rol_id, gram_gebruikt) VALUES (?,?,?)').run(jobId, filamentRolId, gewichtGeschat);
   }
 
   res.status(201).json({ id: jobId, volgnummer });
