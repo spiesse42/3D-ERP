@@ -243,6 +243,11 @@ function WerkbonnenTab({ jobs, reloadJobs, printers, klanten, filamentTypes, all
   const [details, setDetails] = useState({});
   const [laden, setLaden] = useState(true);
   const [nieuweWerkbonModal, setNieuweWerkbonModal] = useState(false);
+  // Bewerk-modus voor een STANDALONE werkbon (offerte_id = null) — draagt de
+  // volledige detail-payload van GET /werkbonnen/:id (zie WerkbonModal's
+  // `werkbon`-prop). Voor een offerte-afgeleide werkbon bestaat deze knop
+  // bewust niet (bevroren offerteprijs, zie PUT /werkbonnen/:id backend).
+  const [bewerkWerkbon, setBewerkWerkbon] = useState(null);
 
   // Inline "+ Printopdracht"-formulier per regel (LEVERBARE_TYPES) — zelfde
   // open/dicht-klap-patroon als PakbonSectie's inline-formulieren hieronder.
@@ -341,6 +346,14 @@ function WerkbonnenTab({ jobs, reloadJobs, printers, klanten, filamentTypes, all
     if (r?.id) { setOpenId(r.id); loadDetail(r.id); }
   }
 
+  // Standalone werkbon opgeslagen via de "✏ Bewerken"-knop — id vastnemen
+  // vóór setBewerkWerkbon(null), dat vult bewerkWerkbon anders al met null.
+  function werkbonBewerkt() {
+    const id = bewerkWerkbon?.id;
+    setBewerkWerkbon(null);
+    if (id) { loadDetail(id); loadList(); }
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
@@ -354,6 +367,17 @@ function WerkbonnenTab({ jobs, reloadJobs, printers, klanten, filamentTypes, all
           onKlantToegevoegd={() => {}}
           onSaved={nieuweWerkbonAangemaakt}
           onClose={() => setNieuweWerkbonModal(false)}
+        />
+      )}
+
+      {bewerkWerkbon && (
+        <WerkbonModal
+          werkbon={bewerkWerkbon}
+          klanten={klanten} printers={printers} filamentTypes={filamentTypes}
+          allRollen={allRollen} tarieven={tarieven}
+          onKlantToegevoegd={() => {}}
+          onSaved={werkbonBewerkt}
+          onClose={() => setBewerkWerkbon(null)}
         />
       )}
 
@@ -540,8 +564,17 @@ function WerkbonnenTab({ jobs, reloadJobs, printers, klanten, filamentTypes, all
                           </div>
 
                           <div>
-                            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 8 }}>
-                              Financieel
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>
+                                Financieel
+                              </div>
+                              {/* Enkel voor een standalone werkbon (geen offerte_id) — een
+                                  offerte-afgeleide werkbon mag nooit stilzwijgend afwijken van
+                                  de goedgekeurde offerteprijs, zie PUT /werkbonnen/:id backend. */}
+                              {!w.offerte_id && (
+                                <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
+                                  onClick={() => setBewerkWerkbon(detail)}>✏ Bewerken</button>
+                              )}
                             </div>
                             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Vrijgesteld van BTW — art. 56bis</div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 16, padding: '6px 0', borderTop: '1px solid var(--border)', marginBottom: 12 }}>

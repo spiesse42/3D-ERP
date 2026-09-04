@@ -305,20 +305,41 @@ r.put('/:id', (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Niet gevonden' });
 
   const regels = Array.isArray(req.body.regels) ? req.body.regels : JSON.parse(existing.regels_json || '[]');
-  const regelFout = valideerRegels(regels);
-  if (regelFout) return res.status(400).json({ error: regelFout });
 
-  const ber = berekenWerkbonRegels(regels)(existing.marge_pct);
+  let ber;
+  if (existing.offerte_id == null) {
+    // Standalone werkbon (geen offerte_id) — er is geen goedgekeurde
+    // offerteprijs om te beschermen, dus de binnenkomende regels zijn hier
+    // RAUWE input (geen regel._berekend verondersteld) en worden VOLLEDIG
+    // herrekend met dezelfde eerste-pas-motor als bij het aanmaken (POST /,
+    // zie backend/lib/regelmotor.js) — een aantal/prijs-wijziging op een
+    // regel geeft dus meteen het juiste nieuwe bedrag (aantal × prijs), niet
+    // enkel een marge/BTW-herverdeling van een oud bevroren bedrag.
+    const regelFout = valideerNieuweRegels(regels);
+    if (regelFout) return res.status(400).json({ error: regelFout });
+    const t = getTarieven(db);
+    ber = berekenOfferteRegels(db, regels, t);
+  } else {
+    // Van een offerte afgeleide werkbon — ONGEWIJZIGD gedrag: regels dragen
+    // hun bedrag al bevroren (_berekend, overgenomen van de offerte bij het
+    // aanmaken); een werkbon mag nooit stilzwijgend afwijken van de
+    // goedgekeurde offerteprijs, dus hier enkel de marge/BTW-splitsing + een
+    // eventuele handmatig_bedrag-override herrekenen.
+    const regelFout = valideerRegels(regels);
+    if (regelFout) return res.status(400).json({ error: regelFout });
+    ber = berekenWerkbonRegels(regels)(existing.marge_pct);
+  }
+
   const btw_pct = req.body.btw_pct != null ? parseFloat(req.body.btw_pct) || 0 : existing.btw_pct;
   const btw_bedrag = Math.round(ber.verkoopprijs_basis * btw_pct) / 100;
   const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
 
   db.prepare(`
-    UPDATE werkbonnen SET regels_json=?, subtotaal=?, verkoopprijs_basis=?, verkoopprijs=?,
+    UPDATE werkbonnen SET regels_json=?, subtotaal=?, marge_pct=?, verkoopprijs_basis=?, verkoopprijs=?,
       btw_pct=?, btw_bedrag=?, totaal=?, geldig_tot=?, levertermijn=?, notities=?
     WHERE id=?
   `).run(
-    JSON.stringify(ber.regels), ber.subtotaal, ber.verkoopprijs_basis, ber.verkoopprijs,
+    JSON.stringify(ber.regels), ber.subtotaal, ber.marge_pct, ber.verkoopprijs_basis, ber.verkoopprijs,
     btw_pct, btw_bedrag, totaal,
     req.body.geldig_tot !== undefined ? req.body.geldig_tot || null : existing.geldig_tot,
     req.body.levertermijn !== undefined ? req.body.levertermijn || null : existing.levertermijn,

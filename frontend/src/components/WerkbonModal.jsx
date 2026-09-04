@@ -24,21 +24,28 @@ const Sec = ({ title, children }) => (
 );
 
 // ── WerkbonModal ─────────────────────────────────────────────────────────
-// Standalone werkbon aanmaken (zonder offertetraject) — qua vorm gebaseerd
-// op OfferteModal (Offertes.jsx): klant-select, regelkaarten via RegelCard
-// (../lib/regelEditor.jsx), live-preview totalen. In tegenstelling tot een
-// offerte: geen object_link-veld, en POST /werkbonnen i.p.v. /offertes2.
-// Enkel voor NIEUWE werkbons — bewerken van een bestaande werkbon (regels/
-// handmatig_bedrag) gebeurt al via de bestaande PUT /werkbonnen/:id-flow op
-// de Werkbons-tab zelf (Jobs.jsx), niet via deze modal.
-export default function WerkbonModal({ klanten, printers, filamentTypes, allRollen, tarieven, onClose, onSaved, onKlantToegevoegd }) {
+// Standalone werkbon aanmaken/bewerken (zonder offertetraject) — qua vorm
+// gebaseerd op OfferteModal (Offertes.jsx): klant-select, regelkaarten via
+// RegelCard (../lib/regelEditor.jsx), live-preview totalen. In tegenstelling
+// tot een offerte: geen object_link-veld.
+//
+// Optionele `werkbon`-prop (zelfde patroon als OfferteModal's `offerte`-
+// prop): aanwezig => bewerk-modus, PUT /werkbonnen/:id; afwezig => nieuwe
+// werkbon, POST /werkbonnen. Enkel bedoeld voor een STANDALONE werkbon
+// (offerte_id = null) — de aanroeper (Jobs.jsx) toont de "Bewerken"-knop die
+// dit opent alleen voor zo'n werkbon; PUT /werkbonnen/:id rekent voor een
+// offerte-afgeleide werkbon bewust NIET vrij (bevroren offerteprijs), dus
+// deze modal zou daar een misleidende live-preview tonen.
+export default function WerkbonModal({ werkbon, klanten, printers, filamentTypes, allRollen, tarieven, onClose, onSaved, onKlantToegevoegd }) {
   const [form, setForm] = useState({
     klant_id: '', geldig_tot: standaardGeldigTot(), levertermijn: '3 weken',
     btw_pct: 0, notities: '', regels: [],
+    ...werkbon,
   });
   const [saving, setSaving] = useState(false);
   const [klantModal, setKlantModal] = useState(false);
   const set = useCallback((k, v) => setForm(f => ({ ...f, [k]: v })), []);
+  const isEdit = !!form.id;
 
   const artikelTypes = filamentTypes.filter(f => (f.categorie || 'filament') !== 'filament');
   const printFilamentTypes = filamentTypes.filter(f => (f.categorie || 'filament') === 'filament');
@@ -85,9 +92,14 @@ export default function WerkbonModal({ klanten, printers, filamentTypes, allRoll
         btw_pct: form.btw_pct, notities: form.notities,
         // _berekend is bevroren server-data, niet opnieuw opsturen — de
         // backend herberekent bij opslaan zelf op basis van de ruwe velden.
-        regels: regels.map(({ _berekend, ...r }) => r),
+        // gekoppelde_jobs/aantal_gepland zijn afgeleide velden die GET
+        // /werkbonnen/:id toevoegt (voor de voortgangsweergave in Jobs.jsx) —
+        // horen niet thuis in regels_json en dus ook niet in deze payload.
+        regels: regels.map(({ _berekend, gekoppelde_jobs, aantal_gepland, ...r }) => r),
       };
-      const r = await api.post('/werkbonnen', payload);
+      const r = isEdit
+        ? await api.put(`/werkbonnen/${form.id}`, payload)
+        : await api.post('/werkbonnen', payload);
       onSaved(r);
       onClose();
     } catch(e) { alert(e.message); }
@@ -100,7 +112,7 @@ export default function WerkbonModal({ klanten, printers, filamentTypes, allRoll
     }}>
       <div className="modal" style={{ width:760, maxHeight:'93vh', overflowY:'auto' }}>
         <div className="modal-header">
-          <h2 style={{ fontSize:14 }}>Nieuwe werkbon</h2>
+          <h2 style={{ fontSize:14 }}>{isEdit ? `Werkbon bewerken — ${form.volgnummer || ''}` : 'Nieuwe werkbon'}</h2>
           <button className="btn" onClick={onClose}>✕</button>
         </div>
 
@@ -208,9 +220,9 @@ export default function WerkbonModal({ klanten, printers, filamentTypes, allRoll
         </div>
 
         <div className="modal-footer">
-          <button className="btn" onClick={onClose}>Annuleer</button>
+          <button className="btn" onClick={onClose}>{isEdit ? 'Sluiten' : 'Annuleer'}</button>
           <button className="btn primary" onClick={save} disabled={saving}>
-            {saving ? 'Bezig...' : '📋 Werkbon aanmaken'}
+            {saving ? 'Bezig...' : isEdit ? '💾 Bijwerken' : '📋 Werkbon aanmaken'}
           </button>
         </div>
       </div>
