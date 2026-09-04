@@ -102,6 +102,7 @@ const CATEGORIEEN = [
   { waarde: 'filament',           label: '🧵 Filament' },
   { waarde: 'onderdeel',          label: '🔧 Onderdeel (sleutelhangers, ringetjes...)' },
   { waarde: 'verbruiksmateriaal', label: '🧪 Verbruiksmateriaal (lijm, schroeven...)' },
+  { waarde: 'product',            label: '🏷️ Product (afgewerkt, kant-en-klaar)' },
   { waarde: 'dienst',             label: '🚚 Dienst (verzendkosten, ontwerp...) — geen voorraad' },
   { waarde: 'overig',             label: '📦 Overig' },
 ];
@@ -114,12 +115,13 @@ const EENHEDEN = [
 function TypeModal({ type, onClose, onSaved }) {
   const [form, setForm] = useState(type?.id ? { ...type } : {
     merk: '', materiaal: 'PLA+', inkoop_prijs_per_kg: '', dichtheid_g_per_cm3: 1.24, leverancier: '',
-    categorie: 'filament', eenheid: 'gram', marge_pct: '', min_voorraad: '', vaste_prijs: 0
+    categorie: 'filament', eenheid: 'gram', marge_pct: '', min_voorraad: '', vaste_prijs: 0, voorraad_aantal: 0
   });
   // Lokale strings zodat je ononderbroken kan typen
   const [prijsStr, setPrijsStr] = useState(String(form.inkoop_prijs_per_kg ?? ''));
   const [margeStr, setMargeStr] = useState(String(form.marge_pct ?? ''));
   const [minVoorraadStr, setMinVoorraadStr] = useState(String(form.min_voorraad ?? ''));
+  const [voorraadStr, setVoorraadStr] = useState(String(form.voorraad_aantal ?? '0'));
 
   // Vast kleurenpalet voor dit type (optioneel) — als dit niet leeg is, mag bij
   // het aanmaken van voorraad van dit type enkel nog uit dit palet gekozen worden.
@@ -156,6 +158,7 @@ function TypeModal({ type, onClose, onSaved }) {
   }
 
   const isFilament = form.categorie === 'filament';
+  const isProduct = form.categorie === 'product';
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
  async function save() {
@@ -163,12 +166,14 @@ function TypeModal({ type, onClose, onSaved }) {
     const prijs = parseFloat(prijsStr.replace(',', '.'));
     const marge = margeStr !== '' ? parseFloat(margeStr.replace(',', '.')) : null;
     const minVoorraad = minVoorraadStr !== '' ? parseFloat(minVoorraadStr.replace(',', '.')) : null;
+    const voorraad = voorraadStr !== '' ? parseFloat(voorraadStr.replace(',', '.')) : 0;
     try {
       const payload = {
         ...form,
         inkoop_prijs_per_kg: (!isNaN(prijs) && prijs > 0) ? prijs : 0,
         marge_pct: (marge != null && !isNaN(marge)) ? marge : null,
         min_voorraad: (minVoorraad != null && !isNaN(minVoorraad)) ? minVoorraad : null,
+        voorraad_aantal: (voorraad != null && !isNaN(voorraad)) ? voorraad : 0,
       };
       if (type?.id) await api.put(`/filament/types/${type.id}`, payload);
       else await api.post('/filament/types', payload);
@@ -188,7 +193,14 @@ function TypeModal({ type, onClose, onSaved }) {
 
         <div className="form-group">
           <label>Categorie *</label>
-          <select value={form.categorie} onChange={e => set('categorie', e.target.value)}>
+          <select value={form.categorie} onChange={e => {
+            const v = e.target.value;
+            set('categorie', v);
+            // Standaard eenheid voor een nieuw 'product'-type is 'stuk' — enkel
+            // automatisch overschakelen vanaf de nog-ongewijzigde 'gram'-default,
+            // nooit een bewust gekozen eenheid overrulen.
+            if (v === 'product' && form.eenheid === 'gram') set('eenheid', 'stuk');
+          }}>
             {CATEGORIEEN.map(c => <option key={c.waarde} value={c.waarde}>{c.label}</option>)}
           </select>
         </div>
@@ -250,6 +262,15 @@ function TypeModal({ type, onClose, onSaved }) {
           </span></label>
           <input value={minVoorraadStr} onChange={e => setMinVoorraadStr(e.target.value)} placeholder={isFilament ? 'optioneel' : 'bv. 10'} />
         </div>
+
+        {isProduct && (
+          <div className="form-group">
+            <label>Voorraad (stuks) <span style={{ color:'var(--muted)', fontWeight:400, fontSize:11 }}>
+              manueel bij te houden — geen automatische afboeking bij verkoop/levering
+            </span></label>
+            <input value={voorraadStr} onChange={e => setVoorraadStr(e.target.value)} placeholder="bv. 20" />
+          </div>
+        )}
 
         <div className="form-group">
           <label>Leverancier</label>
@@ -936,17 +957,25 @@ export default function Filament() {
           ? <div className="empty">Geen artikeltypes</div>
           : <div className="card" style={{ padding: 0 }}>
               <table>
-                <thead><tr><th>Categorie</th><th>Merk/Leverancier</th><th>Materiaal/Omschrijving</th><th>Eenheid</th><th>Marge</th><th>Leverancier</th><th>Acties</th></tr>
+                <thead><tr><th>Categorie</th><th>Merk/Leverancier</th><th>Materiaal/Omschrijving</th><th>Eenheid</th><th>Voorraad</th><th>Marge</th><th>Leverancier</th><th>Acties</th></tr>
 		</thead>
                 <tbody>
                   {types.map(t => {
                     const cat = CATEGORIEEN.find(c => c.waarde === (t.categorie || 'filament'));
+                    const onderMinimum = t.categorie === 'product' && t.min_voorraad != null && (t.voorraad_aantal ?? 0) < t.min_voorraad;
                     return (
                     <tr key={t.id} style={{ cursor:'pointer' }} onClick={() => setTypeModal(t)}>
                       <td style={{ fontSize: 12 }}>{cat?.label || t.categorie}</td>
                       <td style={{ fontWeight: 500 }}>{t.merk}</td>
                       <td>{t.materiaal}</td>
                       <td style={{ color: 'var(--muted)' }}>{t.eenheid || 'gram'}</td>
+                      <td>
+                        {t.categorie === 'product'
+                          ? <span style={{ color: onderMinimum ? '#ef4444' : 'var(--text)', fontWeight: onderMinimum ? 700 : 400 }}>
+                              {t.voorraad_aantal ?? 0} stuks
+                            </span>
+                          : <span style={{ color: 'var(--muted)' }}>—</span>}
+                      </td>
                       <td style={{ color: 'var(--muted)' }}>{t.vaste_prijs ? <span style={{ color:'var(--accent2)' }}>vast, incl. BTW</span> : (t.marge_pct != null ? `${t.marge_pct}%` : <span style={{ fontStyle:'italic' }}>globaal</span>)}</td>
                       <td style={{ color: 'var(--muted)' }}>{t.leverancier || '—'}</td>
                       <td>

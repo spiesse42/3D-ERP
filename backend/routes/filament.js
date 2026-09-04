@@ -46,7 +46,7 @@ r.post('/types', (req, res) => {
   try {
     const db = getDb();
     const { merk, materiaal, inkoop_prijs_per_kg, dichtheid_g_per_cm3, leverancier, notities,
-            categorie, eenheid, marge_pct, min_voorraad, vaste_prijs } = req.body;
+            categorie, eenheid, marge_pct, min_voorraad, vaste_prijs, voorraad_aantal } = req.body;
     if (!merk || !materiaal) return res.status(400).json({ error: 'Merk en materiaal zijn verplicht' });
     // prijs is optioneel — niet ingevuld/leeg wordt 0; wél moet het een geldig getal zijn
     // (anders crasht de INSERT verderop hard op een NaN-binding richting SQLite)
@@ -54,12 +54,13 @@ r.post('/types', (req, res) => {
       ? 0 : parseFloat(inkoop_prijs_per_kg);
     if (!Number.isFinite(prijs) || prijs < 0) return res.status(400).json({ error: 'Prijs moet een getal (0 of hoger) zijn' });
     const result = db.prepare(
-      'INSERT INTO filament_types (merk,materiaal,inkoop_prijs_per_kg,dichtheid_g_per_cm3,leverancier,notities,categorie,eenheid,marge_pct,min_voorraad,vaste_prijs) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO filament_types (merk,materiaal,inkoop_prijs_per_kg,dichtheid_g_per_cm3,leverancier,notities,categorie,eenheid,marge_pct,min_voorraad,vaste_prijs,voorraad_aantal) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
     ).run(merk, materiaal, prijs, parseFloat(dichtheid_g_per_cm3) || 1.24, leverancier || null, notities || null,
           categorie || 'filament', eenheid || 'gram',
           (marge_pct !== undefined && marge_pct !== '') ? parseFloat(marge_pct) : null,
           (min_voorraad !== undefined && min_voorraad !== '') ? parseFloat(min_voorraad) : null,
-          vaste_prijs ? 1 : 0);
+          vaste_prijs ? 1 : 0,
+          parseFloat(voorraad_aantal) || 0);
     res.status(201).json({ id: result.lastInsertRowid });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -69,17 +70,18 @@ r.post('/types', (req, res) => {
 r.put('/types/:id', (req, res) => {
   const db = getDb();
   const { merk, materiaal, inkoop_prijs_per_kg, dichtheid_g_per_cm3, leverancier, notities,
-          categorie, eenheid, marge_pct, min_voorraad, vaste_prijs } = req.body;
+          categorie, eenheid, marge_pct, min_voorraad, vaste_prijs, voorraad_aantal } = req.body;
   if (!merk || !materiaal) return res.status(400).json({ error: 'Merk en materiaal zijn verplicht' });
   const prijs = parseFloat(inkoop_prijs_per_kg);
   if (isNaN(prijs) || prijs <= 0) return res.status(400).json({ error: 'Prijs moet een positief getal zijn' });
   db.prepare(
-    'UPDATE filament_types SET merk=?,materiaal=?,inkoop_prijs_per_kg=?,dichtheid_g_per_cm3=?,leverancier=?,notities=?,categorie=?,eenheid=?,marge_pct=?,min_voorraad=?,vaste_prijs=? WHERE id=?'
+    'UPDATE filament_types SET merk=?,materiaal=?,inkoop_prijs_per_kg=?,dichtheid_g_per_cm3=?,leverancier=?,notities=?,categorie=?,eenheid=?,marge_pct=?,min_voorraad=?,vaste_prijs=?,voorraad_aantal=? WHERE id=?'
   ).run(merk, materiaal, prijs, parseFloat(dichtheid_g_per_cm3) || 1.24, leverancier || null, notities || null,
         categorie || 'filament', eenheid || 'gram',
         (marge_pct !== undefined && marge_pct !== '') ? parseFloat(marge_pct) : null,
         (min_voorraad !== undefined && min_voorraad !== '') ? parseFloat(min_voorraad) : null,
         vaste_prijs ? 1 : 0,
+        parseFloat(voorraad_aantal) || 0,
         req.params.id);
   res.json({ ok: true });
 });
@@ -302,10 +304,35 @@ r.delete('/rollen/:id', (req, res) => {
 });
 
 // GET artikelen onder minimum voorraad — voor 'Te bestellen' sectie
+//
+// Twee aparte takken, in JS samengevoegd i.p.v. 1 SQL UNION: filament_rollen
+// en filament_types hebben fundamenteel verschillende vorm (rollen-gebaseerd
+// met gewicht_gram_huidig/start vs. types met een enkel voorraad_aantal), dus
+// een UNION zou toch met opgevulde/nep-kolommen moeten werken — dat wordt in
+// JS leesbaarder. `bron: 'rol' | 'product'` erbij zodat een consument de twee
+// vormen kan onderscheiden i.p.v. te gokken op welke velden ingevuld zijn.
+//
+// Tak 1 — filament-rollen: ONGEWIJZIGD (zelfde query/velden/volgorde als
+// voorheen — geen regressie voor de bestaande, rollen-gebaseerde weergave).
+//
+// Tak 2 — 'product'-categorie types (bv. "Fuzzy Bubble Letter"): die hebben
+// GEEN rollen (INNER JOIN hierboven sluit ze dus altijd uit, ook als de
+// voorraad onder het minimum zit) — apart opgehaald op
+// voorraad_aantal < COALESCE(min_voorraad, fallback). Fallback-drempel: 5
+// stuks (eigen keuze — er is geen natuurlijke gram-gebaseerde afleiding zoals
+// bij rollen (50g/100g naargelang startgewicht); 5 is een behapbaar,
+// conservatief "bijna op"-signaal voor kant-en-klare producten. Instelbaar
+// per type via min_voorraad, exact zoals bij de andere categorieën.
+//
+// gewicht_gram_huidig/-start zijn voor een product-rij niet van toepassing —
+// bewust NIET hergebruikt (zou een consument kunnen laten denken dat het om
+// grammen gaat) maar op null gelaten; `voorraad_aantal` is het aparte,
+// expliciete veld waarop een frontend voor `bron === 'product'` moet
+// reageren.
 r.get('/te-bestellen', (req, res) => {
   try {
     const db = getDb();
-    const rows = db.prepare(`
+    const rollenRows = db.prepare(`
       SELECT r.*,
         ft.merk, ft.materiaal, ft.categorie, ft.eenheid, ft.min_voorraad,
         COALESCE(
@@ -320,8 +347,23 @@ r.get('/te-bestellen', (req, res) => {
           CASE WHEN r.gewicht_gram_start <= 200 THEN 50 ELSE 100 END
         )
       ORDER BY r.gewicht_gram_huidig ASC
-    `).all();
-    res.json(rows);
+    `).all().map(row => ({ ...row, bron: 'rol' }));
+
+    const productRows = db.prepare(`
+      SELECT ft.id, ft.id as filament_type_id, ft.merk, ft.materiaal, ft.categorie, ft.eenheid,
+        ft.min_voorraad, ft.voorraad_aantal, ft.inkoop_prijs_per_kg as prijs_per_kg_effectief
+      FROM filament_types ft
+      WHERE ft.categorie = 'product'
+        AND ft.voorraad_aantal < COALESCE(ft.min_voorraad, 5)
+      ORDER BY ft.voorraad_aantal ASC
+    `).all().map(row => ({
+      ...row, bron: 'product',
+      kleur: null, kleur_hex: null, gewicht_gram_start: null, gewicht_gram_huidig: null,
+      locatie: null, gekocht_op: null, aankoopprijs_eur: null, lotnummer: null, factuur_id: null,
+      actief: 1,
+    }));
+
+    res.json([...rollenRows, ...productRows]);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
