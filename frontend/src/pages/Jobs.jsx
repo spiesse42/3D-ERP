@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { usePrinterData } from '../lib/usePrinterData.js';
 import { useSearchParams } from 'react-router-dom';
 import { api, BASE } from '../lib/api.js';
@@ -235,27 +235,15 @@ function WerkbonnenTab({ jobs, reloadJobs }) {
   const [openId, setOpenId] = useState(null);
   const [details, setDetails] = useState({});
   const [laden, setLaden] = useState(true);
-  const openIdRef = useRef(null);
 
   const loadList = () => api.get('/werkbonnen').then(setWerkbonnen).catch(e => alert('Kon werkbons niet laden: ' + e.message));
   const loadDetail = (id) => api.get(`/werkbonnen/${id}`).then(d => setDetails(prev => ({ ...prev, [id]: d }))).catch(e => alert(e.message));
 
-  useEffect(() => {
-    loadList().finally(() => setLaden(false));
-    // Live-update, zelfde als de Printopdrachten-tabel — dit tabblad had voorheen
-    // helemaal geen periodieke herlaad, enkel bij het openen of na een actie.
-    const interval = setInterval(() => {
-      loadList();
-      if (openIdRef.current != null) loadDetail(openIdRef.current);
-    }, 60000);
-    return () => clearInterval(interval);
-  }, []);
+  useEffect(() => { loadList().finally(() => setLaden(false)); }, []);
 
   function toggle(w) {
     const willOpen = openId !== w.id;
-    const nieuwId = willOpen ? w.id : null;
-    setOpenId(nieuwId);
-    openIdRef.current = nieuwId;
+    setOpenId(willOpen ? w.id : null);
     if (willOpen) loadDetail(w.id);
   }
 
@@ -355,6 +343,7 @@ function WerkbonnenTab({ jobs, reloadJobs }) {
                 <tr key={`${w.id}-detail`}>
                     <td colSpan={7} style={{ background: 'var(--bg)', padding: '1rem 1.25rem' }}>
                       {!detail ? <div style={{ color: 'var(--muted)' }}>Laden...</div> : (
+                        <>
                         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 24 }}>
                           <div>
                             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 8 }}>
@@ -440,6 +429,8 @@ function WerkbonnenTab({ jobs, reloadJobs }) {
                             </div>
                           </div>
                         </div>
+                        <PakbonSectie werkbonId={w.id} klantEmail={detail.email} />
+                        </>
                       )}
                     </td>
                 </tr>
@@ -449,6 +440,188 @@ function WerkbonnenTab({ jobs, reloadJobs }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ── Pakbonnen (leveringen) — bij een werkbon-detail ────────────────────
+// Een pakbon is GEEN facturatiedocument: enkel aantal + omschrijving, geen
+// bedragen (zie backend/routes/pakbonnen.js). Een werkbon kan meerdere
+// pakbonnen krijgen (bv. eerst een deellevering, later de rest) — "nog te
+// leveren" per regel wordt steeds vers uit de bestaande pakbonnen herberekend,
+// nooit een aparte teller die uit sync kan raken. Regels/aantallen zijn hier
+// vrij aan te passen, zowel bij het aanmaken als nadien via "Bewerk" — het
+// aanmaken/bewerken van een pakbon raakt nooit de werkbon-regels of de
+// job-koppeling: wat nog niet geleverd is, blijft gewoon aan de werkbon/jobs
+// gekoppeld zoals het was.
+function PakbonSectie({ werkbonId, klantEmail }) {
+  const [data, setData] = useState(null); // { pakbonnen, voortgang }
+  const [laden, setLaden] = useState(true);
+  const [bewerkId, setBewerkId] = useState(null); // null = gesloten, 'nieuw', of pakbon.id
+  const [draftRegels, setDraftRegels] = useState([]);
+  const [draftNotities, setDraftNotities] = useState('');
+  const [opslaan, setOpslaan] = useState(false);
+
+  const load = () => api.get(`/pakbonnen/werkbon/${werkbonId}`)
+    .then(d => setData(d))
+    .catch(e => alert('Kon pakbonnen niet laden: ' + e.message))
+    .finally(() => setLaden(false));
+
+  useEffect(() => { load(); }, [werkbonId]);
+
+  function startNieuw() {
+    const voorstel = (data?.voortgang || [])
+      .filter(v => v.aantal_resterend > 0)
+      .map(v => ({ werkbon_regel_index: v.werkbon_regel_index, object_naam: v.object_naam, aantal: v.aantal_resterend }));
+    setDraftRegels(voorstel.length ? voorstel : [{ werkbon_regel_index: null, object_naam: '', aantal: 1 }]);
+    setDraftNotities('');
+    setBewerkId('nieuw');
+  }
+
+  function startBewerk(pb) {
+    setDraftRegels(pb.regels.map(r => ({ ...r })));
+    setDraftNotities(pb.notities || '');
+    setBewerkId(pb.id);
+  }
+
+  function annuleer() { setBewerkId(null); setDraftRegels([]); }
+
+  function regelWijzig(i, veld, waarde) {
+    setDraftRegels(prev => prev.map((r, idx) => idx === i ? { ...r, [veld]: waarde } : r));
+  }
+  function regelVerwijder(i) { setDraftRegels(prev => prev.filter((_, idx) => idx !== i)); }
+  function regelToevoegen() { setDraftRegels(prev => [...prev, { werkbon_regel_index: null, object_naam: '', aantal: 1 }]); }
+
+  async function opslaanKlik() {
+    if (!draftRegels.length) { alert('Minstens 1 regel nodig'); return; }
+    for (const r of draftRegels) {
+      if (!r.object_naam || !String(r.object_naam).trim()) { alert('Elke regel heeft een omschrijving nodig'); return; }
+      const aantal = parseInt(r.aantal);
+      if (!Number.isFinite(aantal) || aantal <= 0) { alert(`Aantal moet een geheel getal groter dan 0 zijn (regel "${r.object_naam}")`); return; }
+    }
+    setOpslaan(true);
+    try {
+      const payload = {
+        regels: draftRegels.map(r => ({
+          werkbon_regel_index: r.werkbon_regel_index === '' ? null : r.werkbon_regel_index,
+          object_naam: String(r.object_naam).trim(),
+          aantal: parseInt(r.aantal),
+        })),
+        notities: draftNotities || null,
+      };
+      if (bewerkId === 'nieuw') await api.post('/pakbonnen', { werkbon_id: werkbonId, ...payload });
+      else await api.put(`/pakbonnen/${bewerkId}`, payload);
+      setBewerkId(null);
+      setDraftRegels([]);
+      await load();
+    } catch (e) { alert(e.message); }
+    setOpslaan(false);
+  }
+
+  async function verwijderPakbon(id) {
+    if (!confirm('Deze pakbon verwijderen? De werkbon en de gekoppelde printopdrachten blijven ongewijzigd — enkel deze leveringsbon verdwijnt.')) return;
+    try { await api.delete(`/pakbonnen/${id}`); load(); } catch (e) { alert(e.message); }
+  }
+
+  async function mailPakbon(id) {
+    const to = prompt('E-mailadres', klantEmail || '');
+    if (!to) return;
+    try { await api.post(`/pakbonnen/${id}/email`, { to }); alert('Pakbon verstuurd naar ' + to); }
+    catch (e) { alert('Versturen mislukt: ' + e.message); }
+  }
+
+  if (laden) return null;
+  const leverbareRegels = data?.voortgang || [];
+
+  return (
+    <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>
+          Pakbonnen (leveringen)
+        </div>
+        {bewerkId === null && (
+          <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={startNieuw}>+ Nieuwe pakbon</button>
+        )}
+      </div>
+
+      {leverbareRegels.length > 0 && (
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+          {leverbareRegels.map(v => (
+            <span key={v.werkbon_regel_index}>
+              {v.object_naam}: <strong style={{ color: v.aantal_resterend > 0 ? 'var(--accent)' : 'var(--accent2)' }}>
+                {v.aantal_geleverd}/{v.aantal_totaal} geleverd
+              </strong>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {data?.pakbonnen?.length > 0 && data.pakbonnen.map(pb => (
+        <div key={pb.id} className="card" style={{ marginBottom: 6, padding: '0.5rem 0.75rem', fontSize: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+            <div>
+              <span style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--accent)' }}>{pb.volgnummer}</span>
+              <span style={{ color: 'var(--muted)', marginLeft: 8 }}>
+                {(pb.aangemaakt_op || '').split(' ')[0]} · {pb.regels.length} regel{pb.regels.length === 1 ? '' : 's'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn" style={{ fontSize: 10, padding: '3px 7px' }} onClick={() => startBewerk(pb)}>Bewerk</button>
+              <a className="btn" style={{ fontSize: 10, padding: '3px 7px' }} href={`${BASE}/pakbonnen/${pb.id}/pdf`} download>↓ PDF</a>
+              <button className="btn" style={{ fontSize: 10, padding: '3px 7px' }} onClick={() => mailPakbon(pb.id)}>✉ Mail</button>
+              <button className="btn danger" style={{ fontSize: 10, padding: '3px 7px' }} onClick={() => verwijderPakbon(pb.id)}>✕</button>
+            </div>
+          </div>
+          <div style={{ marginTop: 4, color: 'var(--muted)' }}>
+            {pb.regels.map(r => `${r.aantal}× ${r.object_naam}`).join(' · ')}
+          </div>
+          {pb.notities && <div style={{ marginTop: 4, color: 'var(--muted)', fontStyle: 'italic' }}>{pb.notities}</div>}
+        </div>
+      ))}
+
+      {!data?.pakbonnen?.length && bewerkId === null && (
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>Nog geen pakbon voor deze werkbon.</div>
+      )}
+
+      {bewerkId !== null && (
+        <div className="card" style={{ padding: '0.75rem', background: 'var(--bg3)', marginTop: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8 }}>
+            {bewerkId === 'nieuw' ? 'Nieuwe pakbon' : 'Pakbon bewerken'}
+          </div>
+          {draftRegels.map((r, i) => (
+            <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="number" min="1" step="1" value={r.aantal}
+                onChange={e => regelWijzig(i, 'aantal', e.target.value)}
+                style={{ width: 56, fontSize: 12, padding: '4px 6px' }} />
+              <input type="text" value={r.object_naam} placeholder="Omschrijving"
+                onChange={e => regelWijzig(i, 'object_naam', e.target.value)}
+                style={{ flex: 1, minWidth: 160, fontSize: 12, padding: '4px 6px' }} />
+              <select value={r.werkbon_regel_index ?? ''} style={{ fontSize: 11, padding: '4px 6px', width: 'auto' }}
+                onChange={e => regelWijzig(i, 'werkbon_regel_index', e.target.value === '' ? null : parseInt(e.target.value))}>
+                <option value="">Los item (geen koppeling)</option>
+                {leverbareRegels.map(v => (
+                  <option key={v.werkbon_regel_index} value={v.werkbon_regel_index}>
+                    Regel: {v.object_naam} (nog {v.aantal_resterend} te leveren)
+                  </option>
+                ))}
+              </select>
+              <button className="btn danger" style={{ fontSize: 10, padding: '3px 7px' }} onClick={() => regelVerwijder(i)}>✕</button>
+            </div>
+          ))}
+          <button className="btn" style={{ fontSize: 11, padding: '4px 8px', marginBottom: 10 }} onClick={regelToevoegen}>+ Regel toevoegen</button>
+          <div className="form-group" style={{ marginBottom: 10 }}>
+            <label style={{ fontSize: 11 }}>Notities (optioneel)</label>
+            <input type="text" value={draftNotities} onChange={e => setDraftNotities(e.target.value)}
+              placeholder="bv. Deellevering — rest volgt later" style={{ fontSize: 12 }} />
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn primary" style={{ fontSize: 11, padding: '5px 10px' }} disabled={opslaan} onClick={opslaanKlik}>
+              {opslaan ? 'Opslaan...' : 'Opslaan'}
+            </button>
+            <button className="btn" style={{ fontSize: 11, padding: '5px 10px' }} onClick={annuleer}>Annuleer</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -479,9 +652,7 @@ export default function Jobs() {
     loadKoppelbaar();
     api.get('/printers').then(setPrinters).catch(e => alert('Kon printers niet laden: ' + e.message));
     api.get('/klanten').then(setKlanten).catch(e => alert('Kon klanten niet laden: ' + e.message));
-    // Koppelbare regels mee in dezelfde interval, zodat de koppel-dropdowns ook
-    // vers blijven als een werkbon in een andere tab/sessie gewijzigd wordt.
-    const interval = setInterval(() => { loadJobs(); loadKoppelbaar(); }, 10000);
+    const interval = setInterval(loadJobs, 10000);
 
     return () => {
       clearInterval(interval);

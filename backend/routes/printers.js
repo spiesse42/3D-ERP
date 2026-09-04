@@ -3,6 +3,33 @@ import { getDb } from '../db.js';
 
 const r = Router();
 
+// Home Assistant entity-ID's horen altijd een domein te bevatten (bv. 'sensor.xxx').
+// Voor het prefix-veld en de kWh/Watt-velden weten we dat het domein altijd
+// 'sensor' is — dat vullen we dus zelf aan als iemand het vergeet te typen
+// (bv. 'a1_0390..._' i.p.v. 'sensor.a1_0390..._'). Zonder deze correctie blijven
+// alle daaruit opgebouwde entiteiten stil "unavailable", zonder duidelijke reden.
+// Toegepast bij opslaan én bij elke config-ophaling (zelfherstellend, zelfde
+// aanpak als elders in dit bestand/usePrinterData.js), zodat een al bestaande
+// foutieve waarde ook zonder herbewaren meteen weer werkt.
+function normalizeSensorId(waarde) {
+  if (!waarde) return waarde;
+  const trimmed = String(waarde).trim();
+  if (!trimmed) return trimmed;
+  return /^[a-z_]+\./.test(trimmed) ? trimmed : `sensor.${trimmed}`;
+}
+
+// Voor button-/camera-velden kunnen we het domein niet zelf raden (button./camera.
+// kan niet uit sensor. afgeleid worden) — daar valideren we enkel dat er wél een
+// domein in zit, zodat een duidelijke foutmelding komt i.p.v. een stil falende knop.
+function valideerEntityId(waarde, veldnaam) {
+  if (!waarde) return null;
+  const trimmed = String(waarde).trim();
+  if (trimmed && !/^[a-z_]+\./.test(trimmed)) {
+    return `${veldnaam} moet een volledige HA entity-ID zijn, inclusief domein (bv. button.mijn_knop) — "${trimmed}" mist dat.`;
+  }
+  return null;
+}
+
 r.get('/', (req, res) => {
   res.json(getDb().prepare('SELECT * FROM printers ORDER BY id').all());
 });
@@ -14,7 +41,7 @@ r.get('/config', (req, res) => {
   const kwh_prijs = tarieven.find(t => t.sleutel === 'kwh_prijs')?.waarde || 0.35;
 
   const config = printers.map(p => {
-    const prefix = p.ha_entity_prefix || '';
+    const prefix = normalizeSensorId(p.ha_entity_prefix) || '';
     const isBambu = p.naam.toLowerCase().includes('bambu') || prefix.includes('a1mini');
     const isEnder = p.naam.toLowerCase().includes('ender') || prefix.includes('ender');
     const isKobra = p.naam.toLowerCase().includes('kobra') || prefix.includes('kobra');
@@ -32,8 +59,8 @@ r.get('/config', (req, res) => {
         start:       `${prefix}starttijd`,
         bed_temp:    `${prefix}bedtemperatuur`,
         nozzle_temp: `${prefix}nozzle_temperatuur`,
-        kwh:         p.kwh_entity || '',
-        watt:        p.watt_entity || '',
+        kwh:         normalizeSensorId(p.kwh_entity) || '',
+        watt:        normalizeSensorId(p.watt_entity) || '',
       };
     } else if (isEnder && prefix) {
       entities = {
@@ -47,8 +74,8 @@ r.get('/config', (req, res) => {
         duration:    `${prefix}print_duration`,
         bed_temp:    `${prefix}bed_temperature`,
         nozzle_temp: `${prefix}extruder_temperature`,
-        kwh:         p.kwh_entity || '',
-        watt:        p.watt_entity || '',
+        kwh:         normalizeSensorId(p.kwh_entity) || '',
+        watt:        normalizeSensorId(p.watt_entity) || '',
       };
     } else if (isKobra && prefix) {
       // Anycubic S1 MQTT Bridge (community HA-addon): print_state/print_layer/
@@ -66,15 +93,15 @@ r.get('/config', (req, res) => {
         filament:    `${prefix}material_usage`,         // mm
         bed_temp:    `${prefix}hotbed_temperature`,
         nozzle_temp: `${prefix}nozzle_temperature`,
-        kwh:         p.kwh_entity || '',
-        watt:        p.watt_entity || '',
+        kwh:         normalizeSensorId(p.kwh_entity) || '',
+        watt:        normalizeSensorId(p.watt_entity) || '',
       };
     } else {
       // Onbekend/generiek type — geen kant-en-klare statusmapping, maar de
       // handmatig ingestelde kWh/Watt-entiteiten mogen nooit verloren gaan.
       entities = {
-        kwh:  p.kwh_entity || '',
-        watt: p.watt_entity || '',
+        kwh:  normalizeSensorId(p.kwh_entity) || '',
+        watt: normalizeSensorId(p.watt_entity) || '',
       };
     }
 
@@ -104,13 +131,20 @@ r.post('/', (req, res) => {
   const { naam, type, ha_entity_prefix, kwh_entity, watt_entity, machine_kost_per_uur, heeft_bmcu, gem_verbruik_watt,
     pause_entity, resume_entity, cancel_entity, camera_entity } = req.body;
   if (!naam || !naam.trim()) return res.status(400).json({ error: 'Naam is verplicht' });
+  const entityFouten = [
+    valideerEntityId(pause_entity, 'Pauzeer-knop entity'),
+    valideerEntityId(resume_entity, 'Hervat-knop entity'),
+    valideerEntityId(cancel_entity, 'Annuleer-knop entity'),
+    valideerEntityId(camera_entity, 'Camera entity'),
+  ].filter(Boolean);
+  if (entityFouten.length) return res.status(400).json({ error: entityFouten.join(' ') });
   try {
     const result = db.prepare(`
       INSERT INTO printers (naam,type,ha_entity_prefix,kwh_entity,watt_entity,machine_kost_per_uur,heeft_bmcu,actief,gem_verbruik_watt,
         pause_entity,resume_entity,cancel_entity,camera_entity)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
-      naam.trim(), type || 'FDM', ha_entity_prefix || null, kwh_entity || null, watt_entity || null,
+      naam.trim(), type || 'FDM', normalizeSensorId(ha_entity_prefix) || null, normalizeSensorId(kwh_entity) || null, normalizeSensorId(watt_entity) || null,
       (machine_kost_per_uur !== undefined && machine_kost_per_uur !== '') ? parseFloat(machine_kost_per_uur) : 0.13,
       heeft_bmcu ? 1 : 0, 1,
       (gem_verbruik_watt !== undefined && gem_verbruik_watt !== '') ? parseFloat(gem_verbruik_watt) : null,
@@ -130,10 +164,17 @@ r.put('/:id', (req, res) => {
     if (!naam || !naam.trim()) return res.status(400).json({ error: 'Naam is verplicht' });
     const machineKost = (machine_kost_per_uur !== undefined && machine_kost_per_uur !== '') ? parseFloat(machine_kost_per_uur) : 0.13;
     if (!Number.isFinite(machineKost) || machineKost < 0) return res.status(400).json({ error: 'Machinekost per uur moet een getal (0 of hoger) zijn' });
+    const entityFouten = [
+      valideerEntityId(pause_entity, 'Pauzeer-knop entity'),
+      valideerEntityId(resume_entity, 'Hervat-knop entity'),
+      valideerEntityId(cancel_entity, 'Annuleer-knop entity'),
+      valideerEntityId(camera_entity, 'Camera entity'),
+    ].filter(Boolean);
+    if (entityFouten.length) return res.status(400).json({ error: entityFouten.join(' ') });
     const result = db.prepare(`UPDATE printers SET naam=?,type=?,ha_entity_prefix=?,kwh_entity=?,watt_entity=?,
       machine_kost_per_uur=?,heeft_bmcu=?,actief=?,gem_verbruik_watt=?,
       pause_entity=?,resume_entity=?,cancel_entity=?,camera_entity=? WHERE id=?`)
-      .run(naam.trim(), type, ha_entity_prefix||null, kwh_entity||null, watt_entity||null,
+      .run(naam.trim(), type, normalizeSensorId(ha_entity_prefix)||null, normalizeSensorId(kwh_entity)||null, normalizeSensorId(watt_entity)||null,
         machineKost, heeft_bmcu?1:0, actief?1:0,
         (gem_verbruik_watt !== undefined && gem_verbruik_watt !== '') ? parseFloat(gem_verbruik_watt) : null,
         pause_entity || null, resume_entity || null, cancel_entity || null, camera_entity || null,
