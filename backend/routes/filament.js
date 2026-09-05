@@ -315,7 +315,8 @@ r.delete('/rollen/:id', (req, res) => {
 // Tak 1 — filament-rollen: ONGEWIJZIGD (zelfde query/velden/volgorde als
 // voorheen — geen regressie voor de bestaande, rollen-gebaseerde weergave).
 //
-// Tak 2 — 'product'-categorie types (bv. "Fuzzy Bubble Letter"): die hebben
+// Tak 2 — 'product'/'onderdeel'-categorie types (bv. "Fuzzy Bubble Letter",
+// of een sleutelhanger-ringetje): die hebben
 // GEEN rollen (INNER JOIN hierboven sluit ze dus altijd uit, ook als de
 // voorraad onder het minimum zit) — apart opgehaald op
 // voorraad_aantal < COALESCE(min_voorraad, fallback). Fallback-drempel: 5
@@ -353,7 +354,7 @@ r.get('/te-bestellen', (req, res) => {
       SELECT ft.id, ft.id as filament_type_id, ft.merk, ft.materiaal, ft.categorie, ft.eenheid,
         ft.min_voorraad, ft.voorraad_aantal, ft.inkoop_prijs_per_kg as prijs_per_kg_effectief
       FROM filament_types ft
-      WHERE ft.categorie = 'product'
+      WHERE ft.categorie IN ('product', 'onderdeel')
         AND ft.voorraad_aantal < COALESCE(ft.min_voorraad, 5)
       ORDER BY ft.voorraad_aantal ASC
     `).all().map(row => ({

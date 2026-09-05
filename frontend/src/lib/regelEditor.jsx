@@ -249,7 +249,7 @@ function PrintenVelden({ regel, onChange, onChangeSilent, printFilamentTypes, al
         <F label="Printer">
           <select value={regel.printer_id || ''} onChange={e => onChange({ printer_id: e.target.value })}>
             <option value="">— selecteer —</option>
-            {printers.map(p => <option key={p.id} value={p.id}>{p.naam}</option>)}
+            {printers.filter(p => p.actief || parseInt(regel.printer_id) === p.id).map(p => <option key={p.id} value={p.id}>{p.naam}</option>)}
           </select>
         </F>
         <F label="Aantal stuks">

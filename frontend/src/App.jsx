@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import Dashboard from './pages/Dashboard.jsx';
 import Jobs from './pages/Jobs.jsx';
+import Werkbonnen from './pages/Werkbonnen.jsx';
 import Klanten from './pages/Klanten.jsx';
 import Filament from './pages/Filament.jsx';
 import Bestellingen from './pages/Bestellingen.jsx';
@@ -17,6 +18,7 @@ import './App.css';
 const NAV = [
   { to: '/',              icon: '⬛', label: 'Dashboard' },
   { to: '/jobs',          icon: '🖨',  label: 'Jobs' },
+  { to: '/werkbonnen',    icon: '📋', label: 'Werkbons' },
   { to: '/klanten',       icon: '👤', label: 'Klanten' },
   { to: '/filament',      icon: '🧵', label: 'Artikelen' },
   { to: '/bestellingen',  icon: '📦', label: 'Bestellingen' },
@@ -55,7 +57,7 @@ function AutoSaveIndicator() {
 }
 
 const basename = window.location.pathname.replace(
-  /\/(jobs|klanten|filament|bestellingen|offertes|financien|statistieken|instellingen).*$/, ''
+  /\/(jobs|werkbonnen|klanten|filament|bestellingen|offertes|financien|statistieken|instellingen).*$/, ''
 );
 
 export default function App() {
@@ -89,6 +91,7 @@ export default function App() {
           <Routes>
             <Route path="/"              element={<Dashboard />} />
             <Route path="/jobs"          element={<Jobs />} />
+            <Route path="/werkbonnen"    element={<Werkbonnen />} />
             <Route path="/klanten"       element={<Klanten />} />
             <Route path="/filament"      element={<Filament />} />
             <Route path="/bestellingen"  element={<Bestellingen />} />

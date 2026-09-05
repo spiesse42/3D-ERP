@@ -209,6 +209,24 @@ export default function Instellingen() {
     } catch (e) { alert(e.message); }
   }
 
+  // Archiveren i.p.v. verwijderen — een printer die al gebruikt is (jobs,
+  // offertes) kan niet weg (zie backend), maar mag wel uit nieuwe
+  // selectielijsten verdwijnen zonder de historische naam te verliezen.
+  async function togglePrinterActief(printer) {
+    try {
+      await api.patch(`/printers/${printer.id}/actief`, { actief: !printer.actief });
+      setPrinters(await api.get('/printers'));
+    } catch (e) { alert(e.message); }
+  }
+
+  async function verwijderPrinter(printer) {
+    if (!confirm(`Printer "${printer.naam}" definitief verwijderen? Dit kan niet ongedaan gemaakt worden.`)) return;
+    try {
+      await api.delete(`/printers/${printer.id}`);
+      setPrinters(await api.get('/printers'));
+    } catch (e) { alert(e.message); }
+  }
+
   function setNieuw(k, v) {
     setNieuwePrinter(p => ({ ...p, [k]: v }));
   }
@@ -428,8 +446,19 @@ export default function Instellingen() {
           )}
 
           {printers.map(p => (
-            <div key={p.id} className="card" style={{ marginBottom:'1rem' }}>
-              <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'1rem' }}>{p.naam}</h2>
+            <div key={p.id} className="card" style={{ marginBottom:'1rem', opacity: p.actief ? 1 : 0.6 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' }}>
+                <h2 style={{ fontSize:14, fontWeight:600 }}>
+                  {p.naam}
+                  {!p.actief && <span style={{ marginLeft:8, fontSize:11, fontWeight:400, color:'var(--muted)' }}>(inactief / verkocht)</span>}
+                </h2>
+                <div style={{ display:'flex', gap:6 }}>
+                  <button className="btn" style={{ fontSize:11, padding:'4px 8px' }} onClick={() => togglePrinterActief(p)}>
+                    {p.actief ? 'Markeer inactief/verkocht' : 'Heractiveer'}
+                  </button>
+                  <button className="btn danger" style={{ fontSize:11, padding:'4px 8px' }} onClick={() => verwijderPrinter(p)}>Verwijder</button>
+                </div>
+              </div>
 
               <div className="form-group">
                 <label>HA entity prefix</label>

@@ -318,7 +318,7 @@ export default function Offertes() {
     try {
       await api.post(`/offertes2/${id}/maak-werkbon`, {});
       const u = await api.get(`/offertes2/${id}`);
-      setJobStatus(u.werkbon ? `✓ Werkbon aangemaakt (${u.werkbon.volgnummer}) — ga naar Jobs / Werkbons` : '✓ Werkbon aangemaakt');
+      setJobStatus(u.werkbon ? `✓ Werkbon aangemaakt (${u.werkbon.volgnummer}) — ga naar Werkbons` : '✓ Werkbon aangemaakt');
       load();
       if (detail?.id === id) setDetail(u);
     } catch(e) { setJobStatus('✗ ' + e.message); }

@@ -196,4 +196,42 @@ r.patch('/:id/auto-job', (req, res) => {
   res.json({ ok: true });
 });
 
+// Archiveren/heractiveren i.p.v. verwijderen — een printer die ooit gebruikt
+// is (jobs, offertes, werkbonnen) mag niet zomaar uit de database verdwijnen
+// (historische documenten/rapportage moeten de naam kunnen blijven tonen).
+// 'actief=0' laat de printer verdwijnen uit nieuwe selectielijsten (frontend-
+// filter, zie regelEditor.jsx/Jobs.jsx/Werkbonnen.jsx) terwijl GET / en
+// GET /config 'm gewoon nog teruggeven voor bestaande koppelingen.
+r.patch('/:id/actief', (req, res) => {
+  const db = getDb();
+  const info = db.prepare('UPDATE printers SET actief = ? WHERE id = ?')
+    .run(req.body.actief ? 1 : 0, req.params.id);
+  if (info.changes === 0) return res.status(404).json({ error: 'Printer niet gevonden' });
+  res.json({ ok: true });
+});
+
+// Enkel echt verwijderen als de printer nergens (meer) aan gekoppeld is —
+// zelfde patroon als filament.js's DELETE /types/:id. jobs.printer_id heeft
+// bovendien een DB-constraint (ON DELETE RESTRICT) die dit sowieso zou
+// blokkeren, maar we checken hier zelf eerst voor een duidelijke foutmelding
+// i.p.v. een rauwe SQLite-constraintfout. offertes_v2.printer_id heeft geen
+// DB-constraint maar wordt hier ook gecheckt zodat een offerte niet stilzwijgend
+// naar een verdwenen printer blijft verwijzen.
+r.delete('/:id', (req, res) => {
+  const db = getDb();
+  try {
+    const inJobs = db.prepare('SELECT COUNT(*) as n FROM jobs WHERE printer_id = ?').get(req.params.id);
+    if (inJobs.n > 0)
+      return res.status(409).json({ error: `Kan niet verwijderen: ${inJobs.n} job(s) gekoppeld aan deze printer. Markeer de printer als inactief in plaats van te verwijderen.` });
+    const inOffertes = db.prepare('SELECT COUNT(*) as n FROM offertes_v2 WHERE printer_id = ?').get(req.params.id);
+    if (inOffertes.n > 0)
+      return res.status(409).json({ error: `Kan niet verwijderen: printer gebruikt in ${inOffertes.n} offerte(s). Markeer de printer als inactief in plaats van te verwijderen.` });
+    const info = db.prepare('DELETE FROM printers WHERE id = ?').run(req.params.id);
+    if (info.changes === 0) return res.status(404).json({ error: 'Printer niet gevonden' });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 export default r;

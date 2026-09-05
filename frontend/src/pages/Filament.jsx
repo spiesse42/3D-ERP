@@ -158,7 +158,11 @@ function TypeModal({ type, onClose, onSaved }) {
   }
 
   const isFilament = form.categorie === 'filament';
-  const isProduct = form.categorie === 'product';
+  // 'product' en 'onderdeel' delen dezelfde simpele manuele voorraadteller
+  // (voorraad_aantal) — een onderdeel (bv. een ringetje voor een sleutel-
+  // hanger) is net zo goed een telbaar stuk als een afgewerkt product, enkel
+  // niet zelf verkocht. Bewust GEEN aparte BOM/samenstelling-koppeling.
+  const heeftVoorraad = form.categorie === 'product' || form.categorie === 'onderdeel';
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
  async function save() {
@@ -199,7 +203,7 @@ function TypeModal({ type, onClose, onSaved }) {
             // Standaard eenheid voor een nieuw 'product'-type is 'stuk' — enkel
             // automatisch overschakelen vanaf de nog-ongewijzigde 'gram'-default,
             // nooit een bewust gekozen eenheid overrulen.
-            if (v === 'product' && form.eenheid === 'gram') set('eenheid', 'stuk');
+            if ((v === 'product' || v === 'onderdeel') && form.eenheid === 'gram') set('eenheid', 'stuk');
           }}>
             {CATEGORIEEN.map(c => <option key={c.waarde} value={c.waarde}>{c.label}</option>)}
           </select>
@@ -263,7 +267,7 @@ function TypeModal({ type, onClose, onSaved }) {
           <input value={minVoorraadStr} onChange={e => setMinVoorraadStr(e.target.value)} placeholder={isFilament ? 'optioneel' : 'bv. 10'} />
         </div>
 
-        {isProduct && (
+        {heeftVoorraad && (
           <div className="form-group">
             <label>Voorraad (stuks) <span style={{ color:'var(--muted)', fontWeight:400, fontSize:11 }}>
               manueel bij te houden — geen automatische afboeking bij verkoop/levering
@@ -962,7 +966,8 @@ export default function Filament() {
                 <tbody>
                   {types.map(t => {
                     const cat = CATEGORIEEN.find(c => c.waarde === (t.categorie || 'filament'));
-                    const onderMinimum = t.categorie === 'product' && t.min_voorraad != null && (t.voorraad_aantal ?? 0) < t.min_voorraad;
+                    const heeftVoorraadKolom = t.categorie === 'product' || t.categorie === 'onderdeel';
+                    const onderMinimum = heeftVoorraadKolom && t.min_voorraad != null && (t.voorraad_aantal ?? 0) < t.min_voorraad;
                     return (
                     <tr key={t.id} style={{ cursor:'pointer' }} onClick={() => setTypeModal(t)}>
                       <td style={{ fontSize: 12 }}>{cat?.label || t.categorie}</td>
@@ -970,7 +975,7 @@ export default function Filament() {
                       <td>{t.materiaal}</td>
                       <td style={{ color: 'var(--muted)' }}>{t.eenheid || 'gram'}</td>
                       <td>
-                        {t.categorie === 'product'
+                        {heeftVoorraadKolom
                           ? <span style={{ color: onderMinimum ? '#ef4444' : 'var(--text)', fontWeight: onderMinimum ? 700 : 400 }}>
                               {t.voorraad_aantal ?? 0} stuks
                             </span>
