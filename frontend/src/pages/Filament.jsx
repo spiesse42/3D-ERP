@@ -804,6 +804,12 @@ export default function Filament() {
     }
   }, [highlightId, rollen]);
 
+  // Types zijn technisch één tabel, maar de schermen volgen de dagelijkse
+  // werkwijze: materialen/onderdelen enerzijds, afgewerkte producten anderzijds.
+  const materiaalTypes = types.filter(t => (t.categorie || 'filament') !== 'product');
+  const producten = types.filter(t => t.categorie === 'product');
+  const zichtbareTypes = tab === 'producten' ? producten : materiaalTypes;
+
   // Rollen groeperen per (type, kleur) — 1 rij per combinatie i.p.v. 1 rij per rol
   const groepen = Object.values(
     rollen.reduce((acc, r) => {
@@ -871,7 +877,8 @@ export default function Filament() {
         <h1>Artikelen</h1>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn" onClick={() => setFactuurModal(true)}>📄 Factuur inlezen</button>
-          {tab === 'types'  && <button className="btn primary" onClick={() => setTypeModal({})}>+ Nieuw type</button>}
+          {tab === 'types' && <button className="btn primary" onClick={() => setTypeModal({ categorie: 'filament', eenheid: 'gram' })}>+ Nieuw materiaal/onderdeel</button>}
+          {tab === 'producten' && <button className="btn primary" onClick={() => setTypeModal({ categorie: 'product', eenheid: 'stuk', voorraad_aantal: 0 })}>+ Nieuw afgewerkt product</button>}
           {tab === 'rollen' && <button className="btn primary" onClick={() => setRolModal({})}>+ Nieuwe voorraad</button>}
         </div>
       </div>
@@ -885,9 +892,9 @@ export default function Filament() {
       )}
 
       <div style={{ display: 'flex', gap: 4, marginBottom: '1.25rem' }}>
-        {['rollen', 'types', 'facturen'].map(t => (
+        {['rollen', 'types', 'producten', 'facturen'].map(t => (
           <button key={t} className={`btn${tab === t ? ' primary' : ''}`} onClick={() => setTab(t)}>
-            {t === 'rollen' ? 'Voorraad' : t === 'types' ? 'Artikeltypes' : 'Aankoopfacturen'}
+            {t === 'rollen' ? 'Filamentvoorraad' : t === 'types' ? 'Materialen & onderdelen' : t === 'producten' ? 'Afgewerkte producten' : 'Aankoopfacturen'}
           </button>
         ))}
       </div>
@@ -956,15 +963,15 @@ export default function Filament() {
       )}
 
       {/* ── Types tabel ── */}
-      {tab === 'types' && (
-        types.length === 0
-          ? <div className="empty">Geen artikeltypes</div>
+      {(tab === 'types' || tab === 'producten') && (
+        zichtbareTypes.length === 0
+          ? <div className="empty">{tab === 'producten' ? 'Nog geen afgewerkte producten' : 'Geen materialen of onderdelen'}</div>
           : <div className="card" style={{ padding: 0 }}>
               <table>
                 <thead><tr><th>Categorie</th><th>Merk/Leverancier</th><th>Materiaal/Omschrijving</th><th>Eenheid</th><th>Voorraad</th><th>Marge</th><th>Leverancier</th><th>Acties</th></tr>
 		</thead>
                 <tbody>
-                  {types.map(t => {
+                  {zichtbareTypes.map(t => {
                     const cat = CATEGORIEEN.find(c => c.waarde === (t.categorie || 'filament'));
                     const heeftVoorraadKolom = t.categorie === 'product' || t.categorie === 'onderdeel';
                     const onderMinimum = heeftVoorraadKolom && t.min_voorraad != null && (t.voorraad_aantal ?? 0) < t.min_voorraad;
