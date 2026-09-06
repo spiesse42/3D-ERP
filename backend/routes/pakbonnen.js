@@ -25,6 +25,7 @@ import { Router } from 'express';
 import { getDb } from '../db.js';
 import { LOGO_DATA_URI } from '../lib/logo.js';
 import { renderHtmlNaarPdf } from '../lib/pdf.js';
+import { escapeHtml, escapeRecord } from '../lib/html.js';
 import { sendPdfEmail } from '../email.js';
 
 const r = Router();
@@ -215,6 +216,7 @@ r.delete('/:id', (req, res) => {
 
 // ── PDF (geen bedragen — enkel aantal + omschrijving) ───────────────────
 function buildPakbonHtml(pakbon, klant, bedrijf = {}) {
+  pakbon = { ...escapeRecord(pakbon), regels: (pakbon.regels || []).map(escapeRecord) }; klant = escapeRecord(klant); bedrijf = escapeRecord(bedrijf);
   const nu = new Date().toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const regelHtml = pakbon.regels.map(rg => `
     <tr><td>${rg.aantal}</td><td>${rg.object_naam}</td></tr>`).join('');
@@ -286,7 +288,7 @@ r.post('/:id/email', async (req, res) => {
     const pdfBuffer = await renderHtmlNaarPdf(html);
     await sendPdfEmail({
       to: emailTo, subject: `Pakbon ${pb.volgnummer}`,
-      html: `<p>Beste ${klant.voornaam || ''} ${klant.naam},</p><p>Hierbij pakbon <strong>${pb.volgnummer}</strong> bij werkbon ${pb.werkbon.volgnummer}.</p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
+      html: `<p>Beste ${escapeHtml(klant.voornaam || '')} ${escapeHtml(klant.naam)},</p><p>Hierbij pakbon <strong>${escapeHtml(pb.volgnummer)}</strong> bij werkbon ${escapeHtml(pb.werkbon.volgnummer)}.</p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
       pdfBuffer, filename: `pakbon-${pb.volgnummer}.pdf`,
     });
     res.json({ ok: true, to: emailTo });

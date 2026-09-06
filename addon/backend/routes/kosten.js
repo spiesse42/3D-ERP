@@ -3,6 +3,7 @@ import { getDb } from '../db.js';
 import { sendPdfEmail } from '../email.js';
 import { LOGO_DATA_URI } from '../lib/logo.js';
 import { renderHtmlNaarPdf } from '../lib/pdf.js';
+import { escapeHtml, escapeRecord } from '../lib/html.js';
 
 const r = Router();
 
@@ -38,6 +39,7 @@ function getBedrijfsgegevens(db) {
 }
 
 function buildPdfHtml(kosten, klant, extraInfo = {}, bedrijf = {}) {
+  kosten = escapeRecord(kosten); klant = klant ? escapeRecord(klant) : null; bedrijf = escapeRecord(bedrijf);
   const nu = new Date().toLocaleDateString('nl-BE', { day:'2-digit', month:'2-digit', year:'numeric' });
   const toon = v => `€${(v||0).toFixed(2)}`;
   const { voorbMin=15, nabMin=10, arbTarief=15, ontwerpMin=0, ontwerpTarief=15,
@@ -49,12 +51,13 @@ function buildPdfHtml(kosten, klant, extraInfo = {}, bedrijf = {}) {
 
   const margeFactor = 1 + (kosten.winstmarge_pct || 0) / 100;
   const eenheidLabel = e => e === 'stuk' ? 'stuks' : e === 'ml' ? 'ml' : 'g';
-  const matRijen = matDetails.map(m => {
+  const veiligeExtraOmschrijving = escapeHtml(extraOmschrijving);
+  const matRijen = matDetails.map(m => { m = escapeRecord(m);
     const deler = m.eenheid === 'gram' ? 1000 : 1;
     const aantalTxt = m.eenheid === 'stuk' ? Math.round(m.gram) : m.gram.toFixed(1);
     return `<tr><td>Materiaal — ${m.naam}</td><td>${aantalTxt} ${eenheidLabel(m.eenheid)}</td><td>${toon((m.gram/deler)*m.prijs*margeFactor)}</td></tr>`;
   }).join('');
-  const dienstRijen = dienstDetails.map(d => {
+  const dienstRijen = dienstDetails.map(d => { d = escapeRecord(d);
     const aantalTxt = d.eenheid === 'stuk' ? Math.round(d.aantal) : d.aantal.toFixed(1);
     // "Vaste prijs, geen marge" diensten (bv. verzendkosten) krijgen geen
     // margeFactor — zelfde per-regel check als offertes (offerteRegels()).
@@ -381,7 +384,7 @@ r.post('/email/:jobId', async (req, res) => {
   try {
     const pdfBuffer = await renderHtmlNaarPdf(pdfHtml);
     await sendPdfEmail({ to: emailTo, subject: `Werkbon — ${job?.naam||'print'}`,
-      html: `<p>Beste${klant ? ` ${klant.voornaam||''} ${klant.naam}` : ''},</p><p>Hierbij de werkbon voor <strong>${job?.naam||'uw print'}</strong>.</p><p>Prijs: <strong>€${(kosten.verkoopprijs||0).toFixed(2)}</strong></p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
+      html: `<p>Beste${klant ? ` ${escapeHtml(klant.voornaam||'')} ${escapeHtml(klant.naam)}` : ''},</p><p>Hierbij de werkbon voor <strong>${escapeHtml(job?.naam||'uw print')}</strong>.</p><p>Prijs: <strong>€${(kosten.verkoopprijs||0).toFixed(2)}</strong></p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
       pdfBuffer, filename: `werkbon-${(job?.naam||'print').replace(/\s+/g,'-')}.pdf` });
     res.json({ ok: true, to: emailTo });
   } catch(e) { res.status(500).json({ error: e.message }); }

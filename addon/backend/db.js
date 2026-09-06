@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { migrateDb } from './db_migration.js';
 import { migrateDbV2 } from './db_migration_v2.js';
@@ -46,6 +47,7 @@ import { migrateDbV42 } from './db_migration_v42.js';
 import { migrateDbV43 } from './db_migration_v43.js';
 import { migrateDbV44 } from './db_migration_v44.js';
 import { migrateDbV45 } from './db_migration_v45.js';
+import { migrateDbV46 } from './db_migration_v46.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'erp.db');
@@ -57,7 +59,8 @@ export function getDb() {
   return db;
 }
 
-export function initDb() {
+export async function initDb() {
+  const bestondAl = fs.existsSync(DB_PATH);
   db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
@@ -160,52 +163,64 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_job_mat_job    ON job_materialen(job_id);
   `);
 
-  // Migraties
-  migrateDb(db);
-  migrateDbV2(db);
-  migrateDbV3(db);
-  migrateDbV4(db);
-  migrateDbV5(db);
-  migrateDbV6(db);
-  migrateDbV7(db);
-  migrateDbV8(db);
-migrateDbV9(db);
-migrateDbV10(db);
-  migrateDbV11(db);
-  migrateDbV12(db);
-  migrateDbV13(db);
-  migrateDbV14(db);
-  migrateDbV15(db);
-  migrateDbV16(db);
-  migrateDbV17(db);
-  migrateDbV18(db);
-  migrateDbV19(db);
-  migrateDbV20(db);
-  migrateDbV21(db);
-  migrateDbV22(db);
-  migrateDbV23(db);
-  migrateDbV24(db);
-  migrateDbV25(db);
-  migrateDbV26(db);
-  migrateDbV27(db);
-  migrateDbV28(db);
-  migrateDbV29(db);
-  migrateDbV30(db);
-  migrateDbV31(db);
-  migrateDbV32(db);
-  migrateDbV33(db);
-  migrateDbV34(db);
-  migrateDbV35(db);
-  migrateDbV36(db);
-  migrateDbV37(db);
-  migrateDbV38(db);
-  migrateDbV39(db);
-  migrateDbV40(db);
-  migrateDbV41(db);
-  migrateDbV42(db);
-  migrateDbV43(db);
-  migrateDbV44(db);
-  migrateDbV45(db);
+  // Migraties worden exact één keer geregistreerd. Bij de eerste overgang
+  // van een bestaande installatie maken we eerst een consistente SQLite-backup.
+  db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (versie INTEGER PRIMARY KEY, uitgevoerd_op TEXT NOT NULL DEFAULT (datetime('now')))");
+  const alGemigreerd = db.prepare('SELECT COUNT(*) AS c FROM schema_migrations').get().c > 0;
+  if (!alGemigreerd && bestondAl) {
+    const preMigratie = DB_PATH + '.pre-migratie-' + new Date().toISOString().replace(/[:.]/g, '-') + '.db';
+    await db.backup(preMigratie);
+    console.log('Veiligheidskopie vóór migraties:', preMigratie);
+  }
+  const geregistreerd = db.prepare('SELECT 1 FROM schema_migrations WHERE versie = ?');
+  const markeer = db.prepare('INSERT INTO schema_migrations (versie) VALUES (?)');
+  const voerUit = (versie, fn) => { if (!geregistreerd.get(versie)) { fn(db); markeer.run(versie); } };
+  voerUit(1, migrateDb);
+  voerUit(2, migrateDbV2);
+  voerUit(3, migrateDbV3);
+  voerUit(4, migrateDbV4);
+  voerUit(5, migrateDbV5);
+  voerUit(6, migrateDbV6);
+  voerUit(7, migrateDbV7);
+  voerUit(8, migrateDbV8);
+  voerUit(9, migrateDbV9);
+  voerUit(10, migrateDbV10);
+  voerUit(11, migrateDbV11);
+  voerUit(12, migrateDbV12);
+  voerUit(13, migrateDbV13);
+  voerUit(14, migrateDbV14);
+  voerUit(15, migrateDbV15);
+  voerUit(16, migrateDbV16);
+  voerUit(17, migrateDbV17);
+  voerUit(18, migrateDbV18);
+  voerUit(19, migrateDbV19);
+  voerUit(20, migrateDbV20);
+  voerUit(21, migrateDbV21);
+  voerUit(22, migrateDbV22);
+  voerUit(23, migrateDbV23);
+  voerUit(24, migrateDbV24);
+  voerUit(25, migrateDbV25);
+  voerUit(26, migrateDbV26);
+  voerUit(27, migrateDbV27);
+  voerUit(28, migrateDbV28);
+  voerUit(29, migrateDbV29);
+  voerUit(30, migrateDbV30);
+  voerUit(31, migrateDbV31);
+  voerUit(32, migrateDbV32);
+  voerUit(33, migrateDbV33);
+  voerUit(34, migrateDbV34);
+  voerUit(35, migrateDbV35);
+  voerUit(36, migrateDbV36);
+  voerUit(37, migrateDbV37);
+  voerUit(38, migrateDbV38);
+  voerUit(39, migrateDbV39);
+  voerUit(40, migrateDbV40);
+  voerUit(41, migrateDbV41);
+  voerUit(42, migrateDbV42);
+  voerUit(43, migrateDbV43);
+  voerUit(44, migrateDbV44);
+  voerUit(45, migrateDbV45);
+  voerUit(46, migrateDbV46);
 
   // Per printer op naam controleren (i.p.v. "tabel is leeg") — zo blokkeert een
   // migratie die zelf al een printer toevoegt (bv. v21, AnyCubic) niet de seed

@@ -167,62 +167,71 @@ r.patch('/:id/kwh_start_clear', (req, res) => {
 r.delete('/:id', (req, res) => {
   const db = getDb();
   try {
-    // Stap 1: verbreek koppeling job → offerte (circulaire referentie)
-    db.prepare('UPDATE offertes_v2 SET job_id = NULL WHERE job_id = ?').run(req.params.id);
-    // Stap 2: verwijder gerelateerde data
-    db.prepare('DELETE FROM job_kosten WHERE job_id = ?').run(req.params.id);
-    db.prepare('DELETE FROM job_materialen WHERE job_id = ?').run(req.params.id);
-    // Stap 3: verwijder job zelf
-    db.prepare('DELETE FROM jobs WHERE id = ?').run(req.params.id);
+    const verwijder = db.transaction(() => {
+      const materialen = db.prepare('SELECT * FROM job_materialen WHERE job_id = ?').all(req.params.id);
+      const herstel = db.prepare('UPDATE filament_rollen SET gewicht_gram_huidig = gewicht_gram_huidig + ? WHERE id = ?');
+      const mutatie = db.prepare("INSERT INTO voorraad_mutaties (filament_rol_id, job_id, type, hoeveelheid_gram, opmerking) VALUES (?,?,?,?,?)");
+      for (const mat of materialen) {
+        herstel.run(mat.gram_gebruikt, mat.filament_rol_id);
+        mutatie.run(mat.filament_rol_id, req.params.id, 'job_verwijderd', mat.gram_gebruikt, 'Voorraad hersteld bij verwijderen van job');
+      }
+      db.prepare('UPDATE offertes_v2 SET job_id = NULL WHERE job_id = ?').run(req.params.id);
+      db.prepare('DELETE FROM job_kosten WHERE job_id = ?').run(req.params.id);
+      db.prepare('DELETE FROM job_materialen WHERE job_id = ?').run(req.params.id);
+      return db.prepare('DELETE FROM jobs WHERE id = ?').run(req.params.id);
+    });
+    const info = verwijder();
+    if (!info.changes) return res.status(404).json({ error: 'Job niet gevonden' });
     res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 r.post('/:id/materialen', (req, res) => {
   const db = getDb();
-  const { filament_rol_id, gram_gebruikt } = req.body;
-  // Bugfix: `!gram_gebruikt` laat elk negatief getal door (enkel 0/leeg werd
-  // geweigerd) — een tikfout zoals "-50" i.p.v. "50" verhoogde de voorraad
-  // i.p.v. te verlagen, en trok de materiaalkost van de job af. Nu expliciet
-  // op een geldig, positief getal gecontroleerd.
-  const gram = parseFloat(gram_gebruikt);
-  if (!filament_rol_id || !Number.isFinite(gram) || gram <= 0) {
-    return res.status(400).json({ error: 'filament_rol_id en gram_gebruikt (> 0) zijn verplicht' });
-  }
-  const result = db.prepare(
-    'INSERT INTO job_materialen (job_id,filament_rol_id,gram_gebruikt) VALUES (?,?,?)'
-  ).run(req.params.id, filament_rol_id, gram);
-  db.prepare('UPDATE filament_rollen SET gewicht_gram_huidig = gewicht_gram_huidig - ? WHERE id = ?')
-    .run(gram, filament_rol_id);
-  res.status(201).json({ id: result.lastInsertRowid });
+  const gram = parseFloat(req.body.gram_gebruikt);
+  const rolId = req.body.filament_rol_id;
+  if (!rolId || !Number.isFinite(gram) || gram <= 0) return res.status(400).json({ error: 'filament_rol_id en gram_gebruikt (> 0) zijn verplicht' });
+  try {
+    const voegToe = db.transaction(() => {
+      if (!db.prepare('SELECT id FROM jobs WHERE id = ?').get(req.params.id)) throw new Error('Job niet gevonden');
+      const voorraad = db.prepare('UPDATE filament_rollen SET gewicht_gram_huidig = gewicht_gram_huidig - ? WHERE id = ? AND gewicht_gram_huidig >= ?').run(gram, rolId, gram);
+      if (!voorraad.changes) throw new Error('Onvoldoende voorraad of rol niet gevonden');
+      const result = db.prepare('INSERT INTO job_materialen (job_id,filament_rol_id,gram_gebruikt) VALUES (?,?,?)').run(req.params.id, rolId, gram);
+      db.prepare("INSERT INTO voorraad_mutaties (filament_rol_id,job_id,type,hoeveelheid_gram,opmerking) VALUES (?,?,?,?,?)").run(rolId, req.params.id, 'job_verbruik', -gram, 'Materiaal toegevoegd aan job');
+      return result.lastInsertRowid;
+    });
+    res.status(201).json({ id: voegToe() });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 r.put('/:jobId/materialen/:id', (req, res) => {
-  const db = getDb();
-  const { gram_gebruikt } = req.body;
-  const gram = parseFloat(gram_gebruikt);
+  const db = getDb(); const gram = parseFloat(req.body.gram_gebruikt);
   if (!Number.isFinite(gram) || gram <= 0) return res.status(400).json({ error: 'gram_gebruikt (> 0) is verplicht' });
-  const mat = db.prepare('SELECT * FROM job_materialen WHERE id = ?').get(req.params.id);
-  if (!mat) return res.status(404).json({ error: 'Niet gevonden' });
-  const verschil = gram - mat.gram_gebruikt;
-  db.prepare('UPDATE job_materialen SET gram_gebruikt = ? WHERE id = ?').run(gram, req.params.id);
-  db.prepare('UPDATE filament_rollen SET gewicht_gram_huidig = gewicht_gram_huidig - ? WHERE id = ?').run(verschil, mat.filament_rol_id);
-  res.json({ ok: true });
+  try {
+    const wijzig = db.transaction(() => {
+      const mat = db.prepare('SELECT * FROM job_materialen WHERE id = ? AND job_id = ?').get(req.params.id, req.params.jobId);
+      if (!mat) throw new Error('Materiaal niet gevonden bij deze job');
+      const verschil = gram - mat.gram_gebruikt;
+      if (verschil > 0) { const r = db.prepare('UPDATE filament_rollen SET gewicht_gram_huidig = gewicht_gram_huidig - ? WHERE id = ? AND gewicht_gram_huidig >= ?').run(verschil, mat.filament_rol_id, verschil); if (!r.changes) throw new Error('Onvoldoende voorraad'); }
+      if (verschil < 0) db.prepare('UPDATE filament_rollen SET gewicht_gram_huidig = gewicht_gram_huidig + ? WHERE id = ?').run(-verschil, mat.filament_rol_id);
+      db.prepare('UPDATE job_materialen SET gram_gebruikt = ? WHERE id = ?').run(gram, mat.id);
+      if (verschil) db.prepare("INSERT INTO voorraad_mutaties (filament_rol_id,job_id,type,hoeveelheid_gram,opmerking) VALUES (?,?,?,?,?)").run(mat.filament_rol_id, req.params.jobId, 'job_correctie', -verschil, 'Materiaalhoeveelheid gecorrigeerd');
+    }); wijzig(); res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 r.delete('/:jobId/materialen/:id', (req, res) => {
   const db = getDb();
-  const mat = db.prepare('SELECT * FROM job_materialen WHERE id = ?').get(req.params.id);
-  if (mat) {
-    db.prepare('UPDATE filament_rollen SET gewicht_gram_huidig = gewicht_gram_huidig + ? WHERE id = ?')
-      .run(mat.gram_gebruikt, mat.filament_rol_id);
-    db.prepare('DELETE FROM job_materialen WHERE id = ?').run(req.params.id);
-  }
-  res.json({ ok: true });
+  try {
+    const verwijder = db.transaction(() => {
+      const mat = db.prepare('SELECT * FROM job_materialen WHERE id = ? AND job_id = ?').get(req.params.id, req.params.jobId);
+      if (!mat) throw new Error('Materiaal niet gevonden bij deze job');
+      db.prepare('UPDATE filament_rollen SET gewicht_gram_huidig = gewicht_gram_huidig + ? WHERE id = ?').run(mat.gram_gebruikt, mat.filament_rol_id);
+      db.prepare('DELETE FROM job_materialen WHERE id = ?').run(mat.id);
+      db.prepare("INSERT INTO voorraad_mutaties (filament_rol_id,job_id,type,hoeveelheid_gram,opmerking) VALUES (?,?,?,?,?)").run(mat.filament_rol_id, req.params.jobId, 'job_verbruik_verwijderd', mat.gram_gebruikt, 'Materiaalregel verwijderd');
+    }); verwijder(); res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
-
 // ── Diensten (bv. verzendkosten) — los van voorraad, geprijsd op typeniveau
 // met een per-job overschrijfbare prijs én aantal. In tegenstelling tot
 // materialen/artikelen hierboven wordt hier geen stock afgeboekt. ──────────

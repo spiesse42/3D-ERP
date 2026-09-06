@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../db.js';
 import { LOGO_DATA_URI } from '../lib/logo.js';
 import { renderHtmlNaarPdf } from '../lib/pdf.js';
+import { escapeHtml, escapeRecord, veiligeUrl } from '../lib/html.js';
 import {
   getalOfDefault, bepaalPrinterWatt, bepaalMateriaalKostOverride,
   REGEL_TYPE_LABELS, valideerRegels, berekenOfferteRegels,
@@ -351,6 +352,10 @@ function offerteRegels(offerte, berekening, filamentType, artikelen = []) {
 }
 
 function buildOfferteHtml(offerte, klant, berekening, regels, bedrijf = {}) {
+  const objectLink = veiligeUrl(offerte.object_link);
+  offerte = escapeRecord(offerte); offerte.object_link = objectLink ? escapeHtml(objectLink) : '';
+  klant = escapeRecord(klant); bedrijf = escapeRecord(bedrijf);
+  regels = regels.map(r => ({ ...r, aantal: escapeHtml(r.aantal), omschrijving: escapeHtml(r.omschrijving) }));
   const nu = new Date().toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const regelRijen = regels.map(r => `
     <tr>

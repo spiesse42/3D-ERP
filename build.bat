@@ -4,7 +4,7 @@ echo.
 
 echo [1/4] Frontend dependencies installeren...
 cd frontend
-call npm install
+call npm ci
 if %errorlevel% neq 0 ( echo FOUT bij npm install frontend & pause & exit /b 1 )
 
 echo.
@@ -15,7 +15,7 @@ if %errorlevel% neq 0 ( echo FOUT bij npm run build & pause & exit /b 1 )
 echo.
 echo [3/4] Backend dependencies installeren...
 cd ..\backend
-call npm install --omit=dev
+call npm ci --omit=dev
 if %errorlevel% neq 0 (
     echo WAARSCHUWING: npm install backend is lokaal mislukt ^(meestal door native modules zoals better-sqlite3 die geen Windows-build kunnen vinden^).
     echo Dit heeft GEEN invloed op de addon zelf: Docker installeert de backend-dependencies opnieuw, voor Linux, tijdens het bouwen in Home Assistant.

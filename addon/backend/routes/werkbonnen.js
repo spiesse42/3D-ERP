@@ -22,6 +22,7 @@ import { Router } from 'express';
 import { getDb } from '../db.js';
 import { LOGO_DATA_URI } from '../lib/logo.js';
 import { renderHtmlNaarPdf } from '../lib/pdf.js';
+import { escapeHtml, escapeRecord } from '../lib/html.js';
 import { sendPdfEmail } from '../email.js';
 // Zelfde gedeelde rekenmotor als offertes_v2.js (zie backend/lib/regelmotor.js)
 // — gebruikt voor een standalone werkbon (POST /, zonder offerte). Onder een
@@ -514,6 +515,8 @@ r.post('/:id/regels/:idx/gebruik-gemeten-data', (req, res) => {
 
 // ── PDF ───────────────────────────────────────────────────────────────
 function buildWerkbonHtml(werkbon, klant, berekening, regelRijen, bedrijf = {}) {
+  werkbon = escapeRecord(werkbon); klant = escapeRecord(klant); bedrijf = escapeRecord(bedrijf);
+  regelRijen = regelRijen.map(rg => ({ ...rg, aantal: escapeHtml(rg.aantal), omschrijving: escapeHtml(rg.omschrijving) }));
   const nu = new Date().toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const regelHtml = regelRijen.map(rg => `
     <tr><td>${rg.aantal}</td><td>${rg.omschrijving}</td><td>€${rg.eenheidsprijs.toFixed(2)}</td><td>€${rg.totaal.toFixed(2)}</td></tr>`).join('');
@@ -598,7 +601,7 @@ r.post('/:id/email', async (req, res) => {
     const pdfBuffer = await renderHtmlNaarPdf(html);
     await sendPdfEmail({
       to: emailTo, subject: `Werkbon ${w.volgnummer}`,
-      html: `<p>Beste ${klant.voornaam || ''} ${klant.naam},</p><p>Hierbij werkbon <strong>${w.volgnummer}</strong>.</p><p>Prijs: <strong>€${w.totaal.toFixed(2)}</strong></p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
+      html: `<p>Beste ${escapeHtml(klant.voornaam || '')} ${escapeHtml(klant.naam)},</p><p>Hierbij werkbon <strong>${escapeHtml(w.volgnummer)}</strong>.</p><p>Prijs: <strong>€${w.totaal.toFixed(2)}</strong></p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
       pdfBuffer, filename: `werkbon-${w.volgnummer}.pdf`,
     });
     res.json({ ok: true, to: emailTo });
