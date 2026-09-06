@@ -6,6 +6,8 @@ export DB_PATH=/data/erp.db
 
 if [ -f /data/options.json ]; then
   export HA_TOKEN=$(cat /data/options.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('ha_token',''))" 2>/dev/null)
+  export HA_TOKEN_CONFIGURED=$(cat /data/options.json | python3 -c "import sys,json; d=json.load(sys.stdin); print('true' if d.get('ha_token','') else 'false')" 2>/dev/null)
+  export GEMINI_API_KEY=$(cat /data/options.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('gemini_api_key',''))" 2>/dev/null)
   export SMTP_USER=$(cat /data/options.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('smtp_user',''))" 2>/dev/null)
   export SMTP_PASS=$(cat /data/options.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('smtp_pass',''))" 2>/dev/null)
   export SMTP_FROM=$(cat /data/options.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('smtp_from',''))" 2>/dev/null)

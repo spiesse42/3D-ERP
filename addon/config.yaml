@@ -1,6 +1,6 @@
 name: "3D Print ERP"
 description: "ERP systeem voor 3D print hobbyisten — jobs, klanten, kosten, offertes"
-version: "2.0.230"
+version: "2.0.233"
 slug: "3d_print_erp"
 init: false
 arch:
@@ -14,11 +14,13 @@ panel_icon: mdi:printer-3d
 panel_title: "3D Print ERP"
 options:
   ha_token: ""
+  gemini_api_key: ""
   smtp_user: "3dplezier@gmail.com"
   smtp_pass: ""
   smtp_from: "3dplezier@gmail.com"
 schema:
   ha_token: str?
+  gemini_api_key: str?
   smtp_user: str?
   smtp_pass: str?
   smtp_from: str?

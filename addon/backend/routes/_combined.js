@@ -25,9 +25,24 @@ tarieven.put('/:sleutel', (req, res) => {
 // --- INSTELLINGEN (tekst-waarden: token, url, ...) ---
 export const instellingen = Router();
 
+// Alleen niet-gevoelige, door de applicatie gekende instellingen mogen via de
+// algemene instellingen-API gelezen of gewijzigd worden. Geheimen horen in de
+// beveiligde Home Assistant add-onconfiguratie, niet in de SQLite-database.
+const INSTELLING_SLEUTELS = new Set([
+  'ha_url',
+  'backup_auto_actief', 'backup_auto_interval_uren',
+  'bedrijf_startdatum', 'drempel_omzet_jaar', 'drempel_winst_jaar',
+  'bedrijf_naam', 'bedrijf_btw', 'bedrijf_adres', 'bedrijf_email', 'bedrijf_iban',
+]);
+
+function heeftGeheim(db, sleutel, envNaam) {
+  return Boolean(process.env[envNaam] || db.prepare('SELECT waarde FROM instellingen WHERE sleutel = ?').get(sleutel)?.waarde);
+}
+
 instellingen.get('/', (req, res) => {
   try {
-    const rows = getDb().prepare('SELECT sleutel, waarde, label FROM instellingen ORDER BY sleutel').all();
+    const rows = getDb().prepare('SELECT sleutel, waarde, label FROM instellingen ORDER BY sleutel').all()
+      .filter(r => INSTELLING_SLEUTELS.has(r.sleutel));
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -37,6 +52,9 @@ instellingen.get('/', (req, res) => {
 instellingen.put('/:sleutel', (req, res) => {
   try {
     const db = getDb();
+    if (!INSTELLING_SLEUTELS.has(req.params.sleutel)) {
+      return res.status(403).json({ error: 'Deze instelling kan niet via de app gewijzigd worden.' });
+    }
     const { waarde } = req.body;
     if (waarde === undefined) return res.status(400).json({ error: 'waarde is verplicht' });
     const rij = db.prepare('SELECT 1 FROM instellingen WHERE sleutel = ?').get(req.params.sleutel);
@@ -46,6 +64,20 @@ instellingen.put('/:sleutel', (req, res) => {
       db.prepare('INSERT INTO instellingen (sleutel, waarde) VALUES (?,?)').run(req.params.sleutel, String(waarde));
     }
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Geeft uitsluitend aan of de add-on met de nodige geheimen is geconfigureerd.
+// De waarden zelf verlaten de server nooit.
+instellingen.get('/geheimen/status', (req, res) => {
+  try {
+    const db = getDb();
+    res.json({
+      ha_token_ingesteld: heeftGeheim(db, 'ha_token', 'HA_TOKEN'),
+      gemini_api_key_ingesteld: heeftGeheim(db, 'gemini_api_key', 'GEMINI_API_KEY'),
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

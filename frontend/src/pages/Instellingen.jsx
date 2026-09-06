@@ -87,8 +87,7 @@ export default function Instellingen() {
       const map = {};
       rows.forEach(r => { map[r.sleutel] = r.waarde; });
       setHaUrl(map.ha_url || 'http://192.168.0.105:8123');
-      setHaToken(map.ha_token || '');
-      setGeminiKey(map.gemini_api_key || '');
+      // Geheimen worden bewust nooit meer vanuit de server naar de browser geladen.
       setBackupAutoActief(map.backup_auto_actief !== '0');
       setBackupAutoInterval(map.backup_auto_interval_uren || '24');
       setStartdatum(map.bedrijf_startdatum || '');
@@ -167,19 +166,14 @@ export default function Instellingen() {
 
   async function saveHaInstellingen() {
     try {
-      await api.put('/instellingen/ha_url',   { waarde: haUrl });
-      await api.put('/instellingen/ha_token', { waarde: haToken });
-      setSaved('HA instellingen opgeslagen!');
+      await api.put('/instellingen/ha_url', { waarde: haUrl });
+      setSaved('HA URL opgeslagen! Het token beheer je in de add-onconfiguratie.');
       setTimeout(() => setSaved(''), 3000);
     } catch (e) { alert(e.message); }
   }
 
-  async function saveGeminiKey() {
-    try {
-      await api.put('/instellingen/gemini_api_key', { waarde: geminiKey });
-      setGeminiSaved('Opgeslagen!');
-      setTimeout(() => setGeminiSaved(''), 3000);
-    } catch (e) { alert(e.message); }
+  function saveGeminiKey() {
+    setGeminiSaved('Stel de Gemini API-key in via Instellingen → Add-ons → 3D Print ERP → Configuratie.');
   }
 
   async function testHaVerbinding() {
@@ -307,7 +301,7 @@ export default function Instellingen() {
           <div className="card" style={{ marginBottom:'1.5rem' }}>
             <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.25rem' }}>Home Assistant verbinding</h2>
             <p style={{ fontSize:11, color:'var(--muted)', marginBottom:'1rem' }}>
-              Gebruikt voor Watt-sampling per printjob. Token wordt versleuteld opgeslagen.
+              Gebruikt voor Watt-sampling per printjob. Het token wordt enkel in de beveiligde add-onconfiguratie bewaard en nooit aan deze pagina teruggegeven.
             </p>
 
             <div className="form-group">
@@ -321,19 +315,21 @@ export default function Instellingen() {
             </div>
 
             <div className="form-group">
-              <label>Long-Lived Access Token</label>
+              <label>Long-Lived Access Token (add-onconfiguratie)</label>
               <div style={{ display:'flex', gap:6 }}>
                 <input
                   type={tokenZichtbaar ? 'text' : 'password'}
                   value={haToken}
                   onChange={e => setHaToken(e.target.value)}
-                  placeholder="eyJhbGci..."
+                  placeholder="Stel in via de add-onconfiguratie"
                   style={{ flex:1, fontFamily:'monospace', fontSize:11 }}
+                  disabled
                 />
                 <button
                   className="btn"
                   style={{ flexShrink:0, fontSize:11, padding:'4px 10px' }}
                   onClick={() => setTokenZichtbaar(v => !v)}
+                  disabled
                 >
                   {tokenZichtbaar ? '🙈' : '👁'}
                 </button>
@@ -688,24 +684,26 @@ export default function Instellingen() {
           <div className="card">
             <h2 style={{ fontSize:14, fontWeight:600, marginBottom:'0.25rem' }}>Factuurherkenning (Gemini)</h2>
             <p style={{ fontSize:11, color:'var(--muted)', marginBottom:'1rem' }}>
-              Nodig om geüploade facturen automatisch uit te lezen bij Artikelen. Gratis aan te maken via{' '}
+              Nodig om geüploade facturen automatisch uit te lezen bij Artikelen. Stel de sleutel veilig in via Instellingen → Add-ons → 3D Print ERP → Configuratie. Gratis aan te maken via{' '}
               <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a>.
             </p>
 
             <div className="form-group">
-              <label>Gemini API-key</label>
+              <label>Gemini API-key (add-onconfiguratie)</label>
               <div style={{ display:'flex', gap:6 }}>
                 <input
                   type={geminiKeyZichtbaar ? 'text' : 'password'}
                   value={geminiKey}
                   onChange={e => setGeminiKey(e.target.value)}
-                  placeholder="AIzaSy..."
+                  placeholder="Stel in via de add-onconfiguratie"
                   style={{ flex:1, fontFamily:'monospace', fontSize:11 }}
+                  disabled
                 />
                 <button
                   className="btn"
                   style={{ flexShrink:0, fontSize:11, padding:'4px 10px' }}
                   onClick={() => setGeminiKeyZichtbaar(v => !v)}
+                  disabled
                 >
                   {geminiKeyZichtbaar ? '🙈' : '👁'}
                 </button>
@@ -713,7 +711,7 @@ export default function Instellingen() {
             </div>
 
             <button className="btn primary" style={{ width:'100%', marginTop:'0.75rem' }} onClick={saveGeminiKey}>
-              Opslaan
+              Toon configuratie-instructie
             </button>
             {geminiSaved && (
               <p style={{ fontSize:12, marginTop:8, color:'var(--accent2)' }}>{geminiSaved}</p>

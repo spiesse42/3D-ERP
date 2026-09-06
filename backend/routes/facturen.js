@@ -71,6 +71,9 @@ Geef ook de naam van de leverancier/winkel, de factuur- of aankoopdatum (YYYY-MM
 Antwoord uitsluitend met JSON volgens het opgegeven schema, geen extra tekst.`;
 
 function getGeminiKey(db) {
+  if (process.env.GEMINI_API_KEY) return process.env.GEMINI_API_KEY;
+  // Compatibiliteit voor bestaande installaties. Nieuwe sleutels worden in
+  // de beveiligde add-onconfiguratie gezet, niet langer via de browser/API.
   const row = db.prepare("SELECT waarde FROM instellingen WHERE sleutel = 'gemini_api_key'").get();
   return row?.waarde || '';
 }

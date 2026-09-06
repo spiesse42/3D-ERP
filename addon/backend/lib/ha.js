@@ -8,10 +8,17 @@ export function getHaConfig() {
   try {
     const db = getDb();
     const urlRow   = db.prepare("SELECT waarde FROM instellingen WHERE sleutel = 'ha_url'").get();
-    const tokenRow = db.prepare("SELECT waarde FROM instellingen WHERE sleutel = 'ha_token'").get();
     return {
       url:   urlRow?.waarde   || process.env.HA_URL   || 'http://supervisor/core',
-      token: tokenRow?.waarde || process.env.HA_TOKEN || '',
+      // De add-onoptie heeft voorrang. De database-terugval is enkel voor
+      // bestaande installaties tijdens de overgang; nieuwe tokens worden niet
+      // meer door de webapp opgeslagen.
+      // Een expliciet ingestelde add-on-token krijgt voorrang. Staat die
+      // leeg, dan blijft een bestaande legacy-token bruikbaar; pas daarna
+      // valt de add-on terug op de Supervisor-token voor lokale HA-toegang.
+      token: process.env.HA_TOKEN_CONFIGURED === 'true'
+        ? process.env.HA_TOKEN
+        : db.prepare("SELECT waarde FROM instellingen WHERE sleutel = 'ha_token'").get()?.waarde || process.env.HA_TOKEN || '',
     };
   } catch {
     return {

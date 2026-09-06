@@ -27,8 +27,38 @@ import { startAutoBackup } from './auto_backup.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.use(cors());
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Via Home Assistant Ingress heeft de app geen cross-origin API nodig. CORS
+// open laten (`*`) maakte de volledige ERP-API bereikbaar vanuit elke website
+// die de browser van de gebruiker bezoekt. Enkel de lokale Vite-server krijgt
+// tijdens ontwikkeling expliciet toegang.
+if (!isProduction) {
+  app.use(cors({
+    origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  }));
+}
 app.use(express.json());
+
+// Extra CSRF-bescherming voor muterende browserverzoeken. Home Assistant
+// Ingress gebruikt dezelfde origin; scripts of formulieren van andere sites
+// worden geweigerd. Verzoeken zonder Origin blijven mogelijk voor lokale
+// onderhoudstools en Home Assistant zelf.
+app.use((req, res, next) => {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+  const origin = req.get('origin');
+  if (!origin) return next();
+  let originHost;
+  try { originHost = new URL(origin).host; } catch {
+    return res.status(403).json({ error: 'Ongeldige Origin-header.' });
+  }
+  // Protocol niet vergelijken: Ingress kan TLS buiten de container beëindigen.
+  if (originHost !== req.get('host')) {
+    return res.status(403).json({ error: 'Cross-origin verzoek geweigerd.' });
+  }
+  next();
+});
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.url}`);
   next();
