@@ -12,13 +12,17 @@ function StatusDot({ status }) {
   // gestart" en kan die twee niet uit elkaar houden, dus een 'free'-printer
   // valt hier terug op de neutrale amber default hieronder (zelfde als
   // idle/standby), i.p.v. onterecht als "voltooid" (groen) te tonen.
+  // "Bezig printen" (gezond) en "gefaald" gebruikten hier voorheen dezelfde
+  // rode kleur — dat kon je op het eerste gezicht niet uit elkaar houden.
+  // Bezig/actief is nu teal (var(--accent2)), rood is voortaan exclusief
+  // voor mislukt/geannuleerd. Zie ux-verbeterlijst 2026-09-10, #33+#36.
   const colors = {
-    running:'#ef4444', printing:'#ef4444', busy:'#ef4444',
-    finish:'#22c55e', finished:'#22c55e', complete:'#22c55e', success:'#22c55e',
-    idle:'#f59e0b', standby:'#f59e0b', offline:'#555',
-    unavailable:'#555', failed:'#ef4444', pause:'#f59e0b',
+    running:'var(--accent2)', printing:'var(--accent2)', busy:'var(--accent2)',
+    finish:'var(--accent2)', finished:'var(--accent2)', complete:'var(--accent2)', success:'var(--accent2)',
+    idle:'var(--warn)', standby:'var(--warn)', offline:'var(--muted)',
+    unavailable:'var(--muted)', failed:'var(--danger)', pause:'var(--warn)',
   };
-  const c = colors[status?.toLowerCase()] || '#f59e0b';
+  const c = colors[status?.toLowerCase()] || 'var(--warn)';
   return <span style={{ display:'inline-block', width:8, height:8, borderRadius:'50%', background:c, marginRight:6, boxShadow:`0 0 6px ${c}` }} />;
 }
 
@@ -28,7 +32,7 @@ function ProgressRing({ pct, color, size=80 }) {
   const dash = (pct / 100) * circ;
   return (
     <svg width={size} height={size} style={{ transform:'rotate(-90deg)' }}>
-      <circle cx={size/2} cy={size/2} r={r2} fill="none" stroke="#1e2330" strokeWidth={6} />
+      <circle cx={size/2} cy={size/2} r={r2} fill="none" stroke="var(--border)" strokeWidth={6} />
       <circle cx={size/2} cy={size/2} r={r2} fill="none" stroke={color} strokeWidth={6}
         strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
         style={{ transition:'stroke-dasharray 1s ease' }} />
@@ -47,7 +51,10 @@ export default function PrinterCard({ printerId, naam, data, klanten, onJobCreat
   // "gepland" i.p.v. onterecht meteen "voltooid" te worden.
   const isRunning = ['running','printing','busy'].includes(status.toLowerCase());
   const isDone    = ['finish','finished','complete','success'].includes(status.toLowerCase());
-  const color     = isRunning ? '#ef4444' : isDone ? '#22c55e' : '#f59e0b';
+  // Gefaald/geannuleerd kreeg hier voorheen geen eigen kleur en viel terug op
+  // amber — nu consistent rood, zelfde als de StatusDot hierboven.
+  const isFailed  = ['failed','cancelled'].includes(status.toLowerCase());
+  const color     = isFailed ? 'var(--danger)' : (isRunning || isDone) ? 'var(--accent2)' : 'var(--warn)';
   const pct       = parseFloat(data?.progress) || 0;
 
   // Bestandsnaam zonder extensie als standaard jobnaam
@@ -233,7 +240,7 @@ export default function PrinterCard({ printerId, naam, data, klanten, onJobCreat
                 </button>
               )}
               {cancelEntity && (
-                <button className="btn" style={{ flex:1, fontSize:11, padding:'4px 6px', color:'#ef4444', borderColor:'#ef4444' }}
+                <button className="btn" style={{ flex:1, fontSize:11, padding:'4px 6px', color:'var(--danger)', borderColor:'var(--danger)' }}
                   disabled={!!knopBusy} onClick={() => drukKnop(cancelEntity, 'Print annuleren')}>
                   ✕ Annuleer
                 </button>

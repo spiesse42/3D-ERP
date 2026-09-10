@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { usePrinterData } from '../lib/usePrinterData.js';
 import KleurDot from '../components/KleurDot.jsx';
 
-function OperationeelWidget({ icon, titel, items, renderRij, leegTekst }) {
+function OperationeelWidget({ icon, titel, items, renderRij, leegTekst, onderaan }) {
   const PER_PAGINA = 5;
   const [pagina, setPagina] = React.useState(0);
   const totaal = items.length;
@@ -37,6 +37,35 @@ function OperationeelWidget({ icon, titel, items, renderRij, leegTekst }) {
           : zichtbaar.map(renderRij)
         }
       </div>
+      {onderaan}
+    </div>
+  );
+}
+
+// Compact lijstje van max 3 items onderaan de "Bezig"-kaart, zodat je in één
+// oogopslag ziet wat er hierna aankomt en wat er net af is — zonder een
+// nieuwe kaart toe te voegen. Zie ux-verbeterlijst 2026-09-10, #35.
+function MiniLijst({ titel, items, emptyTekst }) {
+  const MAX = 3;
+  const zichtbaar = items.slice(0, MAX);
+  const meer = items.length - zichtbaar.length;
+  return (
+    <div style={{ marginTop:8, paddingTop:8, borderTop:'1px solid var(--border)' }}>
+      <div style={{ fontSize:10, color:'var(--muted)', fontWeight:600, marginBottom:4, textTransform:'uppercase', letterSpacing:0.3 }}>
+        {titel}
+      </div>
+      {items.length === 0
+        ? <div style={{ fontSize:11, color:'var(--muted)' }}>{emptyTekst}</div>
+        : <>
+            {zichtbaar.map(j => (
+              <div key={j.id} style={{ display:'flex', justifyContent:'space-between', gap:6, fontSize:11, padding:'2px 0' }}>
+                <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{j.naam}</span>
+                <span style={{ color:'var(--muted)', flexShrink:0 }}>{j.printer_naam || '—'}</span>
+              </div>
+            ))}
+            {meer > 0 && <div style={{ fontSize:10, color:'var(--muted)', marginTop:2 }}>+{meer} meer</div>}
+          </>
+      }
     </div>
   );
 }
@@ -73,11 +102,11 @@ function TeBestellenWidget({ rollen, navigate }) {
   const zichtbaar = laag.slice(pagina * PER_PAGINA, (pagina + 1) * PER_PAGINA);
 
   return (
-    <div className="card" style={{ flex:1, minWidth:220, border: laag.length > 0 ? '1px solid rgba(239,68,68,0.3)' : undefined }}>
+    <div className="card" style={{ flex:1, minWidth:220, border: laag.length > 0 ? '1px solid rgba(220,38,38,0.3)' : undefined }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.75rem' }}>
         <h2 style={{ fontSize:14, fontWeight:600, margin:0 }}>
           ⚠️ Te bestellen
-          <span style={{ fontSize:12, color: laag.length > 0 ? '#ef4444' : 'var(--muted)', fontWeight:600, marginLeft:6 }}>({laag.length})</span>
+          <span style={{ fontSize:12, color: laag.length > 0 ? 'var(--danger)' : 'var(--muted)', fontWeight:600, marginLeft:6 }}>({laag.length})</span>
         </h2>
         {totaalPaginas > 1 && (
           <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:11, color:'var(--muted)' }}>
@@ -95,15 +124,15 @@ function TeBestellenWidget({ rollen, navigate }) {
             {zichtbaar.map(r => (
               <div key={r.id}
                 onClick={() => navigate(`/filament?highlight=${r.id}`)}
-                style={{ padding:'6px 8px', background:'rgba(239,68,68,0.1)', borderRadius:6, cursor:'pointer', border:'1px solid rgba(239,68,68,0.25)' }}
-                onMouseEnter={e => e.currentTarget.style.background='rgba(239,68,68,0.18)'}
-                onMouseLeave={e => e.currentTarget.style.background='rgba(239,68,68,0.1)'}>
+                style={{ padding:'6px 8px', background:'rgba(220,38,38,0.1)', borderRadius:6, cursor:'pointer', border:'1px solid rgba(220,38,38,0.25)' }}
+                onMouseEnter={e => e.currentTarget.style.background='rgba(220,38,38,0.18)'}
+                onMouseLeave={e => e.currentTarget.style.background='rgba(220,38,38,0.1)'}>
                 <div style={{ display:'flex', alignItems:'center', gap:4, marginBottom:1 }}>
                   <KleurDot kleur={r.kleur} hex={r.kleur_hex} size={8} />
                   <span style={{ fontSize:11, color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.kleur}</span>
                 </div>
                 <div style={{ fontSize:10, color:'var(--muted)', marginBottom:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.merk} {r.materiaal}</div>
-                <div style={{ fontSize:12, fontWeight:700, color:'#ef4444', marginBottom:2 }}>{Math.ceil(r.gewicht_gram_huidig)}g</div>
+                <div style={{ fontSize:12, fontWeight:700, color:'var(--danger)', marginBottom:2 }}>{Math.ceil(r.gewicht_gram_huidig)}g</div>
                 <div style={{ fontSize:9, color:'var(--muted)' }}>drempel: {drempel(r)}g</div>
               </div>
             ))}
@@ -128,8 +157,11 @@ function PrinterStatusStrip({ printerConfig, printerData, navigate }) {
               const d = printerData[p.id] || {};
               const statusLower = (d.status || '').toLowerCase();
               const isActief = ['running','printing','prepare'].includes(statusLower);
+              // Mislukt/geannuleerd krijgt nu een eigen kleur i.p.v. samen te
+              // vallen met "gewoon inactief" — zie ux-verbeterlijst 2026-09-10, #36.
+              const isMislukt = ['failed','cancelled'].includes(statusLower);
               const isOnbekend = !d.status || statusLower === 'unavailable';
-              const kleur = isActief ? 'var(--accent2)' : isOnbekend ? 'var(--muted)' : '#f59e0b';
+              const kleur = isActief ? 'var(--accent2)' : isMislukt ? 'var(--danger)' : isOnbekend ? 'var(--muted)' : 'var(--warn)';
               const pct = isActief && d.progress != null ? Math.round(d.progress) : 0;
               return (
                 <div key={p.id} onClick={() => navigate('/jobs')}
@@ -190,7 +222,7 @@ function FilamentStockWidget({ rollen, navigate }) {
         : <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(100px, 1fr))', gap:'0.4rem' }}>
             {zichtbaar.map(r => {
               const pct = Math.min(100, Math.round((r.gewicht_gram_huidig / (r.gewicht_gram_start || 1000)) * 100));
-              const kleur = pct > 50 ? '#22c55e' : pct > 20 ? '#f59e0b' : '#ef4444';
+              const kleur = pct > 50 ? 'var(--accent2)' : pct > 20 ? 'var(--warn)' : 'var(--danger)';
               return (
                 <div key={r.id}
                   onClick={() => navigate(`/filament?highlight=${r.id}`)}
@@ -217,7 +249,7 @@ function FilamentStockWidget({ rollen, navigate }) {
 
 function MiniDrempel({ label, ytd, drempel }) {
   const pct = drempel > 0 ? Math.min(100, Math.round((ytd / drempel) * 100)) : 0;
-  const kleur = pct >= 100 ? '#ef4444' : pct >= 80 ? 'var(--warn)' : 'var(--accent2)';
+  const kleur = pct >= 100 ? 'var(--danger)' : pct >= 80 ? 'var(--warn)' : 'var(--accent2)';
   return (
     <div style={{ marginBottom:6 }}>
       <div style={{ display:'flex', justifyContent:'space-between', fontSize:10, color:'var(--muted)', marginBottom:2 }}>
@@ -253,7 +285,7 @@ function FinancieelWidget({ navigate }) {
         </div>
         <div>
           <div style={{ fontSize:10, color:'var(--muted)' }}>Saldo deze maand</div>
-          <div style={{ fontSize:18, fontWeight:700, color: (maand?.saldo || 0) >= 0 ? 'var(--accent2)' : '#ef4444' }}>
+          <div style={{ fontSize:18, fontWeight:700, color: (maand?.saldo || 0) >= 0 ? 'var(--accent2)' : 'var(--danger)' }}>
             €{(maand?.saldo || 0).toFixed(2)}
           </div>
         </div>
@@ -348,6 +380,12 @@ export default function Dashboard() {
               </div>
             </div>
           )}
+          onderaan={
+            <>
+              <MiniLijst titel="Volgende in wachtrij" items={operationeel.gepland} emptyTekst="Niets gepland" />
+              <MiniLijst titel="Net klaar" items={operationeel.voltooid} emptyTekst="Nog niets voltooid" />
+            </>
+          }
         />
 
         <FinancieelWidget navigate={navigate} />

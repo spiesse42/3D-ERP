@@ -15,14 +15,16 @@ import { registreerCustomKleuren } from './lib/kleuren.js';
 import logo from './assets/logo.png';
 import './App.css';
 
+// Offertes en Werkbons staan bewust naast elkaar (één doorlopend document-
+// traject: offerte → werkbon), meteen na Jobs — zie ux-verbeterlijst 2026-09-10, #42.
 const NAV = [
   { to: '/',              icon: '⬛', label: 'Dashboard' },
   { to: '/jobs',          icon: '🖨',  label: 'Jobs' },
+  { to: '/offertes',      icon: '📄', label: 'Offertes' },
   { to: '/werkbonnen',    icon: '📋', label: 'Werkbons' },
   { to: '/klanten',       icon: '👤', label: 'Klanten' },
   { to: '/filament',      icon: '🧵', label: 'Artikelen' },
   { to: '/bestellingen',  icon: '📦', label: 'Bestellingen' },
-  { to: '/offertes',      icon: '📄', label: 'Offertes' },
   { to: '/financien',     icon: '💶', label: 'Financiën' },
   { to: '/statistieken',  icon: '📊', label: 'Statistieken' },
   { to: '/instellingen',  icon: '⚙',  label: 'Instellingen' },

@@ -26,9 +26,7 @@ export default function Instellingen() {
   const [printers, setPrinters]       = useState([]);
   const [haUrl, setHaUrl]             = useState('');
   const [haToken, setHaToken]         = useState('');
-  const [tokenZichtbaar, setTokenZichtbaar] = useState(false);
   const [geminiKey, setGeminiKey]     = useState('');
-  const [geminiKeyZichtbaar, setGeminiKeyZichtbaar] = useState(false);
   const [geminiSaved, setGeminiSaved] = useState('');
   const [saved, setSaved]             = useState('');
   const [haTestStatus, setHaTestStatus] = useState('');
@@ -316,24 +314,14 @@ export default function Instellingen() {
 
             <div className="form-group">
               <label>Long-Lived Access Token (add-onconfiguratie)</label>
-              <div style={{ display:'flex', gap:6 }}>
-                <input
-                  type={tokenZichtbaar ? 'text' : 'password'}
-                  value={haToken}
-                  onChange={e => setHaToken(e.target.value)}
-                  placeholder="Stel in via de add-onconfiguratie"
-                  style={{ flex:1, fontFamily:'monospace', fontSize:11 }}
-                  disabled
-                />
-                <button
-                  className="btn"
-                  style={{ flexShrink:0, fontSize:11, padding:'4px 10px' }}
-                  onClick={() => setTokenZichtbaar(v => !v)}
-                  disabled
-                >
-                  {tokenZichtbaar ? '🙈' : '👁'}
-                </button>
-              </div>
+              <input
+                type="text"
+                value={haToken}
+                onChange={e => setHaToken(e.target.value)}
+                placeholder="Stel in via de add-onconfiguratie"
+                style={{ fontFamily:'monospace', fontSize:11 }}
+                disabled
+              />
             </div>
 
             <div style={{ display:'flex', gap:8, marginTop:'0.75rem' }}>
@@ -648,7 +636,16 @@ export default function Instellingen() {
             )}
           </div>
 
-          <div className="card" style={{ border:'1px solid var(--danger)' }}>
+          {/* Lichte visuele afscheiding als "gevarenzone" t.o.v. de gewone
+              instellingen erboven — geen aparte tab, wel duidelijk een andere
+              categorie actie. Zie ux-verbeterlijst 2026-09-10, #41. */}
+          <div style={{ marginTop:'1.5rem', marginBottom:8, display:'flex', alignItems:'center', gap:8 }}>
+            <span style={{ fontSize:10, fontWeight:600, color:'var(--danger)', textTransform:'uppercase', letterSpacing:0.5 }}>
+              ⚠ Gevarenzone
+            </span>
+            <div style={{ flex:1, height:1, background:'rgba(220,38,38,0.25)' }} />
+          </div>
+          <div className="card" style={{ border:'1px solid var(--danger)', background:'rgba(220,38,38,0.04)' }}>
             <h2 style={{ fontSize:14, fontWeight:600, marginBottom:8, color:'var(--danger)' }}>🗓 Nieuw jaar starten</h2>
             <p style={{ fontSize:11, color:'var(--muted)', marginBottom:8 }}>
               Archiveert de volledige database naar een apart bestand (en download het meteen),
@@ -690,24 +687,14 @@ export default function Instellingen() {
 
             <div className="form-group">
               <label>Gemini API-key (add-onconfiguratie)</label>
-              <div style={{ display:'flex', gap:6 }}>
-                <input
-                  type={geminiKeyZichtbaar ? 'text' : 'password'}
-                  value={geminiKey}
-                  onChange={e => setGeminiKey(e.target.value)}
-                  placeholder="Stel in via de add-onconfiguratie"
-                  style={{ flex:1, fontFamily:'monospace', fontSize:11 }}
-                  disabled
-                />
-                <button
-                  className="btn"
-                  style={{ flexShrink:0, fontSize:11, padding:'4px 10px' }}
-                  onClick={() => setGeminiKeyZichtbaar(v => !v)}
-                  disabled
-                >
-                  {geminiKeyZichtbaar ? '🙈' : '👁'}
-                </button>
-              </div>
+              <input
+                type="text"
+                value={geminiKey}
+                onChange={e => setGeminiKey(e.target.value)}
+                placeholder="Stel in via de add-onconfiguratie"
+                style={{ fontFamily:'monospace', fontSize:11 }}
+                disabled
+              />
             </div>
 
             <button className="btn primary" style={{ width:'100%', marginTop:'0.75rem' }} onClick={saveGeminiKey}>

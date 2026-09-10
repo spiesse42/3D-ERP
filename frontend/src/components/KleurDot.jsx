@@ -10,7 +10,7 @@ export default function KleurDot({ kleur, hex, size = 12 }) {
       title={kleur}
       style={{
         display: 'inline-block', width: size, height: size, borderRadius: '50%',
-        background: kleurHex(kleur, hex), border: '1px solid rgba(255,255,255,0.15)',
+        background: kleurHex(kleur, hex), border: '1px solid rgba(0,0,0,0.18)',
         marginRight: 6, verticalAlign: 'middle', flexShrink: 0,
       }}
     />
