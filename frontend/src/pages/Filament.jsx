@@ -23,7 +23,7 @@ function groepSleutel(filamentTypeId, kleur) {
 
 function VoorraadBalk({ huidig, start }) {
   const pct = Math.min(100, Math.round((huidig / (start || 1000)) * 100));
-  const kleur = pct > 50 ? '#22c55e' : pct > 20 ? '#f59e0b' : '#ef4444';
+  const kleur = pct > 50 ? 'var(--accent2)' : pct > 20 ? 'var(--warn)' : 'var(--danger)';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <div style={{ flex: 1, height: 4, background: 'var(--bg3)', borderRadius: 2 }}>
@@ -308,7 +308,7 @@ function TypeModal({ type, onClose, onSaved }) {
                     </div>
                   )}
                   <div style={{ display:'flex', flexWrap:'wrap', gap:6, alignItems:'center' }}>
-                    <span style={{ width:16, height:16, borderRadius:'50%', background: paletHex || 'repeating-linear-gradient(45deg, #fff, #fff 3px, #ccc 3px, #ccc 6px)', border:'1px solid rgba(255,255,255,0.2)', flexShrink:0 }} />
+                    <span style={{ width:16, height:16, borderRadius:'50%', background: paletHex || 'repeating-linear-gradient(45deg, #fff, #fff 3px, #ccc 3px, #ccc 6px)', border:'1px solid rgba(0,0,0,0.18)', flexShrink:0 }} />
                     <input value={paletNaam} onChange={e => { setPaletNaam(e.target.value); setPaletFout(''); }} placeholder="naam, bv. Zwart" style={{ width:130 }} />
                     <input value={paletCode} onChange={e => { setPaletCode(e.target.value); setPaletFout(''); }} placeholder="#212721 (leeg = transparant)" style={{ width:190 }} />
                     <button type="button" className="btn" style={{ fontSize:11, padding:'3px 10px' }} onClick={paletKleurToevoegen}>+ Toevoegen</button>
@@ -653,7 +653,7 @@ function RolModal({ types, rol, onClose, onSaved }) {
               {heeftBeperktPalet ? 'dit artikeltype heeft een vast kleurenpalet — kies hieronder' : 'optioneel'}
             </span></label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <span style={{ width: 24, height: 24, borderRadius: '50%', background: kleurHex(form.kleur, form.kleur_hex), border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
+              <span style={{ width: 24, height: 24, borderRadius: '50%', background: kleurHex(form.kleur, form.kleur_hex), border: '1px solid rgba(0,0,0,0.18)', flexShrink: 0 }} />
               <input value={form.kleur} onChange={e => set('kleur', e.target.value)} placeholder="bv. Robijnrood, Lavendel..." disabled={heeftBeperktPalet} />
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -665,7 +665,7 @@ function RolModal({ types, rol, onClose, onSaved }) {
                     background: form.kleur_hex === k.hex ? 'var(--bg3)' : 'transparent',
                     cursor: 'pointer', fontSize: 11, color: 'var(--text)'
                   }}>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: k.hex || 'repeating-linear-gradient(45deg, #fff, #fff 3px, #ccc 3px, #ccc 6px)', border: '1px solid rgba(255,255,255,0.2)' }} />
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: k.hex || 'repeating-linear-gradient(45deg, #fff, #fff 3px, #ccc 3px, #ccc 6px)', border: '1px solid rgba(0,0,0,0.18)' }} />
                   {k.naam || k.hex}
                 </button>
               ))}
@@ -679,7 +679,7 @@ function RolModal({ types, rol, onClose, onSaved }) {
 
             {!heeftBeperktPalet && nieuweKleurOpen && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 8, padding: '8px 10px', background: 'var(--bg3)', borderRadius: 8 }}>
-                <span style={{ width: 18, height: 18, borderRadius: '50%', background: nieuweKleurHex || '#555', border: '1px solid rgba(255,255,255,0.2)', flexShrink: 0 }} />
+                <span style={{ width: 18, height: 18, borderRadius: '50%', background: nieuweKleurHex || '#555', border: '1px solid rgba(0,0,0,0.18)', flexShrink: 0 }} />
                 <input value={nieuweKleurCode} onChange={e => { setNieuweKleurCode(e.target.value); setNieuweKleurFout(''); }}
                   placeholder="#a855f7 of rgb(168,85,247)" style={{ width: 170 }} />
                 <input value={nieuweKleurNaam} onChange={e => setNieuweKleurNaam(e.target.value)}
@@ -1013,7 +1013,7 @@ export default function Filament() {
                       <td style={{ color: 'var(--muted)' }}>{t.eenheid || 'gram'}</td>
                       <td>
                         {heeftVoorraadKolom
-                          ? <span style={{ color: onderMinimum ? '#ef4444' : 'var(--text)', fontWeight: onderMinimum ? 700 : 400 }}>
+                          ? <span style={{ color: onderMinimum ? 'var(--danger)' : 'var(--text)', fontWeight: onderMinimum ? 700 : 400 }}>
                               {t.voorraad_aantal ?? 0} stuks
                             </span>
                           : <span style={{ color: 'var(--muted)' }}>—</span>}

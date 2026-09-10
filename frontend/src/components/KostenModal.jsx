@@ -606,7 +606,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
           {live && kwhDelta != null && (
             <div style={{ background:'var(--bg2)', borderRadius:6, padding:'5px 8px', marginBottom:8, fontSize:11, display:'inline-block' }}>
               <div style={{ color:'var(--muted)' }}>Δ Verbruikt</div>
-              <div style={{ fontWeight:600, color:'#fbbf24' }}>{kwhDelta.toFixed(3)} kWh</div>
+              <div style={{ fontWeight:600, color:'var(--warn)' }}>{kwhDelta.toFixed(3)} kWh</div>
             </div>
           )}
           <div style={{ display:'flex', gap:8 }}>

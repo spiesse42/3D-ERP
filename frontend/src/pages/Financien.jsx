@@ -58,7 +58,7 @@ function BalkGrafiek({ data, labelKey, waardeKey, kleur = 'var(--accent)', eenhe
 // ─── Drempel-voortgangsbalk (btw-vrijstelling / sociale bijdragen bijberoep) ──
 function DrempelBalk({ label, ytd, drempel }) {
   const pct = drempel > 0 ? Math.min(100, Math.round((ytd / drempel) * 100)) : 0;
-  const kleur = pct >= 100 ? '#ef4444' : pct >= 80 ? 'var(--warn)' : 'var(--accent2)';
+  const kleur = pct >= 100 ? 'var(--danger)' : pct >= 80 ? 'var(--warn)' : 'var(--accent2)';
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
@@ -134,7 +134,7 @@ function OverzichtTab() {
         </div>
         <div className="card" style={{ flex: 1, minWidth: 160 }}>
           <div style={{ fontSize: 11, color: 'var(--muted)' }}>Saldo</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: jaartotalen.saldo >= 0 ? 'var(--accent2)' : '#ef4444' }}>
+          <div style={{ fontSize: 22, fontWeight: 700, color: jaartotalen.saldo >= 0 ? 'var(--accent2)' : 'var(--danger)' }}>
             €{jaartotalen.saldo.toFixed(2)}
           </div>
         </div>
@@ -156,7 +156,7 @@ function OverzichtTab() {
                       <td style={{ color: 'var(--accent2)' }}>€{r.inkomsten.toFixed(2)}</td>
                       <td>€{r.materiaalkosten.toFixed(2)}</td>
                       <td>€{r.uitgaven.toFixed(2)}</td>
-                      <td style={{ color: r.saldo >= 0 ? 'var(--accent2)' : '#ef4444', fontWeight: 600 }}>
+                      <td style={{ color: r.saldo >= 0 ? 'var(--accent2)' : 'var(--danger)', fontWeight: 600 }}>
                         €{r.saldo.toFixed(2)}
                       </td>
                     </tr>
@@ -209,7 +209,7 @@ function FacturatieTab() {
     >
       <div style={{ marginBottom: '1rem', fontSize: 13, color: 'var(--muted)' }}>
         {data.aantal} {data.aantal === 1 ? 'factuur' : 'facturen'} — totaal{' '}
-        <span style={{ color: status === 'open' ? '#ef4444' : 'var(--accent2)', fontWeight: 700, fontSize: 15 }}>
+        <span style={{ color: status === 'open' ? 'var(--danger)' : 'var(--accent2)', fontWeight: 700, fontSize: 15 }}>
           €{data.totaal.toFixed(2)}
         </span>
       </div>
@@ -282,7 +282,7 @@ function UitgaveModal({ uitgave, onClose, onSaved }) {
           <h2>{uitgave?.id ? 'Uitgave bewerken' : 'Nieuwe uitgave'}</h2>
           <button className="btn" onClick={onClose}>✕</button>
         </div>
-        {fout && <p style={{ color: '#ef4444', fontSize: 12 }}>{fout}</p>}
+        {fout && <p style={{ color: 'var(--danger)', fontSize: 12 }}>{fout}</p>}
         <div className="form-group" style={{ marginBottom: '0.75rem' }}>
           <label style={{ fontSize: 11 }}>Datum</label>
           <input type="date" value={form.datum} onChange={e => setForm({ ...form, datum: e.target.value })} />

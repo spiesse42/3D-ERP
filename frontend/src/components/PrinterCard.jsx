@@ -218,7 +218,7 @@ export default function PrinterCard({ printerId, naam, data, klanten, onJobCreat
         ].map(([label, val]) => (
           <div key={label}>
             <div style={{ color:'var(--muted)', fontSize:11 }}>{label}</div>
-            <div style={{ fontWeight:500, color: label.includes('Verbruikt') || label.includes('kost') ? '#fbbf24' : 'var(--text)' }}>{val}</div>
+            <div style={{ fontWeight:500, color: label.includes('Verbruikt') || label.includes('kost') ? 'var(--warn)' : 'var(--text)' }}>{val}</div>
           </div>
         ))}
       </div>

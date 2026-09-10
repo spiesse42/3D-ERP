@@ -3,7 +3,7 @@ import { api } from '../lib/api.js';
 import { kleurHex } from '../lib/kleuren.js';
 
 function KleurDot({ kleur }) {
-  return <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:kleurHex(kleur), border:'1px solid rgba(255,255,255,0.15)', marginRight:6, verticalAlign:'middle' }} />;
+  return <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:kleurHex(kleur), border:'1px solid rgba(0,0,0,0.18)', marginRight:6, verticalAlign:'middle' }} />;
 }
 
 function BalkGrafiek({ data, labelKey, waardeKey, kleur = 'var(--accent)', eenheid = '' }) {
@@ -109,7 +109,7 @@ export default function Statistieken() {
                     <td style={{ fontWeight:500 }}>{r.printer}</td>
                     <td>{r.totaal}</td>
                     <td style={{ color:'var(--accent2)' }}>{r.voltooid}</td>
-                    <td style={{ color:'#ef4444' }}>{r.gefaald}</td>
+                    <td style={{ color:'var(--danger)' }}>{r.gefaald}</td>
                     <td>{r.totaal > 0 ? `${Math.round((r.voltooid / r.totaal) * 100)}%` : '—'}</td>
                   </tr>
                 ))}
@@ -137,7 +137,7 @@ export default function Statistieken() {
                   <td>{r.maand}</td>
                   <td style={{ fontWeight:500 }}>{r.totaal}</td>
                   <td style={{ color:'var(--accent2)' }}>{r.voltooid}</td>
-                  <td style={{ color:'#ef4444' }}>{r.gefaald}</td>
+                  <td style={{ color:'var(--danger)' }}>{r.gefaald}</td>
                   <td style={{ color:'var(--muted)' }}>{r.geannuleerd}</td>
                 </tr>
               ))}
@@ -157,7 +157,7 @@ export default function Statistieken() {
           data={kwhData || []}
           labelKey={kwhTab === 'dag' ? 'dag' : kwhTab === 'maand' ? 'maand' : 'jaar'}
           waardeKey="kwh"
-          kleur="#fbbf24"
+          kleur="var(--warn)"
           eenheid=" kWh"
         />
       </Sectie>

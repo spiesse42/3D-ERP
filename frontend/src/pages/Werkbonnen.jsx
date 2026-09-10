@@ -28,7 +28,7 @@ function statusKlasse(status) {
   return (status || '').replace(/\s+/g, '-');
 }
 
-// Korte inhoudspreview van een werkbon (voor de rij vóór het uitklappen) —
+// Korte inhoudspreview van een werkbon (voor de rij, in de lijst) —
 // gebaseerd op de object-namen van de regels.
 function werkbonOmschrijving(w) {
   let regels = [];
@@ -39,9 +39,8 @@ function werkbonOmschrijving(w) {
 }
 
 // Leveringsvoortgang (pakbon) — komt kant-en-klaar mee met GET /werkbonnen
-// (levering_totaal/levering_geleverd, zie backend). Voorheen enkel zichtbaar
-// na uitklappen; nu ook op de ingeklapte rij. Zie ux-verbeterlijst
-// 2026-09-10, #16.
+// (levering_totaal/levering_geleverd, zie backend). Zichtbaar op de rij in de
+// lijst, ook zonder de detail te openen. Zie ux-verbeterlijst 2026-09-10, #16.
 function LeveringBadge({ werkbon }) {
   const totaal = werkbon.levering_totaal ?? 0;
   if (totaal === 0) {
@@ -85,6 +84,12 @@ function KoppelBadge({ werkbon, jobs }) {
 // geen ouder-tabblad meer is dat printers/klanten/filamentTypes/allRollen/
 // tarieven/jobs aanlevert via props, laadt deze pagina die zelf — zelfde
 // aanpak als Jobs.jsx dat voorheen deed voor zijn eigen tab-inhoud.
+//
+// Lijst/detail-patroon: "rij → rechtspaneel", zelfde conventie als
+// Offertes.jsx en Jobs.jsx (zie ux-verbeterlijst 2026-09-10, #15). Enkel het
+// paneel is hier breder (560px i.p.v. 380px) — de detailinhoud (regels +
+// koppel-UI + inline formulieren + Financieel + volledige Pakbonnen-sectie)
+// is aanzienlijk rijker dan bij Offertes/Jobs en zou anders te krap staan.
 export default function Werkbonnen() {
   const [jobs,          setJobs]          = useState([]);
   const [printers,      setPrinters]      = useState([]);
@@ -94,8 +99,7 @@ export default function Werkbonnen() {
   const [tarieven,      setTarieven]      = useState({});
 
   const [werkbonnen, setWerkbonnen] = useState([]);
-  const [openId, setOpenId] = useState(null);
-  const [details, setDetails] = useState({});
+  const [detail, setDetail] = useState(null);
   const [laden, setLaden] = useState(true);
   // null = dicht, {} = nieuwe lege werkbon, object = duplicaat-seed (zelfde
   // patroon als offerteModal in Offertes.jsx). Zie ux-verbeterlijst
@@ -135,7 +139,7 @@ export default function Werkbonnen() {
 
   const loadJobs = () => api.get('/jobs').then(setJobs).catch(e => alert('Kon jobs niet laden: ' + e.message));
   const loadList = () => api.get('/werkbonnen').then(setWerkbonnen).catch(e => alert('Kon werkbons niet laden: ' + e.message));
-  const loadDetail = (id) => api.get(`/werkbonnen/${id}`).then(d => setDetails(prev => ({ ...prev, [id]: d }))).catch(e => alert(e.message));
+  const openDetail = (id) => api.get(`/werkbonnen/${id}`).then(d => setDetail(d)).catch(e => alert(e.message));
   const reloadJobs = () => loadJobs();
 
   useEffect(() => {
@@ -170,35 +174,29 @@ export default function Werkbonnen() {
     try {
       await api.post(`/werkbonnen/${werkbonId}/regels/${idx}/nieuwe-printopdracht`, payload);
       setPrintFormKey(null);
-      loadDetail(werkbonId); loadList(); reloadJobs();
+      openDetail(werkbonId); loadList(); reloadJobs();
     } catch (e) { alert(e.message); }
-  }
-
-  function toggle(w) {
-    const willOpen = openId !== w.id;
-    setOpenId(willOpen ? w.id : null);
-    if (willOpen) loadDetail(w.id);
   }
 
   async function ontkoppel(werkbonId, idx, jobId) {
     if (!confirm('Deze printopdracht ontkoppelen van de werkbon?')) return;
     try {
       await api.delete(`/werkbonnen/${werkbonId}/regels/${idx}/koppel/${jobId}`);
-      loadDetail(werkbonId); loadList(); reloadJobs();
+      openDetail(werkbonId); loadList(); reloadJobs();
     } catch (e) { alert(e.message); }
   }
 
   async function koppel(werkbonId, idx, jobId) {
     try {
       await api.post(`/werkbonnen/${werkbonId}/regels/${idx}/koppel`, { job_id: jobId });
-      loadDetail(werkbonId); loadList(); reloadJobs();
+      openDetail(werkbonId); loadList(); reloadJobs();
     } catch (e) { alert(e.message); }
   }
 
   async function gebruikGemetenData(werkbonId, idx, jobId) {
     try {
       await api.post(`/werkbonnen/${werkbonId}/regels/${idx}/gebruik-gemeten-data`, { job_id: jobId });
-      loadDetail(werkbonId); loadList();
+      openDetail(werkbonId); loadList();
       const key = `${werkbonId}:${idx}:${jobId}`;
       setGemetenToegepast(key);
       setTimeout(() => setGemetenToegepast(k => k === key ? null : k), 2500);
@@ -215,7 +213,7 @@ export default function Werkbonnen() {
     if (!confirm('Deze werkbon verwijderen? Gekoppelde printopdrachten blijven bestaan (enkel de koppeling verdwijnt). Dit kan niet ongedaan gemaakt worden.')) return;
     try {
       await api.delete(`/werkbonnen/${werkbonId}`);
-      setOpenId(null);
+      setDetail(null);
       loadList(); reloadJobs();
     } catch (e) { alert(e.message); }
   }
@@ -223,14 +221,14 @@ export default function Werkbonnen() {
   async function zetStatus(werkbonId, status) {
     try {
       await api.patch(`/werkbonnen/${werkbonId}/status`, { status });
-      loadDetail(werkbonId); loadList();
+      openDetail(werkbonId); loadList();
     } catch (e) { alert(e.message); }
   }
 
   async function zetBetaald(werkbonId, betaald) {
     try {
       await api.patch(`/werkbonnen/${werkbonId}/betaald`, { betaald });
-      loadDetail(werkbonId); loadList();
+      openDetail(werkbonId); loadList();
     } catch (e) { alert(e.message); }
   }
 
@@ -263,7 +261,7 @@ export default function Werkbonnen() {
     try {
       await api.post(`/werkbonnen/${werkbonId}/regels`, payload);
       setNieuweRegelKey(null);
-      loadDetail(werkbonId); loadList();
+      openDetail(werkbonId); loadList();
     } catch (e) { alert(e.message); }
   }
 
@@ -284,12 +282,12 @@ export default function Werkbonnen() {
     });
 
   // Nieuwe standaalone werkbon aanmaken (geen offerte nodig) — na opslaan de
-  // lijst herladen en de nieuwe werkbon meteen uitklappen, zodat je er direct
-  // in verder kan (bv. een eerste printopdracht koppelen).
+  // lijst herladen en de nieuwe werkbon meteen in het detailpaneel openen,
+  // zodat je er direct in verder kan (bv. een eerste printopdracht koppelen).
   function nieuweWerkbonAangemaakt(r) {
     setNieuweWerkbonModal(null);
     loadList();
-    if (r?.id) { setOpenId(r.id); loadDetail(r.id); }
+    if (r?.id) openDetail(r.id);
   }
 
   // Standalone werkbon opgeslagen via de "✏ Bewerken"-knop — id vastnemen
@@ -297,7 +295,7 @@ export default function Werkbonnen() {
   function werkbonBewerkt() {
     const id = bewerkWerkbon?.id;
     setBewerkWerkbon(null);
-    if (id) { loadDetail(id); loadList(); }
+    if (id) { openDetail(id); loadList(); }
   }
 
   return (
@@ -340,320 +338,313 @@ export default function Werkbonnen() {
         />
       )}
 
-      {laden ? <div className="empty">Laden...</div> : !werkbonnen.length ? <div className="empty">Geen werkbons gevonden</div> : !filteredWerkbonnen.length ? <div className="empty">Geen werkbons gevonden voor deze zoekopdracht/filter</div> : (
-    <div className="card" style={{ padding: 0 }}>
-      <table>
-        <thead>
-          <tr>
-            <th style={{ width: 20 }}></th>
-            <th>Werkbon</th>
-            <th>Klant</th>
-            <th>Status</th>
-            <th>Prijs</th>
-            <th>Betaald</th>
-            <th>Printopdrachten</th>
-            <th>Levering</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filteredWerkbonnen.flatMap(w => {
-            const open = openId === w.id;
-            const detail = details[w.id];
-            const rows = [];
-            rows.push(
-                <tr key={w.id} style={{ cursor: 'pointer', background: open ? 'var(--bg3)' : undefined }} onClick={() => toggle(w)}>
-                  <td style={{ color: 'var(--muted)' }}>{open ? '▾' : '▸'}</td>
-                  <td>
-                    <div style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12, color: 'var(--accent)' }}>{w.volgnummer}</div>
-                    <div style={{ fontSize: 12, marginTop: 2 }}>{werkbonOmschrijving(w)}</div>
-                  </td>
-                  <td>{w.klant_voornaam ? `${w.klant_voornaam} ${w.klant_naam}` : w.klant_naam}</td>
-                  <td><span className={`badge ${statusKlasse(w.status)}`}>{w.status}</span></td>
-                  <td>€{(w.totaal ?? 0).toFixed(2)}</td>
-                  <td>{w.betaald
-                    ? <span style={{ color: 'var(--accent2)' }}>✓{w.betaald_op ? ' ' + w.betaald_op.split('T')[0] : ''}</span>
-                    : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
-                  <td><KoppelBadge werkbon={w} jobs={jobs} /></td>
-                  <td><LeveringBadge werkbon={w} /></td>
-                </tr>
-            );
-            if (open) {
-              rows.push(
-                <tr key={`${w.id}-detail`}>
-                    <td colSpan={8} style={{ background: 'var(--bg)', padding: '1rem 1.25rem' }}>
-                      {!detail ? <div style={{ color: 'var(--muted)' }}>Laden...</div> : (
-                        <>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 24 }}>
-                          <div>
-                            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 8 }}>
-                              Regels op deze werkbon
-                            </div>
-                            {detail.regels.map((regel, idx) => (
-                              <div key={idx} className="card" style={{ marginBottom: 8, padding: '0.6rem 0.75rem' }}>
-                                <div>
-                                  <span className="badge" style={{ background: 'var(--bg3)', color: 'var(--muted)', marginRight: 6 }}>
-                                    {REGEL_TYPE_LABELS[regel.type] || regel.type}
-                                  </span>
-                                  <span style={{ fontWeight: 500 }}>{regel.object_naam || REGEL_TYPE_LABELS[regel.type]}</span>
-                                  {LEVERBARE_TYPES.includes(regel.type) && (
-                                    <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 8 }}>
-                                      {regel.aantal_gepland ?? 0} van de {regel.aantal ?? 1} gepland
-                                    </span>
-                                  )}
-                                </div>
-                                {!LEVERBARE_TYPES.includes(regel.type) ? (
-                                  <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)', fontStyle: 'italic' }}>
-                                    Geen printopdracht van toepassing op dit regeltype.
-                                  </div>
-                                ) : (
-                                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)' }}>
-                                    {(regel.gekoppelde_jobs || []).length > 0 ? regel.gekoppelde_jobs.map(job => (
-                                      <div key={job.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12, flexWrap: 'wrap' }}>
-                                        <span className={`badge ${statusKlasse(job.status)}`}>{job.status}</span>
-                                        <span style={{ flex: 1, minWidth: 120 }}>
-                                          {job.naam}{job.printer_naam ? ` · ${job.printer_naam}` : ''}
-                                          {job.werkbon_regel_aantal != null ? ` · ${job.werkbon_regel_aantal}×` : ''}
-                                        </span>
-                                        {job.verkoopprijs != null && (
-                                          gemetenToegepast === `${w.id}:${idx}:${job.id}` ? (
-                                            <span style={{ fontSize: 10, padding: '3px 7px', color: 'var(--accent2)', fontWeight: 600 }}>✓ Toegepast</span>
-                                          ) : (
-                                            <button className="btn" style={{ fontSize: 10, padding: '3px 7px' }}
-                                              onClick={() => gebruikGemetenData(w.id, idx, job.id)}>
-                                              Gebruik gemeten data (€{job.verkoopprijs.toFixed(2)})
-                                            </button>
-                                          )
-                                        )}
-                                        <button className="btn danger" style={{ fontSize: 10, padding: '3px 7px' }}
-                                          onClick={() => ontkoppel(w.id, idx, job.id)}>✕ Ontkoppel</button>
-                                      </div>
-                                    )) : (
-                                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Nog geen printopdracht gekoppeld.</div>
-                                    )}
-                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                      {onbekoppeldeJobs.length > 0 && (
-                                        <select style={{ fontSize: 11, padding: '4px 6px', width: 'auto' }} value=""
-                                          onChange={e => { if (e.target.value) koppel(w.id, idx, parseInt(e.target.value)); }}>
-                                          <option value="">Koppel bestaande printopdracht…</option>
-                                          {onbekoppeldeJobs.map(j => (
-                                            <option key={j.id} value={j.id}>{j.naam} · {j.printer_naam} · {j.status}</option>
-                                          ))}
-                                        </select>
-                                      )}
-                                      <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
-                                        onClick={() => togglePrintForm(w.id, idx)}>+ Printopdracht</button>
-                                    </div>
+      <div style={{ display: 'grid', gridTemplateColumns: detail ? '1fr 560px' : '1fr', gap: '1rem' }}>
+        <div>
+          {laden ? <div className="empty">Laden...</div> : !werkbonnen.length ? <div className="empty">Geen werkbons gevonden</div> : !filteredWerkbonnen.length ? <div className="empty">Geen werkbons gevonden voor deze zoekopdracht/filter</div> : (
+            <div className="card" style={{ padding: 0 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Werkbon</th>
+                    <th>Klant</th>
+                    <th>Status</th>
+                    <th>Prijs</th>
+                    <th>Betaald</th>
+                    <th>Printopdrachten</th>
+                    <th>Levering</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredWerkbonnen.map(w => (
+                    <tr key={w.id} style={{ cursor: 'pointer', background: detail?.id === w.id ? 'var(--bg3)' : undefined }} onClick={() => openDetail(w.id)}>
+                      <td>
+                        <div style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12, color: 'var(--accent)' }}>{w.volgnummer}</div>
+                        <div style={{ fontSize: 12, marginTop: 2 }}>{werkbonOmschrijving(w)}</div>
+                      </td>
+                      <td>{w.klant_voornaam ? `${w.klant_voornaam} ${w.klant_naam}` : w.klant_naam}</td>
+                      <td><span className={`badge ${statusKlasse(w.status)}`}>{w.status}</span></td>
+                      <td>€{(w.totaal ?? 0).toFixed(2)}</td>
+                      <td>{w.betaald
+                        ? <span style={{ color: 'var(--accent2)' }}>✓{w.betaald_op ? ' ' + w.betaald_op.split('T')[0] : ''}</span>
+                        : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
+                      <td><KoppelBadge werkbon={w} jobs={jobs} /></td>
+                      <td><LeveringBadge werkbon={w} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
-                                    {/* Inline "+ Printopdracht"-formulier — zelfde open/dicht-klap-stijl
-                                        als PakbonSectie's inline-formulieren hieronder. Voor 'printen'
-                                        blijven printer/tijd/gewicht standaard dichtgeklapt (de regel zelf
-                                        heeft al defaults); voor 'artikel' is een printer verplicht (de
-                                        regel heeft er zelf geen), dus die select staat meteen open. */}
-                                    {printFormKey === `${w.id}:${idx}` && (
-                                      <div style={{ marginTop: 8, padding: '0.6rem', background: 'var(--bg3)', borderRadius: 6 }}>
-                                        <div className="form-row" style={{ marginBottom: 6 }}>
-                                          <div className="form-group" style={{ marginBottom: 0 }}>
-                                            <label style={{ fontSize: 11 }}>Aantal (van deze regel)</label>
-                                            <input type="number" min="1" step="1" value={printForm.aantal ?? 1}
-                                              onChange={e => setPrintForm(f => ({ ...f, aantal: e.target.value }))}
-                                              style={{ fontSize: 12 }} />
-                                          </div>
-                                          {regel.type === 'artikel' && (
-                                            <div className="form-group" style={{ marginBottom: 0 }}>
-                                              <label style={{ fontSize: 11 }}>Printer *</label>
-                                              <select value={printForm.printer_id || ''}
-                                                onChange={e => setPrintForm(f => ({ ...f, printer_id: e.target.value }))}
-                                                style={{ fontSize: 12 }}>
-                                                <option value="">— selecteer —</option>
-                                                {printers.filter(p => p.actief).map(p => <option key={p.id} value={p.id}>{p.naam}</option>)}
-                                              </select>
-                                            </div>
-                                          )}
-                                        </div>
-                                        {regel.type === 'printen' && (
-                                          <>
-                                            {!printForm.uitgebreid ? (
-                                              <button type="button" className="btn" style={{ fontSize: 10, padding: '3px 7px', marginBottom: 6 }}
-                                                onClick={() => setPrintForm(f => ({ ...f, uitgebreid: true }))}>
-                                                Printer/tijd/gewicht overschrijven (optioneel)…
-                                              </button>
-                                            ) : (
-                                              <div style={{ marginBottom: 6 }}>
-                                                <div className="form-row" style={{ marginBottom: 6 }}>
-                                                  <div className="form-group" style={{ marginBottom: 0 }}>
-                                                    <label style={{ fontSize: 11 }}>Printer (leeg = van regel)</label>
-                                                    <select value={printForm.printer_id || ''}
-                                                      onChange={e => setPrintForm(f => ({ ...f, printer_id: e.target.value }))}
-                                                      style={{ fontSize: 12 }}>
-                                                      <option value="">— van regel —</option>
-                                                      {printers.filter(p => p.actief).map(p => <option key={p.id} value={p.id}>{p.naam}</option>)}
-                                                    </select>
-                                                  </div>
-                                                </div>
-                                                <div className="form-row" style={{ marginBottom: 0 }}>
-                                                  <div className="form-group" style={{ marginBottom: 0 }}>
-                                                    <label style={{ fontSize: 11 }}>Tijd — uren (per stuk)</label>
-                                                    <input type="number" min="0" value={printForm.geschatte_tijd_u ?? ''}
-                                                      onChange={e => setPrintForm(f => ({ ...f, geschatte_tijd_u: e.target.value }))}
-                                                      placeholder="van regel" style={{ fontSize: 12 }} />
-                                                  </div>
-                                                  <div className="form-group" style={{ marginBottom: 0 }}>
-                                                    <label style={{ fontSize: 11 }}>Tijd — minuten (per stuk)</label>
-                                                    <input type="number" min="0" max="59" value={printForm.geschatte_tijd_min ?? ''}
-                                                      onChange={e => setPrintForm(f => ({ ...f, geschatte_tijd_min: e.target.value }))}
-                                                      placeholder="van regel" style={{ fontSize: 12 }} />
-                                                  </div>
-                                                  <div className="form-group" style={{ marginBottom: 0 }}>
-                                                    <label style={{ fontSize: 11 }}>Gewicht g (per stuk)</label>
-                                                    <input type="number" step="0.1" value={printForm.geschat_gewicht_g ?? ''}
-                                                      onChange={e => setPrintForm(f => ({ ...f, geschat_gewicht_g: e.target.value }))}
-                                                      placeholder="van regel" style={{ fontSize: 12 }} />
-                                                  </div>
-                                                </div>
-                                              </div>
-                                            )}
-                                          </>
-                                        )}
-                                        <div style={{ display: 'flex', gap: 8 }}>
-                                          <button className="btn primary" style={{ fontSize: 11, padding: '4px 8px' }}
-                                            onClick={() => opslaanPrintopdracht(w.id, idx, regel)}>Opslaan</button>
-                                          <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
-                                            onClick={() => setPrintFormKey(null)}>Annuleer</button>
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
+        {detail && (
+          <div className="card" style={{ position: 'sticky', top: 0, maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h2 style={{ fontSize: 15, fontWeight: 700 }}>{detail.volgnummer}</h2>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {/* Enkel voor een standalone werkbon (geen offerte_id) — een
+                    offerte-afgeleide werkbon mag nooit stilzwijgend afwijken
+                    van de goedgekeurde offerteprijs, zie PUT /werkbonnen/:id
+                    backend. */}
+                {!detail.offerte_id && (
+                  <button className="btn" style={{ fontSize: 11 }} onClick={() => setBewerkWerkbon(detail)} title="Bewerken">✏</button>
+                )}
+                <button className="btn" style={{ fontSize: 11 }} title="Dupliceren" onClick={() => setNieuweWerkbonModal({
+                  klant_id: detail.klant_id, levertermijn: detail.levertermijn,
+                  btw_pct: detail.btw_pct, notities: detail.notities, regels: detail.regels,
+                })}>⧉</button>
+                <button className="btn" onClick={() => setDetail(null)} title="Sluiten">✕</button>
+              </div>
+            </div>
 
-                            {/* Enkel voor een offerte-afgeleide werkbon — een standalone
-                                werkbon heeft hiervoor al de volledige "✏ Bewerken"-modal.
-                                Bewust beperkt tot 'extra'/'artikel' (tijd_u altijd 0, kan de
-                                bevroren marge_pct-tier dus nooit doen kantelen). Zie
-                                POST /werkbonnen/:id/regels en ux-verbeterlijst 2026-09-10, #6. */}
-                            {w.offerte_id && (
-                              nieuweRegelKey !== w.id ? (
-                                <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
-                                  onClick={() => toggleNieuweRegel(w.id)}>+ Regel toevoegen</button>
-                              ) : (
-                                <div className="card" style={{ padding: '0.6rem 0.75rem' }}>
-                                  <div className="form-row" style={{ marginBottom: 6 }}>
-                                    <div className="form-group" style={{ marginBottom: 0 }}>
-                                      <label style={{ fontSize: 11 }}>Type</label>
-                                      <select value={nieuweRegelForm.type}
-                                        onChange={e => setNieuweRegelForm(f => ({ ...f, type: e.target.value }))}
-                                        style={{ fontSize: 12 }}>
-                                        <option value="extra">Extra kosten/dienst</option>
-                                        <option value="artikel">Artikel</option>
-                                      </select>
-                                    </div>
-                                    <div className="form-group" style={{ marginBottom: 0 }}>
-                                      <label style={{ fontSize: 11 }}>Artikeltype{nieuweRegelForm.type === 'artikel' ? ' *' : ' (optioneel)'}</label>
-                                      <select value={nieuweRegelForm.filament_type_id}
-                                        onChange={e => setNieuweRegelForm(f => ({ ...f, filament_type_id: e.target.value }))}
-                                        style={{ fontSize: 12 }}>
-                                        <option value="">— geen —</option>
-                                        {artikelTypes.map(a => <option key={a.id} value={a.id}>{a.naam}</option>)}
-                                      </select>
-                                    </div>
-                                  </div>
-                                  <div className="form-row" style={{ marginBottom: 6 }}>
-                                    <div className="form-group" style={{ marginBottom: 0 }}>
-                                      <label style={{ fontSize: 11 }}>Omschrijving</label>
-                                      <input type="text" value={nieuweRegelForm.object_naam}
-                                        onChange={e => setNieuweRegelForm(f => ({ ...f, object_naam: e.target.value }))}
-                                        style={{ fontSize: 12 }} />
-                                    </div>
-                                    {nieuweRegelForm.type === 'extra' ? (
-                                      <div className="form-group" style={{ marginBottom: 0 }}>
-                                        <label style={{ fontSize: 11 }}>Bedrag (€)</label>
-                                        <input type="number" min="0" step="0.01" value={nieuweRegelForm.bedrag}
-                                          onChange={e => setNieuweRegelForm(f => ({ ...f, bedrag: e.target.value }))}
-                                          style={{ fontSize: 12 }} />
-                                      </div>
-                                    ) : (
-                                      <div className="form-group" style={{ marginBottom: 0 }}>
-                                        <label style={{ fontSize: 11 }}>Aantal</label>
-                                        <input type="number" min="1" step="1" value={nieuweRegelForm.aantal}
-                                          onChange={e => setNieuweRegelForm(f => ({ ...f, aantal: e.target.value }))}
-                                          style={{ fontSize: 12 }} />
-                                      </div>
-                                    )}
-                                  </div>
-                                  <div style={{ display: 'flex', gap: 8 }}>
-                                    <button className="btn primary" style={{ fontSize: 11, padding: '4px 8px' }}
-                                      onClick={() => voegRegelToe(w.id)}>Opslaan</button>
-                                    <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
-                                      onClick={() => setNieuweRegelKey(null)}>Annuleer</button>
-                                  </div>
-                                </div>
-                              )
-                            )}
+            <div style={{ background: 'var(--bg3)', borderRadius: 'var(--radius)', padding: '0.65rem', marginBottom: '0.75rem', fontSize: 13 }}>
+              <div style={{ fontWeight: 600 }}>{detail.klant_voornaam ? `${detail.klant_voornaam} ${detail.klant_naam}` : detail.klant_naam}</div>
+              {detail.email && <div style={{ color: 'var(--muted)', fontSize: 12 }}>✉ {detail.email}</div>}
+            </div>
+
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 8 }}>
+              Regels op deze werkbon
+            </div>
+            {detail.regels.map((regel, idx) => (
+              <div key={idx} className="card" style={{ marginBottom: 8, padding: '0.6rem 0.75rem' }}>
+                <div>
+                  <span className="badge" style={{ background: 'var(--bg3)', color: 'var(--muted)', marginRight: 6 }}>
+                    {REGEL_TYPE_LABELS[regel.type] || regel.type}
+                  </span>
+                  <span style={{ fontWeight: 500 }}>{regel.object_naam || REGEL_TYPE_LABELS[regel.type]}</span>
+                  {LEVERBARE_TYPES.includes(regel.type) && (
+                    <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 8 }}>
+                      {regel.aantal_gepland ?? 0} van de {regel.aantal ?? 1} gepland
+                    </span>
+                  )}
+                </div>
+                {!LEVERBARE_TYPES.includes(regel.type) ? (
+                  <div style={{ marginTop: 6, fontSize: 11, color: 'var(--muted)', fontStyle: 'italic' }}>
+                    Geen printopdracht van toepassing op dit regeltype.
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)' }}>
+                    {(regel.gekoppelde_jobs || []).length > 0 ? regel.gekoppelde_jobs.map(job => (
+                      <div key={job.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12, flexWrap: 'wrap' }}>
+                        <span className={`badge ${statusKlasse(job.status)}`}>{job.status}</span>
+                        <span style={{ flex: 1, minWidth: 120 }}>
+                          {job.naam}{job.printer_naam ? ` · ${job.printer_naam}` : ''}
+                          {job.werkbon_regel_aantal != null ? ` · ${job.werkbon_regel_aantal}×` : ''}
+                        </span>
+                        {job.verkoopprijs != null && (
+                          gemetenToegepast === `${detail.id}:${idx}:${job.id}` ? (
+                            <span style={{ fontSize: 10, padding: '3px 7px', color: 'var(--accent2)', fontWeight: 600 }}>✓ Toegepast</span>
+                          ) : (
+                            <button className="btn" style={{ fontSize: 10, padding: '3px 7px' }}
+                              onClick={() => gebruikGemetenData(detail.id, idx, job.id)}>
+                              Gebruik gemeten data (€{job.verkoopprijs.toFixed(2)})
+                            </button>
+                          )
+                        )}
+                        <button className="btn danger" style={{ fontSize: 10, padding: '3px 7px' }}
+                          onClick={() => ontkoppel(detail.id, idx, job.id)}>✕ Ontkoppel</button>
+                      </div>
+                    )) : (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Nog geen printopdracht gekoppeld.</div>
+                    )}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {onbekoppeldeJobs.length > 0 && (
+                        <select style={{ fontSize: 11, padding: '4px 6px', width: 'auto' }} value=""
+                          onChange={e => { if (e.target.value) koppel(detail.id, idx, parseInt(e.target.value)); }}>
+                          <option value="">Koppel bestaande printopdracht…</option>
+                          {onbekoppeldeJobs.map(j => (
+                            <option key={j.id} value={j.id}>{j.naam} · {j.printer_naam} · {j.status}</option>
+                          ))}
+                        </select>
+                      )}
+                      <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
+                        onClick={() => togglePrintForm(detail.id, idx)}>+ Printopdracht</button>
+                    </div>
+
+                    {/* Inline "+ Printopdracht"-formulier — zelfde open/dicht-klap-stijl
+                        als PakbonSectie's inline-formulieren hieronder. Voor 'printen'
+                        blijven printer/tijd/gewicht standaard dichtgeklapt (de regel zelf
+                        heeft al defaults); voor 'artikel' is een printer verplicht (de
+                        regel heeft er zelf geen), dus die select staat meteen open. */}
+                    {printFormKey === `${detail.id}:${idx}` && (
+                      <div style={{ marginTop: 8, padding: '0.6rem', background: 'var(--bg3)', borderRadius: 6 }}>
+                        <div className="form-row" style={{ marginBottom: 6 }}>
+                          <div className="form-group" style={{ marginBottom: 0 }}>
+                            <label style={{ fontSize: 11 }}>Aantal (van deze regel)</label>
+                            <input type="number" min="1" step="1" value={printForm.aantal ?? 1}
+                              onChange={e => setPrintForm(f => ({ ...f, aantal: e.target.value }))}
+                              style={{ fontSize: 12 }} />
                           </div>
-
-                          <div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>
-                                Financieel
-                              </div>
-                              {/* Enkel voor een standalone werkbon (geen offerte_id) — een
-                                  offerte-afgeleide werkbon mag nooit stilzwijgend afwijken van
-                                  de goedgekeurde offerteprijs, zie PUT /werkbonnen/:id backend. */}
-                              <div style={{ display: 'flex', gap: 6 }}>
-                                {!w.offerte_id && (
-                                  <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
-                                    onClick={() => setBewerkWerkbon(detail)}>✏ Bewerken</button>
-                                )}
-                                <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} title="Dupliceren"
-                                  onClick={() => setNieuweWerkbonModal({
-                                    klant_id: detail.klant_id, levertermijn: detail.levertermijn,
-                                    btw_pct: detail.btw_pct, notities: detail.notities, regels: detail.regels,
-                                  })}>⧉ Dupliceer</button>
-                                <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }}
-                                  onClick={() => verwijderWerkbon(w.id)}>✕ Verwijder</button>
-                              </div>
-                            </div>
-                            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Vrijgesteld van BTW — art. 56bis</div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 16, padding: '6px 0', borderTop: '1px solid var(--border)', marginBottom: 12 }}>
-                              <span>Totaal</span><span style={{ color: 'var(--accent2)' }}>€{(detail.totaal ?? 0).toFixed(2)}</span>
-                            </div>
-
-                            <div className="form-group">
-                              <label>Status</label>
-                              <select value={detail.status} onChange={e => zetStatus(w.id, e.target.value)}>
-                                {WERKBON_STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
+                          {regel.type === 'artikel' && (
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                              <label style={{ fontSize: 11 }}>Printer *</label>
+                              <select value={printForm.printer_id || ''}
+                                onChange={e => setPrintForm(f => ({ ...f, printer_id: e.target.value }))}
+                                style={{ fontSize: 12 }}>
+                                <option value="">— selecteer —</option>
+                                {printers.filter(p => p.actief).map(p => <option key={p.id} value={p.id}>{p.naam}</option>)}
                               </select>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                              <input type="checkbox" checked={!!detail.betaald}
-                                style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent2)' }}
-                                onChange={e => zetBetaald(w.id, e.target.checked)} />
-                              <span>Betaald</span>
-                              {detail.betaald_op && <span style={{ color: 'var(--muted)', fontSize: 11 }}>{detail.betaald_op.split('T')[0]}</span>}
-                            </div>
-                            <div style={{ display: 'flex', gap: 8 }}>
-                              <a className="btn" href={`${BASE}/werkbonnen/${w.id}/pdf`} download>↓ PDF</a>
-                              <button className="btn" onClick={() => {
-                                const to = prompt('E-mailadres', detail.email || '');
-                                if (to) stuurMail(w.id, to);
-                              }}>✉ Mail</button>
-                            </div>
-                          </div>
+                          )}
                         </div>
-                        <PakbonSectie werkbonId={w.id} klantEmail={detail.email} />
-                        </>
-                      )}
-                    </td>
-                </tr>
-              );
-            }
-            return rows;
-          })}
-        </tbody>
-      </table>
-    </div>
-      )}
+                        {regel.type === 'printen' && (
+                          <>
+                            {!printForm.uitgebreid ? (
+                              <button type="button" className="btn" style={{ fontSize: 10, padding: '3px 7px', marginBottom: 6 }}
+                                onClick={() => setPrintForm(f => ({ ...f, uitgebreid: true }))}>
+                                Printer/tijd/gewicht overschrijven (optioneel)…
+                              </button>
+                            ) : (
+                              <div style={{ marginBottom: 6 }}>
+                                <div className="form-row" style={{ marginBottom: 6 }}>
+                                  <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: 11 }}>Printer (leeg = van regel)</label>
+                                    <select value={printForm.printer_id || ''}
+                                      onChange={e => setPrintForm(f => ({ ...f, printer_id: e.target.value }))}
+                                      style={{ fontSize: 12 }}>
+                                      <option value="">— van regel —</option>
+                                      {printers.filter(p => p.actief).map(p => <option key={p.id} value={p.id}>{p.naam}</option>)}
+                                    </select>
+                                  </div>
+                                </div>
+                                <div className="form-row" style={{ marginBottom: 0 }}>
+                                  <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: 11 }}>Tijd — uren (per stuk)</label>
+                                    <input type="number" min="0" value={printForm.geschatte_tijd_u ?? ''}
+                                      onChange={e => setPrintForm(f => ({ ...f, geschatte_tijd_u: e.target.value }))}
+                                      placeholder="van regel" style={{ fontSize: 12 }} />
+                                  </div>
+                                  <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: 11 }}>Tijd — minuten (per stuk)</label>
+                                    <input type="number" min="0" max="59" value={printForm.geschatte_tijd_min ?? ''}
+                                      onChange={e => setPrintForm(f => ({ ...f, geschatte_tijd_min: e.target.value }))}
+                                      placeholder="van regel" style={{ fontSize: 12 }} />
+                                  </div>
+                                  <div className="form-group" style={{ marginBottom: 0 }}>
+                                    <label style={{ fontSize: 11 }}>Gewicht g (per stuk)</label>
+                                    <input type="number" step="0.1" value={printForm.geschat_gewicht_g ?? ''}
+                                      onChange={e => setPrintForm(f => ({ ...f, geschat_gewicht_g: e.target.value }))}
+                                      placeholder="van regel" style={{ fontSize: 12 }} />
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button className="btn primary" style={{ fontSize: 11, padding: '4px 8px' }}
+                            onClick={() => opslaanPrintopdracht(detail.id, idx, regel)}>Opslaan</button>
+                          <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
+                            onClick={() => setPrintFormKey(null)}>Annuleer</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* Enkel voor een offerte-afgeleide werkbon — een standalone
+                werkbon heeft hiervoor al de volledige "✏ Bewerken"-modal.
+                Bewust beperkt tot 'extra'/'artikel' (tijd_u altijd 0, kan de
+                bevroren marge_pct-tier dus nooit doen kantelen). Zie
+                POST /werkbonnen/:id/regels en ux-verbeterlijst 2026-09-10, #6. */}
+            {detail.offerte_id && (
+              nieuweRegelKey !== detail.id ? (
+                <button className="btn" style={{ fontSize: 11, padding: '4px 8px', marginBottom: '0.75rem' }}
+                  onClick={() => toggleNieuweRegel(detail.id)}>+ Regel toevoegen</button>
+              ) : (
+                <div className="card" style={{ padding: '0.6rem 0.75rem', marginBottom: '0.75rem' }}>
+                  <div className="form-row" style={{ marginBottom: 6 }}>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: 11 }}>Type</label>
+                      <select value={nieuweRegelForm.type}
+                        onChange={e => setNieuweRegelForm(f => ({ ...f, type: e.target.value }))}
+                        style={{ fontSize: 12 }}>
+                        <option value="extra">Extra kosten/dienst</option>
+                        <option value="artikel">Artikel</option>
+                      </select>
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: 11 }}>Artikeltype{nieuweRegelForm.type === 'artikel' ? ' *' : ' (optioneel)'}</label>
+                      <select value={nieuweRegelForm.filament_type_id}
+                        onChange={e => setNieuweRegelForm(f => ({ ...f, filament_type_id: e.target.value }))}
+                        style={{ fontSize: 12 }}>
+                        <option value="">— geen —</option>
+                        {artikelTypes.map(a => <option key={a.id} value={a.id}>{a.naam}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="form-row" style={{ marginBottom: 6 }}>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: 11 }}>Omschrijving</label>
+                      <input type="text" value={nieuweRegelForm.object_naam}
+                        onChange={e => setNieuweRegelForm(f => ({ ...f, object_naam: e.target.value }))}
+                        style={{ fontSize: 12 }} />
+                    </div>
+                    {nieuweRegelForm.type === 'extra' ? (
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label style={{ fontSize: 11 }}>Bedrag (€)</label>
+                        <input type="number" min="0" step="0.01" value={nieuweRegelForm.bedrag}
+                          onChange={e => setNieuweRegelForm(f => ({ ...f, bedrag: e.target.value }))}
+                          style={{ fontSize: 12 }} />
+                      </div>
+                    ) : (
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label style={{ fontSize: 11 }}>Aantal</label>
+                        <input type="number" min="1" step="1" value={nieuweRegelForm.aantal}
+                          onChange={e => setNieuweRegelForm(f => ({ ...f, aantal: e.target.value }))}
+                          style={{ fontSize: 12 }} />
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn primary" style={{ fontSize: 11, padding: '4px 8px' }}
+                      onClick={() => voegRegelToe(detail.id)}>Opslaan</button>
+                    <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
+                      onClick={() => setNieuweRegelKey(null)}>Annuleer</button>
+                  </div>
+                </div>
+              )
+            )}
+
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 8 }}>
+                Financieel
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Vrijgesteld van BTW — art. 56bis</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 16, padding: '6px 0', borderTop: '1px solid var(--border)', marginBottom: 12 }}>
+                <span>Totaal</span><span style={{ color: 'var(--accent2)' }}>€{(detail.totaal ?? 0).toFixed(2)}</span>
+              </div>
+
+              <div className="form-group">
+                <label>Status</label>
+                <select value={detail.status} onChange={e => zetStatus(detail.id, e.target.value)}>
+                  {WERKBON_STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <input type="checkbox" checked={!!detail.betaald}
+                  style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent2)' }}
+                  onChange={e => zetBetaald(detail.id, e.target.checked)} />
+                <span>Betaald</span>
+                {detail.betaald_op && <span style={{ color: 'var(--muted)', fontSize: 11 }}>{detail.betaald_op.split('T')[0]}</span>}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                <a className="btn" style={{ flex: 1, textAlign: 'center' }} href={`${BASE}/werkbonnen/${detail.id}/pdf`} download>↓ PDF</a>
+                <button className="btn" style={{ flex: 1 }} onClick={() => {
+                  const to = prompt('E-mailadres', detail.email || '');
+                  if (to) stuurMail(detail.id, to);
+                }}>✉ Mail</button>
+              </div>
+              <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }}
+                onClick={() => verwijderWerkbon(detail.id)}>✕ Verwijder werkbon</button>
+            </div>
+
+            <PakbonSectie werkbonId={detail.id} klantEmail={detail.email} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

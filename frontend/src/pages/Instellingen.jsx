@@ -336,7 +336,7 @@ export default function Instellingen() {
               <p style={{
                 fontSize:12,
                 marginTop:8,
-                color: haTestStatus.startsWith('✓') ? 'var(--accent2)' : '#ef4444'
+                color: haTestStatus.startsWith('✓') ? 'var(--accent2)' : 'var(--danger)'
               }}>
                 {haTestStatus}
               </p>
