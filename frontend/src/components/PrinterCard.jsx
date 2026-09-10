@@ -6,8 +6,14 @@ import { useState } from 'react';
 import { api, BASE } from '../lib/api.js';
 
 function StatusDot({ status }) {
+  // 'busy' toegevoegd voor de Kobra S1 (printer_state-entity, enkel
+  // busy/free — zie usePrinterData.js/printers.js). 'free' is BEWUST niet
+  // toegevoegd: die waarde betekent zowel "net klaar" als "nog nooit
+  // gestart" en kan die twee niet uit elkaar houden, dus een 'free'-printer
+  // valt hier terug op de neutrale amber default hieronder (zelfde als
+  // idle/standby), i.p.v. onterecht als "voltooid" (groen) te tonen.
   const colors = {
-    running:'#ef4444', printing:'#ef4444',
+    running:'#ef4444', printing:'#ef4444', busy:'#ef4444',
     finish:'#22c55e', finished:'#22c55e', complete:'#22c55e', success:'#22c55e',
     idle:'#f59e0b', standby:'#f59e0b', offline:'#555',
     unavailable:'#555', failed:'#ef4444', pause:'#f59e0b',
@@ -34,7 +40,12 @@ export default function PrinterCard({ printerId, naam, data, klanten, onJobCreat
   pauseEntity, resumeEntity, cancelEntity, cameraEntity }) {
   const name      = naam || data?.naam || '—';
   const status    = data?.status || 'unavailable';
-  const isRunning = ['running','printing'].includes(status.toLowerCase());
+  // 'busy' toegevoegd voor de Kobra S1 — zelfde reden als in StatusDot
+  // hierboven. 'free' is ook hier BEWUST niet aan isDone toegevoegd: een
+  // "vrije" printer kan evengoed nooit gestart zijn als net klaar, dus een
+  // manueel via "+ Maak job" aangemaakte job voor zo'n printer valt terug op
+  // "gepland" i.p.v. onterecht meteen "voltooid" te worden.
+  const isRunning = ['running','printing','busy'].includes(status.toLowerCase());
   const isDone    = ['finish','finished','complete','success'].includes(status.toLowerCase());
   const color     = isRunning ? '#ef4444' : isDone ? '#22c55e' : '#f59e0b';
   const pct       = parseFloat(data?.progress) || 0;

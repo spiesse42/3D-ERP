@@ -78,13 +78,19 @@ r.get('/config', (req, res) => {
         watt:        normalizeSensorId(p.watt_entity) || '',
       };
     } else if (isKobra && prefix) {
-      // Anycubic S1 MQTT Bridge (community HA-addon): print_state/print_layer/
-      // material_usage zijn een rechtstreekse doorgave van wat de printer zelf
-      // rapporteert. "done" = print voltooid, "free"/"stoped" = geen actieve job
-      // (bevestigd via de broncode van de addon) — de exacte "actief printen"-
-      // waarde (vermoedelijk "printing") wordt pas zeker bij een live test.
+      // Anycubic S1 MQTT Bridge (community HA-addon). Live bevestigd (10 sep
+      // 2026): "print_state" is te wisselvallig om als hoofdstatus te
+      // gebruiken — die entity wisselt bij een lopende print soms bijna elke
+      // minuut heen en weer tussen "printing" en "done" (tot >90% van de tijd
+      // op "done" terwijl er nog volop actief wordt geprint). "printer_state"
+      // (enkel "busy"/"free") is wél stabiel en wisselt enkel bij échte
+      // start/stop-overgangen — dat is nu de hoofd-status-entity. "print_state"
+      // blijft enkel nog gebruikt als aparte bron voor failed/cancelled-
+      // detectie (fail_status) — "printer_state" kent zelf geen fail/cancel-
+      // waarde, enkel busy/free.
       entities = {
-        status:      `${prefix}print_state`,
+        status:      `${prefix}printer_state`,          // busy/free — stabiele hoofdstatus
+        fail_status: `${prefix}print_state`,             // enkel voor failed/cancelled-detectie
         progress:    `${prefix}print_progress`,
         filename:    `${prefix}print_filename`,
         remaining:   `${prefix}print_time_remaining`,   // minuten
