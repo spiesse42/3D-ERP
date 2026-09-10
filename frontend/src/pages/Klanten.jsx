@@ -26,6 +26,11 @@ function KlantDetail({ klant, onClose, onEdit, onDeleted }) {
     return [d, pc].filter(Boolean).join(', ') || '—';
   };
 
+  // Zelfde statuskleuren als Offertes.jsx's statusKleur() — hier lokaal
+  // gehouden omdat die functie niet geëxporteerd wordt.
+  const offerteStatusKleur = (s) =>
+    ({ concept:'#f59e0b', verstuurd:'#60a5fa', goedgekeurd:'#22c55e', geannuleerd:'#6b7280' }[s] || '#6b7280');
+
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ width:580 }}>
@@ -79,6 +84,49 @@ function KlantDetail({ klant, onClose, onEdit, onDeleted }) {
                       <td style={{ padding:'6px 8px' }}>
                         <button className="btn" style={{ fontSize:11, padding:'3px 8px' }}
                           onClick={() => { onClose(); navigate(`/jobs?highlight=${j.id}`); }}>
+                          → Bekijk
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+        }
+
+        {/* Offertes — zie ux-verbeterlijst 2026-09-10, #21 */}
+        <h3 style={{ fontSize:13, fontWeight:600, margin:'1rem 0 0.5rem', color:'var(--muted)', textTransform:'uppercase', letterSpacing:1 }}>
+          Offertes ({detail?.offertes?.length ?? '…'})
+        </h3>
+        {!detail
+          ? <p style={{ color:'var(--muted)', fontSize:12 }}>Laden...</p>
+          : detail.offertes.length === 0
+          ? <p style={{ color:'var(--muted)', fontSize:12 }}>Geen offertes voor deze klant.</p>
+          : <div style={{ maxHeight:240, overflowY:'auto' }}>
+              <table style={{ width:'100%', fontSize:12 }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign:'left', padding:'4px 8px', color:'var(--muted)', fontWeight:500 }}>Nummer</th>
+                    <th style={{ textAlign:'left', padding:'4px 8px', color:'var(--muted)', fontWeight:500 }}>Status</th>
+                    <th style={{ textAlign:'left', padding:'4px 8px', color:'var(--muted)', fontWeight:500 }}>Datum</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.offertes.map(o => (
+                    <tr key={o.id} style={{ borderBottom:'1px solid var(--border)' }}>
+                      <td style={{ padding:'6px 8px', fontWeight:500 }}>{o.nummer}</td>
+                      <td style={{ padding:'6px 8px' }}>
+                        <span style={{ fontSize:11, fontWeight:600, color:offerteStatusKleur(o.status), background:offerteStatusKleur(o.status)+'22', padding:'2px 8px', borderRadius:20 }}>
+                          {o.status}
+                        </span>
+                      </td>
+                      <td style={{ padding:'6px 8px', color:'var(--muted)' }}>
+                        {o.aangemaakt_op ? new Date(o.aangemaakt_op).toLocaleDateString('nl-BE') : '—'}
+                      </td>
+                      <td style={{ padding:'6px 8px' }}>
+                        <button className="btn" style={{ fontSize:11, padding:'3px 8px' }}
+                          onClick={() => { onClose(); navigate(`/offertes?open=${o.id}`); }}>
                           → Bekijk
                         </button>
                       </td>

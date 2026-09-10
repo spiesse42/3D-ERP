@@ -46,6 +46,15 @@ function gokIsGeenVoorraad(omschrijving) {
   return /verzend|verpakking|shipping|transport|leverings?kost/i.test(omschrijving || '');
 }
 
+// Een nieuw artikeltype kreeg hier altijd categorie "overig", ook wanneer de
+// omschrijving overduidelijk filament is (bv. "PLA 1kg") — filament-lijsten
+// filteren overal op categorie 'filament', dus zo'n nieuw type dook nergens
+// op totdat je het zelf corrigeerde. Zelfde regex-gok-conventie als
+// gokIsGeenVoorraad hierboven. Zie ux-verbeterlijst 2026-09-10, #20.
+function gokCategorie(omschrijving) {
+  return /\b(pla|petg|abs|tpu|asa|pva|hips|nylon|filament)\b/i.test(omschrijving || '') ? 'filament' : 'overig';
+}
+
 function nieuweRegelState(r, types) {
   const eenheid = ['gram', 'stuk', 'ml'].includes(r.eenheid_gok) ? r.eenheid_gok : 'stuk';
   const typeId = gokType(r.omschrijving, types);
@@ -56,7 +65,7 @@ function nieuweRegelState(r, types) {
     totaal: r.totaal ?? '',
     voorraad: isVoorraad,
     typeId: typeId || 'nieuw',
-    nieuwType: { merk: '', materiaal: r.omschrijving || '', categorie: 'overig', eenheid },
+    nieuwType: { merk: '', materiaal: r.omschrijving || '', categorie: gokCategorie(r.omschrijving), eenheid },
     kostCategorie: isVoorraad ? 'materiaal' : 'overig',
     negeer: false,
   };

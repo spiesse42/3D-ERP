@@ -336,7 +336,11 @@ function BestelModal({ items, alleTypes, leveranciers, onClose, onSaved, onLever
           <div style={{ display: 'flex', gap: 8 }}>
             <select style={{ flex: 1 }} value={extraTypeId} onChange={e => { setExtraTypeId(e.target.value); setExtraKleur(''); setExtraKleurHex(''); setExtraAantal1000(''); setExtraAantal200(''); }}>
               <option value="">+ Artikel toevoegen aan deze bestelling...</option>
-              {alleTypes.map(t => <option key={t.id} value={t.id}>{t.generiek ? '🔹 ' : ''}{t.merk} {t.materiaal}</option>)}
+              {/* Diensten (verzendkosten, ontwerp...) en eigen afgewerkte
+                  producten koop je niet bij een leverancier in — horen hier
+                  niet tussen. Zie ux-verbeterlijst 2026-09-10, #23. */}
+              {alleTypes.filter(t => t.categorie !== 'dienst' && t.categorie !== 'product')
+                .map(t => <option key={t.id} value={t.id}>{t.generiek ? '🔹 ' : ''}{t.merk} {t.materiaal}</option>)}
             </select>
           </div>
           {extraTypeId && (
@@ -648,6 +652,7 @@ export default function Bestellingen() {
   const [handmatigType, setHandmatigType] = useState('');
   const [handmatigKleur, setHandmatigKleur] = useState('');
   const [handmatigKleurHex, setHandmatigKleurHex] = useState('');
+  const [zoek, setZoek] = useState(''); // zoek/filter op "te bestellen"-lijst, zie ux-verbeterlijst 2026-09-10, #29
 
   function load() {
     api.get('/bestellingen/te-bestellen-overzicht').then(setOverzicht).catch(e => alert('Kon te-bestellen overzicht niet laden: ' + e.message));
@@ -695,6 +700,10 @@ export default function Bestellingen() {
 
   const geselecteerdeItems = overzicht.filter(o => geselecteerd.has(regelKey(o.filament_type_id, o.kleur)));
 
+  const zoekLower = zoek.trim().toLowerCase();
+  const overzichtGefilterd = !zoekLower ? overzicht : overzicht.filter(o =>
+    `${o.merk} ${o.materiaal} ${o.kleur || ''}`.toLowerCase().includes(zoekLower));
+
   return (
     <div>
       <div className="page-header">
@@ -721,7 +730,11 @@ export default function Bestellingen() {
               <select style={{ flex: 1 }} value={handmatigType}
                 onChange={e => { setHandmatigType(e.target.value); setHandmatigKleur(''); setHandmatigKleurHex(''); }}>
                 <option value="">+ Artikeltype manueel toevoegen aan "te bestellen"...</option>
-                {alleTypes.map(t => <option key={t.id} value={t.id}>{t.generiek ? '🔹 ' : ''}{t.merk} {t.materiaal}</option>)}
+                {/* Diensten en eigen afgewerkte producten koop je niet bij
+                    een leverancier in — horen hier niet tussen. Zie
+                    ux-verbeterlijst 2026-09-10, #23. */}
+                {alleTypes.filter(t => t.categorie !== 'dienst' && t.categorie !== 'product')
+                  .map(t => <option key={t.id} value={t.id}>{t.generiek ? '🔹 ' : ''}{t.merk} {t.materiaal}</option>)}
               </select>
               <button className="btn" onClick={voegHandmatigToe} disabled={!handmatigType}>Toevoegen</button>
             </div>
@@ -734,13 +747,22 @@ export default function Bestellingen() {
             )}
           </div>
 
+          {overzicht.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <input value={zoek} onChange={e => setZoek(e.target.value)}
+                placeholder="Zoek op merk/materiaal/kleur..." style={{ width: 260 }} />
+            </div>
+          )}
+
           {overzicht.length === 0
             ? <div className="empty">Niets te bestellen — alle voorraad zit boven de drempel</div>
+            : overzichtGefilterd.length === 0
+            ? <div className="empty">Geen resultaten voor deze zoekopdracht</div>
             : <div className="card" style={{ padding: 0 }}>
                 <table>
                   <thead><tr><th></th><th>Artikel</th><th>Reden</th><th></th></tr></thead>
                   <tbody>
-                    {overzicht.map(o => {
+                    {overzichtGefilterd.map(o => {
                       const key = regelKey(o.filament_type_id, o.kleur);
                       return (
                         <tr key={key}>

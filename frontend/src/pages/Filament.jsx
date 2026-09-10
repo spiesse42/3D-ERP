@@ -786,6 +786,10 @@ export default function Filament() {
   const [kalibratieModal, setKalibratieModal] = useState(null);
   const [factuurModal, setFactuurModal] = useState(false);
 
+  // Zoekveld — geldt voor de actieve tab (rollen/types/producten). Zelfde
+  // patroon als Jobs.jsx/Klanten.jsx. Zie ux-verbeterlijst 2026-09-10, #29.
+  const [zoek, setZoek] = useState('');
+
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get('highlight') ? parseInt(searchParams.get('highlight')) : null;
   const highlightRef = useRef(null);
@@ -841,6 +845,12 @@ export default function Filament() {
       return acc;
     }, {})
   ).sort((a, b) => (b.aantalActief > 0) - (a.aantalActief > 0) || a.merk.localeCompare(b.merk));
+
+  const zoekLower = zoek.trim().toLowerCase();
+  const groepenGefilterd = !zoekLower ? groepen : groepen.filter(g =>
+    `${g.merk} ${g.materiaal} ${g.kleur || ''}`.toLowerCase().includes(zoekLower));
+  const zichtbareTypesGefilterd = !zoekLower ? zichtbareTypes : zichtbareTypes.filter(t =>
+    `${t.merk} ${t.materiaal}`.toLowerCase().includes(zoekLower));
 
   // Bij binnenkomst via een highlight-link (vanuit Dashboard) automatisch de juiste groep openen
   useEffect(() => {
@@ -898,18 +908,29 @@ export default function Filament() {
         />
       )}
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: '1.25rem' }}>
-        {['rollen', 'types', 'producten', 'facturen'].map(t => (
-          <button key={t} className={`btn${tab === t ? ' primary' : ''}`} onClick={() => setTab(t)}>
-            {t === 'rollen' ? 'Filamentvoorraad' : t === 'types' ? 'Materialen & onderdelen' : t === 'producten' ? 'Afgewerkte producten' : 'Aankoopfacturen'}
-          </button>
-        ))}
+      <div style={{ display: 'flex', gap: 4, marginBottom: '0.75rem', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {['rollen', 'types', 'producten', 'facturen'].map(t => (
+            <button key={t} className={`btn${tab === t ? ' primary' : ''}`} onClick={() => setTab(t)}>
+              {t === 'rollen' ? 'Filamentvoorraad' : t === 'types' ? 'Materialen & onderdelen' : t === 'producten' ? 'Afgewerkte producten' : 'Aankoopfacturen'}
+            </button>
+          ))}
+        </div>
+        {/* Geldt voor rollen/types/producten — facturen heeft andere velden
+            (leverancier/datum) en blijft hier buiten scope. Zie
+            ux-verbeterlijst 2026-09-10, #29. */}
+        {tab !== 'facturen' && (
+          <input value={zoek} onChange={e => setZoek(e.target.value)}
+            placeholder="Zoek op merk/materiaal/kleur..." style={{ width: 240 }} />
+        )}
       </div>
 
       {/* ── Gegroepeerde voorraad-tabel (1 rij per type + kleur) ── */}
       {tab === 'rollen' && (
         groepen.length === 0
           ? <div className="empty">Geen rollen geregistreerd</div>
+          : groepenGefilterd.length === 0
+          ? <div className="empty">Geen rollen gevonden voor deze zoekopdracht</div>
           : <div className="card" style={{ padding: 0 }}>
               <table>
                 <thead>
@@ -923,7 +944,7 @@ export default function Filament() {
                   </tr>
                 </thead>
                 <tbody>
-                  {groepen.map(g => {
+                  {groepenGefilterd.map(g => {
                     const isHighlighted = g.rollen.some(r => r.id === highlightId);
                     return (
                       <tr key={g.key} ref={isHighlighted ? highlightRef : null}
@@ -973,12 +994,14 @@ export default function Filament() {
       {(tab === 'types' || tab === 'producten') && (
         zichtbareTypes.length === 0
           ? <div className="empty">{tab === 'producten' ? 'Nog geen afgewerkte producten' : 'Geen materialen of onderdelen'}</div>
+          : zichtbareTypesGefilterd.length === 0
+          ? <div className="empty">Geen resultaten voor deze zoekopdracht</div>
           : <div className="card" style={{ padding: 0 }}>
               <table>
                 <thead><tr><th>Categorie</th><th>Merk/Leverancier</th><th>Materiaal/Omschrijving</th><th>Eenheid</th><th>Voorraad</th><th>Marge</th><th>Leverancier</th><th>Acties</th></tr>
 		</thead>
                 <tbody>
-                  {zichtbareTypes.map(t => {
+                  {zichtbareTypesGefilterd.map(t => {
                     const cat = CATEGORIEEN.find(c => c.waarde === (t.categorie || 'filament'));
                     const heeftVoorraadKolom = t.categorie === 'product' || t.categorie === 'onderdeel';
                     const onderMinimum = heeftVoorraadKolom && t.min_voorraad != null && (t.voorraad_aantal ?? 0) < t.min_voorraad;

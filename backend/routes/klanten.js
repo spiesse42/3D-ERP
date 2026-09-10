@@ -19,7 +19,9 @@ r.get('/:id', (req, res) => {
   const klant = db.prepare('SELECT * FROM klanten WHERE id = ?').get(req.params.id);
   if (!klant) return res.status(404).json({ error: 'Niet gevonden' });
   const jobs = db.prepare('SELECT * FROM jobs WHERE klant_id = ? ORDER BY aangemaakt_op DESC').all(req.params.id);
-  res.json({ ...klant, jobs });
+  // Zie ux-verbeterlijst 2026-09-10, #21: klantdetail toonde geen link naar diens offertes.
+  const offertes = db.prepare('SELECT id, nummer, status, object_naam, verkoopprijs, aangemaakt_op FROM offertes_v2 WHERE klant_id = ? ORDER BY aangemaakt_op DESC').all(req.params.id);
+  res.json({ ...klant, jobs, offertes });
 });
 
 r.post('/', (req, res) => {

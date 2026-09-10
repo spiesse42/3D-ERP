@@ -318,25 +318,57 @@ function UitgavenTab() {
   const [uitgaven, setUitgaven] = useState([]);
   const [modal, setModal] = useState(null);
 
-  const laad = () => api.get('/uitgaven').then(setUitgaven).catch(() => {});
-  useEffect(() => { laad(); }, []);
+  // Datumfilter — GET /uitgaven ondersteunt dit al langer (?van=&tot=), maar
+  // dit tabblad gebruikte het nooit. Zie ux-verbeterlijst 2026-09-10, #27.
+  const [van, setVan] = useState('');
+  const [tot, setTot] = useState('');
+
+  const laad = () => {
+    const q = new URLSearchParams();
+    if (van) q.set('van', van);
+    if (tot) q.set('tot', tot);
+    const qs = q.toString();
+    api.get(`/uitgaven${qs ? `?${qs}` : ''}`).then(setUitgaven).catch(() => {});
+  };
+  useEffect(() => { laad(); }, [van, tot]);
 
   const verwijder = async (id) => {
     await api.delete(`/uitgaven/${id}`);
     laad();
   };
 
-  const totaalDitJaar = uitgaven
-    .filter(u => u.datum?.startsWith(new Date().getFullYear().toString()))
-    .reduce((s, u) => s + u.bedrag, 0);
+  // Zonder datumfilter: totaal van dit jaar (oorspronkelijk gedrag). Met
+  // filter: totaal van de al door de backend gefilterde periode — anders
+  // zou de "dit jaar"-beperking zich blijven opstapelen op de periodekeuze.
+  const totaalWeergegeven = (van || tot)
+    ? uitgaven.reduce((s, u) => s + u.bedrag, 0)
+    : uitgaven.filter(u => u.datum?.startsWith(new Date().getFullYear().toString())).reduce((s, u) => s + u.bedrag, 0);
+
+  // CSV-export, zelfde van/tot filter als op het scherm. Zie #26.
+  const csvHref = (() => {
+    const q = new URLSearchParams();
+    if (van) q.set('van', van);
+    if (tot) q.set('tot', tot);
+    const qs = q.toString();
+    return `/api/rapportage/csv/uitgaven${qs ? `?${qs}` : ''}`;
+  })();
 
   return (
     <Sectie
       titel="🧾 Uitgaven"
       actie={<button className="btn primary" onClick={() => setModal({})}>+ Nieuwe uitgave</button>}
     >
-      <div style={{ marginBottom: '1rem', fontSize: 13, color: 'var(--muted)' }}>
-        Dit jaar: <span style={{ color: 'var(--warn)', fontWeight: 700, fontSize: 15 }}>€{totaalDitJaar.toFixed(2)}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1rem', flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+          {(van || tot) ? 'In periode' : 'Dit jaar'}: <span style={{ color: 'var(--warn)', fontWeight: 700, fontSize: 15 }}>€{totaalWeergegeven.toFixed(2)}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+          <input type="date" value={van} onChange={e => setVan(e.target.value)} style={{ fontSize: 12 }} />
+          <span style={{ color: 'var(--muted)', fontSize: 12 }}>tot</span>
+          <input type="date" value={tot} onChange={e => setTot(e.target.value)} style={{ fontSize: 12 }} />
+          {(van || tot) && <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => { setVan(''); setTot(''); }}>✕ Wis</button>}
+          <a className="btn" style={{ fontSize: 11, padding: '4px 8px' }} href={csvHref} download>↓ CSV</a>
+        </div>
       </div>
       {uitgaven.length === 0
         ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nog geen uitgaven geregistreerd.</p>

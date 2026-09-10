@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, BASE } from '../lib/api.js';
 import KlantModal from '../components/KlantModal.jsx';
 import {
@@ -281,8 +282,24 @@ export default function Offertes() {
   const [allRollen,    setAllRollen]    = useState([]);
   const [tarieven,     setTarieven]     = useState({});
   const [detail,       setDetail]       = useState(null);
-  const [offerteModal, setOfferteModal] = useState(null); // null = dicht, {} = nieuw, object = bewerken
+  const [offerteModal, setOfferteModal] = useState(null); // null = dicht, {} = nieuw, object = bewerken/dupliceren
   const [jobStatus,    setJobStatus]    = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Zoek/filter op de lijst — zelfde patroon als Jobs.jsx/Klanten.jsx (puur
+  // client-side, geen backend nodig). Zie ux-verbeterlijst 2026-09-10, #14.
+  const [zoek,   setZoek]   = useState('');
+  const [filter, setFilter] = useState('');
+  const filtered = offertes
+    .filter(o => !filter || o.status === filter)
+    .filter(o => {
+      if (!zoek) return true;
+      const z = zoek.trim().toLowerCase();
+      const klantNaam = o.klant_voornaam ? `${o.klant_voornaam} ${o.klant_naam}` : o.klant_naam;
+      return (o.nummer || '').toLowerCase().includes(z)
+        || (klantNaam || '').toLowerCase().includes(z)
+        || (o.object_naam || '').toLowerCase().includes(z);
+    });
 
   const load = () => api.get('/offertes2').then(setOffertes).catch(e => alert('Kon offertes niet laden: ' + e.message));
 
@@ -300,6 +317,17 @@ export default function Offertes() {
     const d = await api.get(`/offertes2/${id}`);
     setDetail(d); setJobStatus('');
   }
+
+  // Diepe link vanuit klantdetail ("→ Bekijk" bij offertes, /offertes?open=<id>).
+  // Zie ux-verbeterlijst 2026-09-10, #21.
+  useEffect(() => {
+    const openId = searchParams.get('open');
+    if (openId) {
+      openDetail(openId);
+      setSearchParams({}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   async function updateStatus(id, status) {
     try {
@@ -328,6 +356,19 @@ export default function Offertes() {
     } catch(e) { setJobStatus('✗ ' + e.message); }
   }
 
+  // Offerte per mail versturen — was het enige document in de keten zonder
+  // mailknop. Bij succes zet de backend zelf de status van "concept" naar
+  // "verstuurd" (indien nog concept), dus gewoon herladen na afloop. Zie
+  // ux-verbeterlijst 2026-09-10, #10.
+  async function stuurMail(id, to) {
+    try {
+      await api.post(`/offertes2/${id}/email`, { to });
+      alert('Offerte verstuurd naar ' + to);
+      load();
+      if (detail?.id === id) openDetail(id);
+    } catch (e) { alert('Versturen mislukt: ' + e.message); }
+  }
+
   async function del(id) {
     if (!confirm('Offerte verwijderen? De gekoppelde werkbon wordt ook verwijderd.')) return;
     try {
@@ -344,15 +385,28 @@ export default function Offertes() {
         <button className="btn primary" onClick={() => setOfferteModal({})}>+ Nieuwe offerte</button>
       </div>
 
+      {offertes.length > 0 && (
+        <div style={{ display:'flex', gap:8, marginBottom:'0.75rem' }}>
+          <select value={filter} onChange={e => setFilter(e.target.value)} style={{ width:'auto' }}>
+            <option value="">Alle statussen</option>
+            {STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <input value={zoek} onChange={e => setZoek(e.target.value)}
+            placeholder="Zoek op nummer/klant/object..." style={{ width:240 }} />
+        </div>
+      )}
+
       <div style={{ display:'grid', gridTemplateColumns: detail ? '1fr 380px' : '1fr', gap:'1rem' }}>
         <div>
           {offertes.length === 0
             ? <div className="empty"><p>Nog geen offertes</p><p style={{ fontSize:12, color:'var(--muted)', marginTop:8 }}>Klik op "+ Nieuwe offerte" om te starten</p></div>
+            : filtered.length === 0
+            ? <div className="empty"><p>Geen offertes gevonden voor deze zoekopdracht/filter</p></div>
             : <div className="card" style={{ padding:0 }}>
                 <table>
                   <thead><tr><th>Nummer</th><th>Klant</th><th>Object</th><th>Status</th><th>Prijs</th><th>Datum</th><th></th></tr></thead>
                   <tbody>
-                    {offertes.map(o => (
+                    {filtered.map(o => (
                       <tr key={o.id} style={{ cursor:'pointer' }} onClick={() => openDetail(o.id)}>
                         <td style={{ fontWeight:600, fontFamily:'monospace', fontSize:12 }}>{o.nummer}</td>
                         <td style={{ fontSize:13 }}>{o.klant_voornaam ? `${o.klant_voornaam} ${o.klant_naam}` : o.klant_naam}</td>
@@ -383,7 +437,12 @@ export default function Offertes() {
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.75rem' }}>
               <h2 style={{ fontSize:15, fontWeight:700 }}>{detail.nummer}</h2>
               <div style={{ display:'flex', gap:6 }}>
-                <button className="btn" style={{ fontSize:11 }} onClick={() => setOfferteModal({...detail})}>✏</button>
+                <button className="btn" style={{ fontSize:11 }} onClick={() => setOfferteModal({...detail})} title="Bewerken">✏</button>
+                <button className="btn" style={{ fontSize:11 }} title="Dupliceren" onClick={() => setOfferteModal({
+                  klant_id: detail.klant_id, object_link: detail.object_link,
+                  levertermijn: detail.levertermijn, btw_pct: detail.btw_pct,
+                  notities: detail.notities, regels: detail.regels,
+                })}>⧉</button>
                 <button className="btn" onClick={() => setDetail(null)}>✕</button>
               </div>
             </div>
@@ -451,8 +510,22 @@ export default function Offertes() {
             {jobStatus && <div style={{ fontSize:12, color: jobStatus.includes('✓') ? 'var(--accent2)' : 'var(--danger)', marginBottom:6 }}>{jobStatus}</div>}
 
             <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-              <a className="btn" style={{ textAlign:'center' }} href={`${BASE}/offertes2/${detail.id}/pdf`} download>↓ PDF downloaden</a>
-              {!detail.werkbon && detail.status !== 'geannuleerd' && (
+              <div style={{ display:'flex', gap:6 }}>
+                <a className="btn" style={{ flex:1, textAlign:'center' }} href={`${BASE}/offertes2/${detail.id}/pdf`} download>↓ PDF</a>
+                <button className="btn" style={{ flex:1 }} onClick={() => {
+                  const to = prompt('E-mailadres', detail.email || '');
+                  if (to) stuurMail(detail.id, to);
+                }}>✉ Mail</button>
+              </div>
+              {/* Zie ux-verbeterlijst 2026-09-10, #12: een offerte die nog op
+                  "concept" staat (klant heeft ze nog niet gezien) mag geen
+                  werkbon opleveren — de backend bewaakt dit ook. */}
+              {!detail.werkbon && detail.status === 'concept' && (
+                <div style={{ fontSize:11, color:'var(--muted)', textAlign:'center' }}>
+                  Verstuur de offerte eerst (of zet de status handmatig verder) voor je een werkbon kan maken.
+                </div>
+              )}
+              {!detail.werkbon && detail.status !== 'geannuleerd' && detail.status !== 'concept' && (
                 <button className="btn primary" onClick={() => maakWerkbon(detail.id)}>🔧 Maak werkbon</button>
               )}
               {detail.werkbon && <div style={{ fontSize:12, color:'var(--accent2)', textAlign:'center' }}>✓ Werkbon: {detail.werkbon.volgnummer}</div>}

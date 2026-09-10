@@ -678,6 +678,15 @@ r.post('/:id/maak-werkbon', (req, res) => {
   const offerte = db.prepare('SELECT * FROM offertes_v2 WHERE id = ?').get(req.params.id);
   if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
 
+  // Een offerte die de klant nog nooit gezien heeft (status 'concept') mag
+  // geen werkbon opleveren — dat zou het label "goedgekeurd" (dat deze route
+  // verderop zet) zijn betekenis ontnemen. Een standalone werkbon (los van
+  // een offerte, zie POST /werkbonnen) blijft daarnaast gewoon altijd
+  // mogelijk. Zie ux-verbeterlijst 2026-09-10, #12.
+  if (offerte.status === 'concept') {
+    return res.status(400).json({ error: 'Offerte staat nog op "concept" — verstuur ze eerst (of zet de status handmatig verder) voor je een werkbon kan maken.' });
+  }
+
   const bestaande = db.prepare('SELECT id, volgnummer FROM werkbonnen WHERE offerte_id = ?').get(offerte.id);
   if (bestaande) {
     return res.status(400).json({ error: `Er bestaat al een werkbon (${bestaande.volgnummer}) voor deze offerte` });
@@ -757,6 +766,51 @@ r.get('/:id/pdf', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: `PDF genereren mislukt: ${e.message}` });
   }
+});
+
+// Offerte per e-mail versturen — zelfde patroon als POST /werkbonnen/:id/email
+// (PDF genereren, via sendPdfEmail versturen). Was voorheen het enige
+// document in de hele keten zonder mailknop — zie ux-verbeterlijst
+// 2026-09-10, #10. Bij succesvol versturen springt de status automatisch van
+// "concept" naar "verstuurd" (een al verder gevorderde status wordt nooit
+// teruggezet, bv. bij een herverzending van een reeds-goedgekeurde offerte).
+r.post('/:id/email', async (req, res) => {
+  const db = getDb();
+  const offerte = db.prepare(`
+    SELECT o.*, k.naam as klant_naam, k.voornaam, k.email, k.straat, k.huisnummer,
+      k.postcode, k.gemeente, k.btw_nummer
+    FROM offertes_v2 o JOIN klanten k ON k.id = o.klant_id WHERE o.id = ?
+  `).get(req.params.id);
+  if (!offerte) return res.status(404).json({ error: 'Niet gevonden' });
+
+  const klant = { naam: offerte.klant_naam, voornaam: offerte.voornaam, email: offerte.email,
+    straat: offerte.straat, huisnummer: offerte.huisnummer, postcode: offerte.postcode,
+    gemeente: offerte.gemeente, btw_nummer: offerte.btw_nummer };
+
+  let regels = [];
+  if (offerte.regels_json) {
+    try { regels = JSON.parse(offerte.regels_json); } catch { regels = []; }
+  } else {
+    regels = synthetiseerRegelsUitLegacy(offerte, haalArtikelen(db, req.params.id));
+  }
+  const ber = { marge_pct: offerte.marge_pct, verkoopprijs: offerte.verkoopprijs, regels };
+  const regelRijen = offerteRegelsUitRegels(ber);
+  const html = buildOfferteHtml(offerte, klant, ber, regelRijen, getBedrijfsgegevens(db));
+
+  const { to } = req.body;
+  const emailTo = to || offerte.email;
+  try {
+    const pdfBuffer = await renderHtmlNaarPdf(html);
+    await sendPdfEmail({
+      to: emailTo, subject: `Offerte ${offerte.nummer}`,
+      html: `<p>Beste ${escapeHtml(klant.voornaam || '')} ${escapeHtml(klant.naam)},</p><p>Hierbij offerte <strong>${escapeHtml(offerte.nummer)}</strong>.</p><p>Prijs: <strong>€${offerte.verkoopprijs.toFixed(2)}</strong></p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
+      pdfBuffer, filename: `offerte-${offerte.nummer}.pdf`,
+    });
+    if (offerte.status === 'concept') {
+      db.prepare("UPDATE offertes_v2 SET status = 'verstuurd' WHERE id = ?").run(offerte.id);
+    }
+    res.json({ ok: true, to: emailTo });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // DELETE offerte — verbreek eerst alle koppelingen

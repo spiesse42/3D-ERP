@@ -13,6 +13,17 @@ export default function KlantModal({ klant, onClose, onSaved }) {
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  // Bedrijfsnaam/btw-nummer horen alleen bij "zakelijk" — bij terugschakelen
+  // naar particulier bleven ze anders onzichtbaar staan en toch meegestuurd
+  // worden. Zie ux-verbeterlijst 2026-09-10, #28.
+  function zetType(t) {
+    if (t === 'particulier') {
+      setForm(f => ({ ...f, type: t, bedrijfsnaam: '', btw_nummer: '' }));
+    } else {
+      set('type', t);
+    }
+  }
+
   async function save() {
     if (!form.naam) return alert('Naam is verplicht');
     try {
@@ -41,7 +52,7 @@ export default function KlantModal({ klant, onClose, onSaved }) {
           <label>Type klant</label>
           <div style={{ display:'flex', gap:8 }}>
             {['particulier','zakelijk'].map(t => (
-              <button key={t} onClick={() => set('type', t)}
+              <button key={t} onClick={() => zetType(t)}
                 className={`btn${form.type === t ? ' primary' : ''}`}
                 style={{ flex:1, textTransform:'capitalize' }}>
                 {t === 'particulier' ? '👤 Particulier' : '🏢 Zakelijk'}

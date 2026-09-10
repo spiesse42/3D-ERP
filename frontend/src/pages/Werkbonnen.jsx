@@ -97,7 +97,15 @@ export default function Werkbonnen() {
   const [openId, setOpenId] = useState(null);
   const [details, setDetails] = useState({});
   const [laden, setLaden] = useState(true);
-  const [nieuweWerkbonModal, setNieuweWerkbonModal] = useState(false);
+  // null = dicht, {} = nieuwe lege werkbon, object = duplicaat-seed (zelfde
+  // patroon als offerteModal in Offertes.jsx). Zie ux-verbeterlijst
+  // 2026-09-10, #13.
+  const [nieuweWerkbonModal, setNieuweWerkbonModal] = useState(null);
+
+  // Zoek/filter op de lijst — zelfde patroon als Jobs.jsx/Klanten.jsx. Zie
+  // ux-verbeterlijst 2026-09-10, #14.
+  const [zoek,   setZoek]   = useState('');
+  const [filter, setFilter] = useState('');
   // Bewerk-modus voor een STANDALONE werkbon (offerte_id = null) — draagt de
   // volledige detail-payload van GET /werkbonnen/:id (zie WerkbonModal's
   // `werkbon`-prop). Voor een offerte-afgeleide werkbon bestaat deze knop
@@ -227,11 +235,20 @@ export default function Werkbonnen() {
 
   const onbekoppeldeJobs = jobs.filter(j => j.type === 'print' && !j.werkbon_id);
 
+  const filteredWerkbonnen = werkbonnen
+    .filter(w => !filter || w.status === filter)
+    .filter(w => {
+      if (!zoek) return true;
+      const z = zoek.trim().toLowerCase();
+      const klantNaam = w.klant_voornaam ? `${w.klant_voornaam} ${w.klant_naam}` : w.klant_naam;
+      return (w.volgnummer || '').toLowerCase().includes(z) || (klantNaam || '').toLowerCase().includes(z);
+    });
+
   // Nieuwe standaalone werkbon aanmaken (geen offerte nodig) — na opslaan de
   // lijst herladen en de nieuwe werkbon meteen uitklappen, zodat je er direct
   // in verder kan (bv. een eerste printopdracht koppelen).
   function nieuweWerkbonAangemaakt(r) {
-    setNieuweWerkbonModal(false);
+    setNieuweWerkbonModal(null);
     loadList();
     if (r?.id) { setOpenId(r.id); loadDetail(r.id); }
   }
@@ -248,16 +265,28 @@ export default function Werkbonnen() {
     <div>
       <div className="page-header">
         <h1>Werkbons</h1>
-        <button className="btn primary" style={{ fontSize: 12 }} onClick={() => setNieuweWerkbonModal(true)}>+ Nieuwe werkbon</button>
+        <button className="btn primary" style={{ fontSize: 12 }} onClick={() => setNieuweWerkbonModal({})}>+ Nieuwe werkbon</button>
       </div>
 
-      {nieuweWerkbonModal && (
+      {werkbonnen.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: '0.75rem' }}>
+          <select value={filter} onChange={e => setFilter(e.target.value)} style={{ width: 'auto' }}>
+            <option value="">Alle statussen</option>
+            {WERKBON_STATUSSEN.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <input value={zoek} onChange={e => setZoek(e.target.value)}
+            placeholder="Zoek op volgnummer/klant..." style={{ width: 240 }} />
+        </div>
+      )}
+
+      {nieuweWerkbonModal !== null && (
         <WerkbonModal
+          werkbon={nieuweWerkbonModal}
           klanten={klanten} printers={printers} filamentTypes={filamentTypes}
           allRollen={allRollen} tarieven={tarieven}
           onKlantToegevoegd={() => {}}
           onSaved={nieuweWerkbonAangemaakt}
-          onClose={() => setNieuweWerkbonModal(false)}
+          onClose={() => setNieuweWerkbonModal(null)}
         />
       )}
 
@@ -272,7 +301,7 @@ export default function Werkbonnen() {
         />
       )}
 
-      {laden ? <div className="empty">Laden...</div> : !werkbonnen.length ? <div className="empty">Geen werkbons gevonden</div> : (
+      {laden ? <div className="empty">Laden...</div> : !werkbonnen.length ? <div className="empty">Geen werkbons gevonden</div> : !filteredWerkbonnen.length ? <div className="empty">Geen werkbons gevonden voor deze zoekopdracht/filter</div> : (
     <div className="card" style={{ padding: 0 }}>
       <table>
         <thead>
@@ -288,7 +317,7 @@ export default function Werkbonnen() {
           </tr>
         </thead>
         <tbody>
-          {werkbonnen.flatMap(w => {
+          {filteredWerkbonnen.flatMap(w => {
             const open = openId === w.id;
             const detail = details[w.id];
             const rows = [];
@@ -473,6 +502,11 @@ export default function Werkbonnen() {
                                   <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
                                     onClick={() => setBewerkWerkbon(detail)}>✏ Bewerken</button>
                                 )}
+                                <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }} title="Dupliceren"
+                                  onClick={() => setNieuweWerkbonModal({
+                                    klant_id: detail.klant_id, levertermijn: detail.levertermijn,
+                                    btw_pct: detail.btw_pct, notities: detail.notities, regels: detail.regels,
+                                  })}>⧉ Dupliceer</button>
                                 <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }}
                                   onClick={() => verwijderWerkbon(w.id)}>✕ Verwijder</button>
                               </div>

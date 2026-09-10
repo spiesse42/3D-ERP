@@ -497,3 +497,23 @@ rapportage.get('/csv/jobs', (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="jobs-${new Date().toISOString().split('T')[0]}.csv"`);
   res.send([headers, ...lines].join('\n'));
 });
+
+// CSV-export voor Uitgaven — zelfde patroon als /csv/jobs hierboven, met
+// optionele ?van=&tot= filter (zelfde params als GET /uitgaven) zodat het
+// export precies overeenkomt met wat er op het scherm staat.
+// Zie ux-verbeterlijst 2026-09-10, #26.
+rapportage.get('/csv/uitgaven', (req, res) => {
+  const db = getDb();
+  const { van, tot } = req.query;
+  let sql = 'SELECT id, datum, categorie, omschrijving, bedrag, terugkerend FROM uitgaven WHERE 1=1';
+  const params = [];
+  if (van) { sql += ' AND datum >= ?'; params.push(van); }
+  if (tot) { sql += ' AND datum <= ?'; params.push(tot); }
+  sql += ' ORDER BY datum DESC, id DESC';
+  const rows = db.prepare(sql).all(...params);
+  const headers = Object.keys(rows[0] || {}).join(';');
+  const lines = rows.map(r => Object.values(r).map(v => v ?? '').join(';'));
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="uitgaven-${new Date().toISOString().split('T')[0]}.csv"`);
+  res.send([headers, ...lines].join('\n'));
+});
