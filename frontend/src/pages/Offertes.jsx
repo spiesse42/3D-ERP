@@ -314,6 +314,10 @@ export default function Offertes() {
   // zie toelichting in backend/routes/offertes_v2.js bij die route). Er
   // wordt hier bewust GEEN printopdracht (job) meer aangemaakt.
   async function maakWerkbon(id) {
+    // Onomkeerbaar via deze knop (stempelt de offerte als "goedgekeurd" en
+    // maakt een echt document aan) — voorheen zonder enige bevestiging.
+    // Zie ux-verbeterlijst 2026-09-10, #11.
+    if (!confirm('Werkbon aanmaken voor deze offerte? Dit maakt een nieuw document aan en zet de offerte op "goedgekeurd".')) return;
     setJobStatus('Bezig...');
     try {
       await api.post(`/offertes2/${id}/maak-werkbon`, {});

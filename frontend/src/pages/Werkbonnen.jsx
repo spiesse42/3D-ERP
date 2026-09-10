@@ -38,6 +38,24 @@ function werkbonOmschrijving(w) {
   return namen.length > 2 ? `${namen.slice(0, 2).join(', ')} +${namen.length - 2}` : namen.join(', ');
 }
 
+// Leveringsvoortgang (pakbon) — komt kant-en-klaar mee met GET /werkbonnen
+// (levering_totaal/levering_geleverd, zie backend). Voorheen enkel zichtbaar
+// na uitklappen; nu ook op de ingeklapte rij. Zie ux-verbeterlijst
+// 2026-09-10, #16.
+function LeveringBadge({ werkbon }) {
+  const totaal = werkbon.levering_totaal ?? 0;
+  if (totaal === 0) {
+    return <span className="badge" style={{ background: 'var(--bg3)', color: 'var(--muted)' }}>n.v.t.</span>;
+  }
+  const geleverd = werkbon.levering_geleverd ?? 0;
+  const volledig = geleverd >= totaal;
+  return (
+    <span className="badge" style={{ background: volledig ? '#e7f7ec' : '#fdf3e0', color: volledig ? '#1a7a3d' : '#9a6a10' }}>
+      {geleverd} / {totaal} geleverd
+    </span>
+  );
+}
+
 // Hoeveel van de printen-regels op deze werkbon al een gekoppelde
 // printopdracht hebben — gebaseerd op de al-geladen jobs-lijst (geen aparte
 // fetch nodig). Regels van een ander type ("geen printopdracht nodig") tellen
@@ -92,6 +110,12 @@ export default function Werkbonnen() {
   // staat, ongeacht welke werkbon/regel.
   const [printFormKey, setPrintFormKey] = useState(null);
   const [printForm, setPrintForm] = useState({});
+
+  // Korte "✓ Toegepast"-bevestiging na "Gebruik gemeten data" — de knop zelf
+  // blijft zichtbaar/herbruikbaar (bewust herhaalbaar, zie backend-commentaar),
+  // dit voegt enkel de ontbrekende terugkoppeling toe. Zie ux-verbeterlijst
+  // 2026-09-10, #18. Key = "werkbonId:idx:jobId".
+  const [gemetenToegepast, setGemetenToegepast] = useState(null);
 
   const loadJobs = () => api.get('/jobs').then(setJobs).catch(e => alert('Kon jobs niet laden: ' + e.message));
   const loadList = () => api.get('/werkbonnen').then(setWerkbonnen).catch(e => alert('Kon werkbons niet laden: ' + e.message));
@@ -159,6 +183,24 @@ export default function Werkbonnen() {
     try {
       await api.post(`/werkbonnen/${werkbonId}/regels/${idx}/gebruik-gemeten-data`, { job_id: jobId });
       loadDetail(werkbonId); loadList();
+      const key = `${werkbonId}:${idx}:${jobId}`;
+      setGemetenToegepast(key);
+      setTimeout(() => setGemetenToegepast(k => k === key ? null : k), 2500);
+    } catch (e) { alert(e.message); }
+  }
+
+  // Werkbon verwijderen — de backend-route bestond al, maar had nog geen knop
+  // in de UI (bij een misklik op "Maak werkbon" zat je er dus aan vast).
+  // Gekoppelde printopdrachten blijven bestaan (enkel de koppeling verdwijnt,
+  // zie DELETE /werkbonnen/:id) en een offerte-afgeleide werkbon kan nadien
+  // gewoon opnieuw aangemaakt worden via "Maak werkbon" op de offerte.
+  // Zie ux-verbeterlijst 2026-09-10, #11.
+  async function verwijderWerkbon(werkbonId) {
+    if (!confirm('Deze werkbon verwijderen? Gekoppelde printopdrachten blijven bestaan (enkel de koppeling verdwijnt). Dit kan niet ongedaan gemaakt worden.')) return;
+    try {
+      await api.delete(`/werkbonnen/${werkbonId}`);
+      setOpenId(null);
+      loadList(); reloadJobs();
     } catch (e) { alert(e.message); }
   }
 
@@ -242,6 +284,7 @@ export default function Werkbonnen() {
             <th>Prijs</th>
             <th>Betaald</th>
             <th>Printopdrachten</th>
+            <th>Levering</th>
           </tr>
         </thead>
         <tbody>
@@ -263,12 +306,13 @@ export default function Werkbonnen() {
                     ? <span style={{ color: 'var(--accent2)' }}>✓{w.betaald_op ? ' ' + w.betaald_op.split('T')[0] : ''}</span>
                     : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
                   <td><KoppelBadge werkbon={w} jobs={jobs} /></td>
+                  <td><LeveringBadge werkbon={w} /></td>
                 </tr>
             );
             if (open) {
               rows.push(
                 <tr key={`${w.id}-detail`}>
-                    <td colSpan={7} style={{ background: 'var(--bg)', padding: '1rem 1.25rem' }}>
+                    <td colSpan={8} style={{ background: 'var(--bg)', padding: '1rem 1.25rem' }}>
                       {!detail ? <div style={{ color: 'var(--muted)' }}>Laden...</div> : (
                         <>
                         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 24 }}>
@@ -303,10 +347,14 @@ export default function Werkbonnen() {
                                           {job.werkbon_regel_aantal != null ? ` · ${job.werkbon_regel_aantal}×` : ''}
                                         </span>
                                         {job.verkoopprijs != null && (
-                                          <button className="btn" style={{ fontSize: 10, padding: '3px 7px' }}
-                                            onClick={() => gebruikGemetenData(w.id, idx, job.id)}>
-                                            Gebruik gemeten data (€{job.verkoopprijs.toFixed(2)})
-                                          </button>
+                                          gemetenToegepast === `${w.id}:${idx}:${job.id}` ? (
+                                            <span style={{ fontSize: 10, padding: '3px 7px', color: 'var(--accent2)', fontWeight: 600 }}>✓ Toegepast</span>
+                                          ) : (
+                                            <button className="btn" style={{ fontSize: 10, padding: '3px 7px' }}
+                                              onClick={() => gebruikGemetenData(w.id, idx, job.id)}>
+                                              Gebruik gemeten data (€{job.verkoopprijs.toFixed(2)})
+                                            </button>
+                                          )
                                         )}
                                         <button className="btn danger" style={{ fontSize: 10, padding: '3px 7px' }}
                                           onClick={() => ontkoppel(w.id, idx, job.id)}>✕ Ontkoppel</button>
@@ -420,10 +468,14 @@ export default function Werkbonnen() {
                               {/* Enkel voor een standalone werkbon (geen offerte_id) — een
                                   offerte-afgeleide werkbon mag nooit stilzwijgend afwijken van
                                   de goedgekeurde offerteprijs, zie PUT /werkbonnen/:id backend. */}
-                              {!w.offerte_id && (
-                                <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
-                                  onClick={() => setBewerkWerkbon(detail)}>✏ Bewerken</button>
-                              )}
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                {!w.offerte_id && (
+                                  <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
+                                    onClick={() => setBewerkWerkbon(detail)}>✏ Bewerken</button>
+                                )}
+                                <button className="btn danger" style={{ fontSize: 11, padding: '4px 8px' }}
+                                  onClick={() => verwijderWerkbon(w.id)}>✕ Verwijder</button>
+                              </div>
                             </div>
                             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Vrijgesteld van BTW — art. 56bis</div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 16, padding: '6px 0', borderTop: '1px solid var(--border)', marginBottom: 12 }}>

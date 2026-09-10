@@ -198,7 +198,38 @@ r.get('/', (req, res) => {
   if (klant_id)   { sql += ' AND w.klant_id = ?';   params.push(klant_id); }
   if (offerte_id) { sql += ' AND w.offerte_id = ?'; params.push(offerte_id); }
   sql += ' ORDER BY w.aangemaakt_op DESC';
-  res.json(db.prepare(sql).all(...params));
+  const rows = db.prepare(sql).all(...params);
+
+  // Leveringsvoortgang (pakbon) per werkbon — enkel de totalen, zelfde
+  // berekening als berekenVoortgang() in pakbonnen.js maar zonder het
+  // per-regel-detail (dat is enkel nodig bij het uitklappen, niet voor de
+  // ingeklapte rij). Voorheen was dit pas zichtbaar na uitklappen — zie
+  // ux-verbeterlijst 2026-09-10, #16.
+  const pakbonStmt = db.prepare('SELECT regels_json FROM pakbonnen WHERE werkbon_id = ?');
+  for (const w of rows) {
+    let regels = [];
+    try { regels = JSON.parse(w.regels_json || '[]'); } catch { regels = []; }
+    const geleverdPerIndex = new Map();
+    for (const pb of pakbonStmt.all(w.id)) {
+      let pbRegels = [];
+      try { pbRegels = JSON.parse(pb.regels_json || '[]'); } catch { pbRegels = []; }
+      for (const r of pbRegels) {
+        if (r.werkbon_regel_index == null) continue;
+        geleverdPerIndex.set(r.werkbon_regel_index, (geleverdPerIndex.get(r.werkbon_regel_index) || 0) + (parseInt(r.aantal) || 0));
+      }
+    }
+    let totaal = 0, geleverd = 0;
+    regels.forEach((regel, idx) => {
+      if (!LEVERBARE_TYPES.includes(regel.type)) return;
+      const t = parseInt(regel.aantal) || 1;
+      totaal += t;
+      geleverd += Math.min(t, geleverdPerIndex.get(idx) || 0);
+    });
+    w.levering_totaal = totaal;
+    w.levering_geleverd = geleverd;
+  }
+
+  res.json(rows);
 });
 
 // ── POST nieuwe standalone werkbon (zonder offerte) ─────────────────────
