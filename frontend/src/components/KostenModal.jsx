@@ -61,7 +61,6 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const [opmerking,       setOpmerking]       = useState(job.notities || '');
   const [kwh,             setKwh]             = useState(job.status === 'voltooid' && job.kwh_start ? String(job.kwh_start.toFixed(3)) : '');
   const [tarievenGeladen, setTarievenGeladen] = useState(false);
-  const [btw,             setBtw]             = useState(false);
   const [autoSaveTimer,   setAutoSaveTimer]   = useState(null);
   const [autoSaveMsg,     setAutoSaveMsg]     = useState('');
   const [toonExtraKosten, setToonExtraKosten] = useState(false);
@@ -93,13 +92,6 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const liveElapsedMin = Math.floor((liveElapsedSec % 3600) / 60);
 
   useEffect(() => {
-    // BTW automatisch op basis van klanttype
-    if (selectedKlantId) {
-      api.get('/klanten').then(klanten => {
-        const k = klanten.find(k => String(k.id) === String(selectedKlantId));
-        setBtw(k?.type === 'zakelijk');
-      }).catch(() => {});
-    }
     api.get('/filament/rollen').then(r => setRollen(r.filter(x => x.actief)));
     api.get('/filament/types').then(setFilamentTypes).catch(() => {});
 
@@ -322,7 +314,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     if (!emailTo) return alert('Vul een e-mailadres in');
     setEmailStatus('Bezig...');
     try {
-      await api.post(`/kosten/email/${job.id}`, { to: emailTo, extra_velden: { aantal: parseInt(aantal), btw } });
+      await api.post(`/kosten/email/${job.id}`, { to: emailTo, extra_velden: { aantal: parseInt(aantal) } });
       setEmailStatus('✓ Verstuurd!');
       setTimeout(() => setEmailStatus(''), 4000);
     } catch(e) { setEmailStatus('✗ ' + e.message); }
@@ -410,10 +402,6 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             {selectedKlantId !== String(job.klant_id || '') && selectedKlantId && (
               <button className="btn primary" style={{ fontSize:11 }} onClick={koppelKlant}>Koppelen</button>
             )}
-          <label style={{ fontSize:11, display:'flex', alignItems:'center', gap:5, cursor:'pointer', marginTop:6 }}>
-            <input type="checkbox" checked={btw} onChange={e => setBtw(e.target.checked)} />
-            BTW 21% (zakelijk)
-          </label>
           </div>
         </div>
 
@@ -777,26 +765,6 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
               <span style={{ fontSize:22, color: isBezig ? 'var(--warn)' : 'var(--accent2)' }}>{isBezig ? '~' : ''}€{result.verkoopprijs?.toFixed(2)}</span>
             </div>
             {aantal > 1 && <div style={{ textAlign:'right', fontSize:11, color:'var(--muted)' }}>€{(result.verkoopprijs / aantal).toFixed(2)}/stuk</div>}
-            {btw && (() => {
-              // BTW enkel op het marge-gebaseerde deel — vast_prijs_totaal (bv.
-              // verzendkosten "vaste prijs, geen marge, incl. BTW") is al incl.
-              // BTW en telt dus niet nogmaals mee in de grondslag. Zelfde
-              // principe als bij offertes.
-              const btwGrondslag = (result.verkoopprijs||0) - (result.vast_prijs_totaal||0);
-              const btwBedrag = btwGrondslag * 0.21;
-              return (
-                <>
-                  <div style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', fontSize:12, color:'var(--muted)' }}>
-                    <span>BTW 21%</span>
-                    <span>€{btwBedrag.toFixed(2)}</span>
-                  </div>
-                  <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0 4px', fontWeight:700, borderTop:'1px solid var(--border)' }}>
-                    <span>Totaal incl. BTW</span>
-                    <span style={{ fontSize:22, color:'var(--accent2)' }}>€{((result.verkoopprijs||0) + btwBedrag).toFixed(2)}</span>
-                  </div>
-                </>
-              );
-            })()}
 
             {/* STATUS ACTIES */}
             <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:6 }}>
@@ -819,12 +787,12 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
             <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:6 }}>
               <div style={{ display:'flex', gap:6 }}>
                 <a className="btn" style={{ flex:1, textAlign:'center' }}
-                  href={`${BASE}/kosten/pdf/${job.id}?aantal=${aantal}&btw=${btw ? '1' : '0'}`}
+                  href={`${BASE}/kosten/pdf/${job.id}?aantal=${aantal}`}
                   target="_blank" rel="noopener noreferrer">
                   👁 Preview werkbon
                 </a>
                 <a className="btn" style={{ flex:1, textAlign:'center' }}
-                  href={`${BASE}/kosten/pdf/${job.id}?aantal=${aantal}&btw=${btw ? '1' : '0'}`}
+                  href={`${BASE}/kosten/pdf/${job.id}?aantal=${aantal}`}
                   download
                   onClick={async () => {
                     if (['gecontroleerd'].includes(job.status)) {

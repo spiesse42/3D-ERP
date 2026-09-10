@@ -370,7 +370,10 @@ export default function Offertes() {
   }
 
   async function del(id) {
-    if (!confirm('Offerte verwijderen? De gekoppelde werkbon wordt ook verwijderd.')) return;
+    // Backend houdt een al aangemaakte werkbon bewust in leven (enkel de
+    // link terug naar de offerte valt weg) — deze tekst moet dat correct
+    // weergeven. Zie ux-verbeterlijst 2026-09-10, #7.
+    if (!confirm('Offerte verwijderen? Een reeds aangemaakte werkbon blijft gewoon bestaan (enkel de link naar deze offerte verdwijnt).')) return;
     try {
       await api.delete(`/offertes2/${id}`);
       load();

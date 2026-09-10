@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { api, BASE } from '../lib/api.js';
 
 const GROEPEN = [
-  { titel: 'Kosten & energie', sleutels: ['kwh_prijs'] },
+  { titel: 'Kosten & energie', sleutels: ['kwh_prijs','machine_per_uur'], info: 'Machinekost geldt enkel als terugval — een printer met een eigen tarief (Printers-tab) gebruikt altijd dat eigen tarief.' },
   { titel: 'Marge', sleutels: ['marge_grens_uur','marge_klein_pct','marge_groot_pct','faalfactor_pct'], info: 'Klein = print korter dan grens · Groot = print langer dan grens' },
   { titel: 'Standaard arbeid', sleutels: ['voorbereiding_min','nabewerking_min'], info: 'Automatisch verrekend bij elke print' },
   { titel: 'Regie tarieven', sleutels: ['ontwerp_tarief','nabewerking_tarief','arbeid_per_uur'], info: 'Gebruikt bij ontwerp op maat of uitgebreide nabewerking' },
