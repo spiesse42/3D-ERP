@@ -213,7 +213,7 @@ export default function Werkbonnen() {
         <WerkbonModal
           klanten={klanten} printers={printers} filamentTypes={filamentTypes}
           allRollen={allRollen} tarieven={tarieven}
-          onKlantToegevoegd={() => {}}
+          onKlantToegevoegd={(k) => setKlanten(ks => [...ks, k])}
           onSaved={nieuweWerkbonAangemaakt}
           onClose={() => setNieuweWerkbonModal(false)}
         />
@@ -224,7 +224,7 @@ export default function Werkbonnen() {
           werkbon={bewerkWerkbon}
           klanten={klanten} printers={printers} filamentTypes={filamentTypes}
           allRollen={allRollen} tarieven={tarieven}
-          onKlantToegevoegd={() => {}}
+          onKlantToegevoegd={(k) => setKlanten(ks => [...ks, k])}
           onSaved={werkbonBewerkt}
           onClose={() => setBewerkWerkbon(null)}
         />

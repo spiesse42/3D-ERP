@@ -163,6 +163,11 @@ function TypeModal({ type, onClose, onSaved }) {
   // hanger) is net zo goed een telbaar stuk als een afgewerkt product, enkel
   // niet zelf verkocht. Bewust GEEN aparte BOM/samenstelling-koppeling.
   const heeftVoorraad = form.categorie === 'product' || form.categorie === 'onderdeel';
+  const isProduct = form.categorie === 'product';
+  // 'onderdeel' en 'verbruiksmateriaal' zijn beide dingen die je INKOOPT om
+  // te verwerken/verbruiken (geen eigen verkoopartikel) — vandaar dezelfde
+  // "Merk"-labeling als filament, met het aparte Leverancier-veld behouden.
+  const isInkoopType = form.categorie === 'onderdeel' || form.categorie === 'verbruiksmateriaal';
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
  async function save() {
@@ -211,8 +216,8 @@ function TypeModal({ type, onClose, onSaved }) {
 
         <div className="form-row">
           <div className="form-group">
-            <label>{isFilament ? 'Merk *' : 'Merk/Leverancier *'}</label>
-            <input value={form.merk} onChange={e => set('merk', e.target.value)} placeholder={isFilament ? 'bv. Elegoo' : 'bv. AliExpress'} />
+            <label>{isFilament || isInkoopType || isProduct ? 'Merk *' : 'Merk/Leverancier *'}</label>
+            <input value={form.merk} onChange={e => set('merk', e.target.value)} placeholder={isFilament ? 'bv. Elegoo' : isProduct ? 'bv. eigen merk' : 'bv. AliExpress'} />
           </div>
           <div className="form-group">
             <label>{isFilament ? 'Materiaal *' : 'Omschrijving *'}</label>
@@ -228,7 +233,7 @@ function TypeModal({ type, onClose, onSaved }) {
             </select>
           </div>
           <div className="form-group">
-            <label>Inkoopprijs (€/{form.eenheid === 'gram' ? 'kg' : form.eenheid === 'ml' ? 'ml' : 'stuk'}) *</label>
+            <label>{isProduct ? 'Verkoopprijs' : 'Inkoopprijs'} (€/{form.eenheid === 'gram' ? 'kg' : form.eenheid === 'ml' ? 'ml' : 'stuk'}) *</label>
             <input value={prijsStr} onChange={e => setPrijsStr(e.target.value)} placeholder={form.eenheid === 'gram' ? 'bv. 18.00' : 'bv. 6.50'} />
           </div>
         </div>
@@ -276,10 +281,12 @@ function TypeModal({ type, onClose, onSaved }) {
           </div>
         )}
 
-        <div className="form-group">
-          <label>Leverancier</label>
-          <input value={form.leverancier || ''} onChange={e => set('leverancier', e.target.value)} />
-        </div>
+        {!isProduct && (
+          <div className="form-group">
+            <label>Leverancier</label>
+            <input value={form.leverancier || ''} onChange={e => set('leverancier', e.target.value)} />
+          </div>
+        )}
 
         {/* Vast kleurenpalet — enkel mogelijk voor een al opgeslagen type */}
         <div className="form-group">

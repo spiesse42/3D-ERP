@@ -105,7 +105,7 @@ export function bepaalMateriaalKostOverride(db, { is_multicolor, filament_rollen
 // op komt, exact dezelfde regel als vandaag al geldt voor offerte-artikelen
 // (verzendkosten e.d.: vaste_prijs = geen marge, niet in BTW-grondslag).
 export const REGEL_TYPE_LABELS = {
-  ontwerp: 'Ontwerp + digitaal bestand aanleveren',
+  ontwerp: 'Ontwerp',
   aanpassing: 'Aanpassing op bestaand ontwerp/bestand',
   printen: 'Printen',
   extra: 'Extra kosten/dienst',

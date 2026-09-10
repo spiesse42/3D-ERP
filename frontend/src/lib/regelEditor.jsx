@@ -16,7 +16,7 @@ import { api } from './api.js';
 // REGEL_TYPE_LABELS, zodat de offerte/werkbon/PDF-regel "Dienstnaam:
 // Objectnaam" er hier al identiek uitziet.
 export const REGEL_TYPE_OPTIES = [
-  ['ontwerp', 'Ontwerp + digitaal bestand aanleveren'],
+  ['ontwerp', 'Ontwerp'],
   ['aanpassing', 'Aanpassing op bestaand ontwerp/bestand'],
   ['printen', 'Printen'],
   ['extra', 'Extra kosten/dienst'],

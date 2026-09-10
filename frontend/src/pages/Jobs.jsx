@@ -44,6 +44,31 @@ function werkbonRegelLabel(j) {
   return `${j.werkbon_volgnummer} · ${naam}`;
 }
 
+// Live-schatting van de verkoopprijs voor een 'bezig'-job — zelfde berekening
+// als de "Geschatte eindprijs"-widget in KostenModal.jsx, maar nu rechtstreeks
+// in het jobs-overzicht in plaats van pas na het openen van de werkbon.
+// Materiaal- en arbeidskost gebruiken de laatst opgeslagen waarden (0 als er
+// nog geen berekening is gebeurd via 💶 Kost); enkel energie en machine-tijd
+// worden hier live herrekend op basis van de printerdata die toch al elke
+// paar seconden binnenkomt via de printerkaart hierboven.
+function geschatteVerkoopprijsLive(j, live, t) {
+  if (j.status !== 'bezig' || !live || !Object.keys(t).length) return null;
+  const totaleSec = (live.elapsed_sec || 0) + (live.remaining_sec || 0);
+  if (!totaleSec) return null;
+  const totaleUren = totaleSec / 3600;
+  const kwhGeschat = (live.elapsed_sec || 0) > 0 && (live.kwh_delta || 0) > 0
+    ? (live.kwh_delta / (live.elapsed_sec / 3600)) * totaleUren
+    : null;
+  const energieKost = (kwhGeschat || 0) * (t.kwh_prijs || 0.35);
+  const machineKost = totaleUren * (t.machine_kost_per_uur || 0);
+  const bmcu = j.is_multicolor ? (t.bmcu_per_job || 0.10) : 0;
+  const materiaalKost = j.materiaal_kost || 0;
+  const arbeidKost = j.arbeid_kost || 0;
+  const sub = materiaalKost + energieKost + machineKost + bmcu + arbeidKost;
+  const marge = totaleUren >= (t.marge_grens_uur || 4) ? (t.marge_groot_pct || 10) : (t.marge_klein_pct || 18);
+  return sub * (1 + marge / 100);
+}
+
 function JobModal({ job, printers, klanten, onClose, onSaved }) {
 const [form, setForm] = useState(job ? {
     printer_id: job.printer_id || '', naam: job.naam, status: job.status,
@@ -190,6 +215,7 @@ export default function Jobs() {
   const [zoekVolgnummer, setZoekVolgnummer] = useState('');
   const [selectedJob, setSelectedJob] = useState(null);
   const [koppelbareRegels, setKoppelbareRegels] = useState([]);
+  const [tarieven, setTarieven] = useState({});
   const { printerConfig, printerData, reloadPrinterConfig } = usePrinterData();
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get('highlight') ? parseInt(searchParams.get('highlight')) : null;
@@ -205,6 +231,7 @@ export default function Jobs() {
     loadKoppelbaar();
     api.get('/printers').then(setPrinters).catch(e => alert('Kon printers niet laden: ' + e.message));
     api.get('/klanten').then(setKlanten).catch(e => alert('Kon klanten niet laden: ' + e.message));
+    api.get('/tarieven').then(rows => setTarieven(Object.fromEntries(rows.map(r => [r.sleutel, r.waarde])))).catch(() => {});
     const interval = setInterval(loadJobs, 10000);
 
     return () => {
@@ -309,11 +336,14 @@ export default function Jobs() {
                         return `${prefix}${h}u ${m}m`;
                       })()}
                     </td>
-                    <td>{j.verkoopprijs != null
-                      ? ['bezig','voltooid'].includes(j.status)
-                        ? <div><span style={{ color:'var(--warn)' }}>~€{j.verkoopprijs.toFixed(2)}</span><div style={{ fontSize:10, color:'var(--muted)' }}>geschat</div></div>
-                        : <span style={{ color:'var(--accent2)' }}>€{j.verkoopprijs.toFixed(2)}</span>
-                      : <span style={{ color:'var(--muted)' }}>—</span>}</td>
+                    <td>{(() => {
+                      const liveSchatting = geschatteVerkoopprijsLive(j, printerData[j.printer_id], tarieven);
+                      const prijs = liveSchatting ?? j.verkoopprijs;
+                      if (prijs == null) return <span style={{ color:'var(--muted)' }}>—</span>;
+                      return ['bezig','voltooid'].includes(j.status)
+                        ? <div><span style={{ color:'var(--warn)' }}>~€{prijs.toFixed(2)}</span><div style={{ fontSize:10, color:'var(--muted)' }}>geschat</div></div>
+                        : <span style={{ color:'var(--accent2)' }}>€{prijs.toFixed(2)}</span>;
+                    })()}</td>
                     <td onClick={e => e.stopPropagation()}>
                       <GekoppeldCel job={j} koppelbareRegels={koppelbareRegels} onKoppel={koppelJobAanRegel} onOntkoppel={ontkoppelJob} />
                     </td>
