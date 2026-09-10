@@ -1,16 +1,16 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #0f1117;
-  --bg2: #181c24;
-  --bg3: #1e2330;
-  --border: #2a3040;
-  --text: #e8eaf0;
-  --muted: #8892a4;
-  --accent: #5b8dee;
-  --accent2: #3ecf8e;
-  --warn: #f59e0b;
-  --danger: #ef4444;
+  --bg: #f4f6fa;
+  --bg2: #ffffff;
+  --bg3: #eef1f6;
+  --border: #dde3ec;
+  --text: #1c2733;
+  --muted: #64748b;
+  --accent: #16345a;
+  --accent2: #2b9484;
+  --warn: #b45309;
+  --danger: #dc2626;
   --radius: 8px;
   --radius-lg: 12px;
 }
@@ -61,19 +61,19 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
   display: inline-block; font-size: 11px; font-weight: 600;
   padding: 2px 8px; border-radius: 20px;
 }
-.badge.in-te-plannen { background: #2a2a3a; color: #a5b4fc; }
-.badge.gepland    { background: #1e2a3a; color: #60a5fa; }
-.badge.bezig      { background: #1e3a2a; color: #34d399; }
-.badge.voltooid   { background: #1e3a1e; color: #86efac; }
-.badge.gefaald    { background: #3a1e1e; color: #fca5a5; }
-.badge.geannuleerd { background: #2a2a2a; color: var(--muted); }
-.badge.concept    { background: #2a2a1e; color: #fcd34d; }
-.badge.verstuurd  { background: #1e2a3a; color: #93c5fd; }
-.badge.goedgekeurd { background: #1e3a2a; color: #6ee7b7; }
-.badge.betaald    { background: #1e3a1e; color: #86efac; }
-.badge.gecontroleerd { background: #232323; color: #d4d4d8; }
-.badge.gefactureerd  { background: #1e2a3a; color: #93c5fd; }
-.badge.werkbon-link  { background: #241b3a; color: #c4b5fd; }
+.badge.in-te-plannen { background: #eef0fe; color: #4c51bf; }
+.badge.gepland    { background: #e8f1fd; color: #1e5fae; }
+.badge.bezig      { background: #e3f5f1; color: #1f7a68; }
+.badge.voltooid   { background: #e7f7ec; color: #1a7a3d; }
+.badge.gefaald    { background: #fdecec; color: #c0332c; }
+.badge.geannuleerd { background: #eef1f6; color: var(--muted); }
+.badge.concept    { background: #fdf3e0; color: #9a6a10; }
+.badge.verstuurd  { background: #e8f1fd; color: #2166c4; }
+.badge.goedgekeurd { background: #e3f7ee; color: #0f8a55; }
+.badge.betaald    { background: #e7f7ec; color: #15803d; }
+.badge.gecontroleerd { background: #eef1f6; color: #475569; }
+.badge.gefactureerd  { background: #e8f1fd; color: #2166c4; }
+.badge.werkbon-link  { background: #f1ecfb; color: #6b46c1; }
 
 table { width: 100%; border-collapse: collapse; }
 th { text-align: left; font-size: 11px; font-weight: 600; color: var(--muted);

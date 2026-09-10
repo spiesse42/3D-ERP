@@ -69,16 +69,16 @@ function buildPdfHtml(kosten, klant, extraInfo = {}, bedrijf = {}) {
 <html lang="nl"><head><meta charset="UTF-8">
 <style>
   body{font-family:'Segoe UI',Arial,sans-serif;background:#fff;color:#1a1a1a;margin:0;padding:40px}
-  .header{display:flex;justify-content:space-between;border-bottom:3px solid #5b8dee;padding-bottom:20px;margin-bottom:28px}
+  .header{display:flex;justify-content:space-between;border-bottom:3px solid #16345a;padding-bottom:20px;margin-bottom:28px}
   .logo img{height:64px;width:auto;display:block}
   .klant{background:#f8f9fa;border-radius:8px;padding:14px 18px;margin-bottom:20px}
-  .klant h3{margin:0 0 6px;font-size:.7rem;text-transform:uppercase;letter-spacing:1.5px;color:#5b8dee}
+  .klant h3{margin:0 0 6px;font-size:.7rem;text-transform:uppercase;letter-spacing:1.5px;color:#16345a}
   table{width:100%;border-collapse:collapse;margin-bottom:20px}
-  th{background:#5b8dee;color:#fff;padding:9px 12px;text-align:left;font-size:.78rem;text-transform:uppercase}
+  th{background:#16345a;color:#fff;padding:9px 12px;text-align:left;font-size:.78rem;text-transform:uppercase}
   td{padding:9px 12px;border-bottom:1px solid #eee;font-size:.88rem}
   tr:nth-child(even) td{background:#f8f9fa}
-  .totaal{background:#0c0c0c;color:#fff;border-radius:8px;padding:18px 22px;display:flex;justify-content:space-between;align-items:center}
-  .totaal-bedrag{font-size:2rem;font-weight:900;color:#5b8dee}
+  .totaal{background:#16345a;color:#fff;border-radius:8px;padding:18px 22px;display:flex;justify-content:space-between;align-items:center}
+  .totaal-bedrag{font-size:2rem;font-weight:900;color:#2b9484}
   .opmerking{margin-top:18px;padding:12px 16px;border-left:4px solid #f59e0b;background:#fffbeb;border-radius:4px;font-size:.88rem;color:#664400}
   .footer{margin-top:32px;border-top:1px solid #eee;padding-top:14px;font-size:.72rem;color:#999;text-align:center}
 </style></head><body>

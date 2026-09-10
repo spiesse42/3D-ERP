@@ -22,6 +22,7 @@ import { Router } from 'express';
 import { getDb } from '../db.js';
 import { LOGO_DATA_URI } from '../lib/logo.js';
 import { renderHtmlNaarPdf } from '../lib/pdf.js';
+import { escapeHtml, escapeRecord } from '../lib/html.js';
 import { sendPdfEmail } from '../email.js';
 // Zelfde gedeelde rekenmotor als offertes_v2.js (zie backend/lib/regelmotor.js)
 // — gebruikt voor een standalone werkbon (POST /, zonder offerte). Onder een
@@ -56,7 +57,7 @@ function getBedrijfsgegevens(db) {
 }
 
 const REGEL_TYPE_LABELS = {
-  ontwerp: 'Ontwerp',
+  ontwerp: 'Ontwerp + digitaal bestand aanleveren',
   aanpassing: 'Aanpassing op bestaand ontwerp/bestand',
   printen: 'Printen',
   extra: 'Extra kosten/dienst',
@@ -514,6 +515,8 @@ r.post('/:id/regels/:idx/gebruik-gemeten-data', (req, res) => {
 
 // ── PDF ───────────────────────────────────────────────────────────────
 function buildWerkbonHtml(werkbon, klant, berekening, regelRijen, bedrijf = {}) {
+  werkbon = escapeRecord(werkbon); klant = escapeRecord(klant); bedrijf = escapeRecord(bedrijf);
+  regelRijen = regelRijen.map(rg => ({ ...rg, aantal: escapeHtml(rg.aantal), omschrijving: escapeHtml(rg.omschrijving) }));
   const nu = new Date().toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const regelHtml = regelRijen.map(rg => `
     <tr><td>${rg.aantal}</td><td>${rg.omschrijving}</td><td>€${rg.eenheidsprijs.toFixed(2)}</td><td>€${rg.totaal.toFixed(2)}</td></tr>`).join('');
@@ -521,17 +524,17 @@ function buildWerkbonHtml(werkbon, klant, berekening, regelRijen, bedrijf = {}) 
   // geen zakelijk/particulier-schakelaar, altijd 1 eindprijs.
   return `<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><style>
   body{font-family:'Segoe UI',Arial,sans-serif;background:#fff;color:#1a1a1a;margin:0;padding:40px}
-  .header{display:flex;justify-content:space-between;border-bottom:3px solid #5b8dee;padding-bottom:20px;margin-bottom:28px}
+  .header{display:flex;justify-content:space-between;border-bottom:3px solid #16345a;padding-bottom:20px;margin-bottom:28px}
   .logo img{height:64px;width:auto;display:block}
   .klant{background:#f8f9fa;border-radius:8px;padding:14px 18px;margin-bottom:20px}
-  .klant h3{margin:0 0 6px;font-size:.7rem;text-transform:uppercase;letter-spacing:1.5px;color:#5b8dee}
+  .klant h3{margin:0 0 6px;font-size:.7rem;text-transform:uppercase;letter-spacing:1.5px;color:#16345a}
   table{width:100%;border-collapse:collapse;margin-bottom:20px}
-  th{background:#5b8dee;color:#fff;padding:9px 12px;text-align:left;font-size:.78rem;text-transform:uppercase}
+  th{background:#16345a;color:#fff;padding:9px 12px;text-align:left;font-size:.78rem;text-transform:uppercase}
   th:nth-child(3),td:nth-child(3),th:last-child,td:last-child{text-align:right;width:110px}
   td{padding:9px 12px;border-bottom:1px solid #eee;font-size:.88rem}
   tr:nth-child(even) td{background:#f8f9fa}
-  .totaal{background:#0c0c0c;color:#fff;border-radius:8px;padding:18px 22px;display:flex;justify-content:space-between;align-items:center}
-  .totaal-bedrag{font-size:2rem;font-weight:900;color:#5b8dee}
+  .totaal{background:#16345a;color:#fff;border-radius:8px;padding:18px 22px;display:flex;justify-content:space-between;align-items:center}
+  .totaal-bedrag{font-size:2rem;font-weight:900;color:#2b9484}
   .footer{margin-top:32px;border-top:1px solid #eee;padding-top:14px;font-size:.72rem;color:#999;text-align:center}
   .opmerking{margin-top:16px;padding:12px 16px;border-left:4px solid #f59e0b;background:#fffbeb;border-radius:4px;font-size:.88rem;color:#664400}
   </style></head><body>
@@ -598,7 +601,7 @@ r.post('/:id/email', async (req, res) => {
     const pdfBuffer = await renderHtmlNaarPdf(html);
     await sendPdfEmail({
       to: emailTo, subject: `Werkbon ${w.volgnummer}`,
-      html: `<p>Beste ${klant.voornaam || ''} ${klant.naam},</p><p>Hierbij werkbon <strong>${w.volgnummer}</strong>.</p><p>Prijs: <strong>€${w.totaal.toFixed(2)}</strong></p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
+      html: `<p>Beste ${escapeHtml(klant.voornaam || '')} ${escapeHtml(klant.naam)},</p><p>Hierbij werkbon <strong>${escapeHtml(w.volgnummer)}</strong>.</p><p>Prijs: <strong>€${w.totaal.toFixed(2)}</strong></p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
       pdfBuffer, filename: `werkbon-${w.volgnummer}.pdf`,
     });
     res.json({ ok: true, to: emailTo });

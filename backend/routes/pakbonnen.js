@@ -25,12 +25,13 @@ import { Router } from 'express';
 import { getDb } from '../db.js';
 import { LOGO_DATA_URI } from '../lib/logo.js';
 import { renderHtmlNaarPdf } from '../lib/pdf.js';
+import { escapeHtml, escapeRecord } from '../lib/html.js';
 import { sendPdfEmail } from '../email.js';
 
 const r = Router();
 
 const REGEL_TYPE_LABELS = {
-  ontwerp: 'Ontwerp',
+  ontwerp: 'Ontwerp + digitaal bestand aanleveren',
   aanpassing: 'Aanpassing op bestaand ontwerp/bestand',
   printen: 'Printen',
   extra: 'Extra kosten/dienst',
@@ -215,17 +216,18 @@ r.delete('/:id', (req, res) => {
 
 // ── PDF (geen bedragen — enkel aantal + omschrijving) ───────────────────
 function buildPakbonHtml(pakbon, klant, bedrijf = {}) {
+  pakbon = { ...escapeRecord(pakbon), regels: (pakbon.regels || []).map(escapeRecord) }; klant = escapeRecord(klant); bedrijf = escapeRecord(bedrijf);
   const nu = new Date().toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const regelHtml = pakbon.regels.map(rg => `
     <tr><td>${rg.aantal}</td><td>${rg.object_naam}</td></tr>`).join('');
   return `<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><style>
   body{font-family:'Segoe UI',Arial,sans-serif;background:#fff;color:#1a1a1a;margin:0;padding:40px}
-  .header{display:flex;justify-content:space-between;border-bottom:3px solid #5b8dee;padding-bottom:20px;margin-bottom:28px}
+  .header{display:flex;justify-content:space-between;border-bottom:3px solid #16345a;padding-bottom:20px;margin-bottom:28px}
   .logo img{height:64px;width:auto;display:block}
   .klant{background:#f8f9fa;border-radius:8px;padding:14px 18px;margin-bottom:20px}
-  .klant h3{margin:0 0 6px;font-size:.7rem;text-transform:uppercase;letter-spacing:1.5px;color:#5b8dee}
+  .klant h3{margin:0 0 6px;font-size:.7rem;text-transform:uppercase;letter-spacing:1.5px;color:#16345a}
   table{width:100%;border-collapse:collapse;margin-bottom:20px}
-  th{background:#5b8dee;color:#fff;padding:9px 12px;text-align:left;font-size:.78rem;text-transform:uppercase}
+  th{background:#16345a;color:#fff;padding:9px 12px;text-align:left;font-size:.78rem;text-transform:uppercase}
   th:first-child,td:first-child{text-align:right;width:70px}
   td{padding:9px 12px;border-bottom:1px solid #eee;font-size:.88rem}
   tr:nth-child(even) td{background:#f8f9fa}
@@ -286,7 +288,7 @@ r.post('/:id/email', async (req, res) => {
     const pdfBuffer = await renderHtmlNaarPdf(html);
     await sendPdfEmail({
       to: emailTo, subject: `Pakbon ${pb.volgnummer}`,
-      html: `<p>Beste ${klant.voornaam || ''} ${klant.naam},</p><p>Hierbij pakbon <strong>${pb.volgnummer}</strong> bij werkbon ${pb.werkbon.volgnummer}.</p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
+      html: `<p>Beste ${escapeHtml(klant.voornaam || '')} ${escapeHtml(klant.naam)},</p><p>Hierbij pakbon <strong>${escapeHtml(pb.volgnummer)}</strong> bij werkbon ${escapeHtml(pb.werkbon.volgnummer)}.</p><p>Met vriendelijke groeten,<br>3D Print ERP</p>`,
       pdfBuffer, filename: `pakbon-${pb.volgnummer}.pdf`,
     });
     res.json({ ok: true, to: emailTo });

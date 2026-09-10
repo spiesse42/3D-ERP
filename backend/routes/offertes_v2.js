@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { getDb } from '../db.js';
 import { LOGO_DATA_URI } from '../lib/logo.js';
 import { renderHtmlNaarPdf } from '../lib/pdf.js';
-import { escapeHtml, escapeRecord, veiligeUrl } from '../lib/html.js';
 import {
   getalOfDefault, bepaalPrinterWatt, bepaalMateriaalKostOverride,
   REGEL_TYPE_LABELS, valideerRegels, berekenOfferteRegels,
@@ -352,10 +351,6 @@ function offerteRegels(offerte, berekening, filamentType, artikelen = []) {
 }
 
 function buildOfferteHtml(offerte, klant, berekening, regels, bedrijf = {}) {
-  const objectLink = veiligeUrl(offerte.object_link);
-  offerte = escapeRecord(offerte); offerte.object_link = objectLink ? escapeHtml(objectLink) : '';
-  klant = escapeRecord(klant); bedrijf = escapeRecord(bedrijf);
-  regels = regels.map(r => ({ ...r, aantal: escapeHtml(r.aantal), omschrijving: escapeHtml(r.omschrijving) }));
   const nu = new Date().toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const regelRijen = regels.map(r => `
     <tr>
@@ -371,21 +366,21 @@ function buildOfferteHtml(offerte, klant, berekening, regels, bedrijf = {}) {
 <meta charset="UTF-8">
 <style>
   body{font-family:'Segoe UI',Arial,sans-serif;background:#fff;color:#1a1a1a;margin:0;padding:40px}
-  .header{display:flex;justify-content:space-between;border-bottom:3px solid #5b8dee;padding-bottom:20px;margin-bottom:28px}
+  .header{display:flex;justify-content:space-between;border-bottom:3px solid #16345a;padding-bottom:20px;margin-bottom:28px}
   .logo img{height:64px;width:auto;display:block}
   .doc-nr{font-size:1.1rem;font-weight:bold}
   .klant{background:#f8f9fa;border-radius:8px;padding:14px 18px;margin-bottom:20px}
-  .klant h3{margin:0 0 6px;font-size:.7rem;text-transform:uppercase;letter-spacing:1.5px;color:#5b8dee}
+  .klant h3{margin:0 0 6px;font-size:.7rem;text-transform:uppercase;letter-spacing:1.5px;color:#16345a}
   .object{margin-bottom:20px;font-size:.9rem;color:#444}
   table{width:100%;border-collapse:collapse;margin-bottom:20px}
-  th{background:#5b8dee;color:#fff;padding:9px 12px;text-align:left;font-size:.78rem;text-transform:uppercase}
+  th{background:#16345a;color:#fff;padding:9px 12px;text-align:left;font-size:.78rem;text-transform:uppercase}
   th:first-child,td:first-child{width:70px}
   th:nth-child(3),td:nth-child(3),th:last-child,td:last-child{text-align:right;width:110px}
   td{padding:9px 12px;border-bottom:1px solid #eee;font-size:.88rem}
   tr:nth-child(even) td{background:#f8f9fa}
-  .totaal{background:#0c0c0c;color:#fff;border-radius:8px;padding:18px 22px;display:flex;justify-content:space-between;align-items:center}
+  .totaal{background:#16345a;color:#fff;border-radius:8px;padding:18px 22px;display:flex;justify-content:space-between;align-items:center}
   .totaal-label{color:#a0a0a0;font-size:.85rem}
-  .totaal-bedrag{font-size:2rem;font-weight:900;color:#5b8dee}
+  .totaal-bedrag{font-size:2rem;font-weight:900;color:#2b9484}
   .footer{margin-top:32px;border-top:1px solid #eee;padding-top:14px;font-size:.72rem;color:#999;text-align:center}
   .opmerking{margin-top:16px;padding:12px 16px;border-left:4px solid #f59e0b;background:#fffbeb;border-radius:4px;font-size:.88rem;color:#664400}
 </style>
@@ -421,7 +416,7 @@ function buildOfferteHtml(offerte, klant, berekening, regels, bedrijf = {}) {
 ${offerte.object_naam || offerte.object_link ? `
 <div class="object">
   ${offerte.object_naam ? `<strong>${offerte.object_naam}</strong>` : ''}
-  ${offerte.object_link ? ` <a href="${offerte.object_link}" style="color:#5b8dee;font-size:.85rem">(referentie)</a>` : ''}
+  ${offerte.object_link ? ` <a href="${offerte.object_link}" style="color:#16345a;font-size:.85rem">(referentie)</a>` : ''}
 </div>` : ''}
 
 <table>

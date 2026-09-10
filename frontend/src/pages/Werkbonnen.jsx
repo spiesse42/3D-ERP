@@ -56,7 +56,7 @@ function KoppelBadge({ werkbon, jobs }) {
   regels.forEach((r, i) => { if (r.type === 'printen' && gekoppeldeIdx.has(i)) gekoppeld++; });
   const volledig = gekoppeld === printenCount;
   return (
-    <span className="badge" style={{ background: volledig ? '#1e3a2a' : '#3a2a12', color: volledig ? '#34d399' : '#fbbf24' }}>
+    <span className="badge" style={{ background: volledig ? '#e7f7ec' : '#fdf3e0', color: volledig ? '#1a7a3d' : '#9a6a10' }}>
       {gekoppeld} / {printenCount} gekoppeld
     </span>
   );
@@ -213,7 +213,7 @@ export default function Werkbonnen() {
         <WerkbonModal
           klanten={klanten} printers={printers} filamentTypes={filamentTypes}
           allRollen={allRollen} tarieven={tarieven}
-          onKlantToegevoegd={(k) => setKlanten(ks => [...ks, k])}
+          onKlantToegevoegd={() => {}}
           onSaved={nieuweWerkbonAangemaakt}
           onClose={() => setNieuweWerkbonModal(false)}
         />
@@ -224,7 +224,7 @@ export default function Werkbonnen() {
           werkbon={bewerkWerkbon}
           klanten={klanten} printers={printers} filamentTypes={filamentTypes}
           allRollen={allRollen} tarieven={tarieven}
-          onKlantToegevoegd={(k) => setKlanten(ks => [...ks, k])}
+          onKlantToegevoegd={() => {}}
           onSaved={werkbonBewerkt}
           onClose={() => setBewerkWerkbon(null)}
         />
