@@ -5,6 +5,8 @@ import { api } from './api.js';
 const _kwhAccum = {};       // lopende kWh delta in geheugen
 const _lastPoll  = {};
 const _failedStreak = {};   // aantal opeenvolgende polls met failed/cancelled-status
+const _doneStreak = {};            // aantal opeenvolgende polls met 'done'-status (analoog aan _failedStreak)
+const _bestandMismatchStreak = {}; // aantal opeenvolgende polls waarbij de bezig-job niet bij het live bestand hoort
 const _kwhLoaded = {};      // is delta al uit DB geladen voor deze printer?
 const _kwhLastSave = {};    // timestamp laatste DB save
 const _frozenElapsed = {};  // laatst gekende live verstreken-tijd (sec) per printer — bevriest na 'finish' (enkel relevant voor Bambu)
@@ -162,13 +164,21 @@ export function usePrinterData() {
         const isDone   = ['finish','finished','complete','success','done'].includes(statusLower);
         const isFailed = statusLower === 'failed' || statusLower === 'cancelled';
 
-        // Finish: zet bezig job op voltooid. Werkt op elke poll opnieuw (niet enkel
-        // bij een gedetecteerde overgang) omdat we checken op een bestaande bezig-job.
-        // Ook zelfherstellend: als een job eerder onterecht op "geannuleerd" werd
-        // gezet door een kortstondige sensor-glitch (bv. AMS-kleurwissel bij
-        // multicolor), corrigeert dit hem alsnog naar "voltooid" zodra de printer
-        // effectief "finish" toont.
+        // Finish: pas na 2 opeenvolgende polls (~10s) bevestigd — zelfde
+        // bescherming als bij 'failed' hieronder. 'done' bleek ook een
+        // kortstondige sensor-glitch te kunnen zijn (bv. tijdens een
+        // kleurwissel-pauze bij een multicolor-print op de Kobra/Anycubic S1
+        // MQTT Bridge) — zonder deze vertraging werd een nog lopende job dan
+        // voortijdig op "voltooid" gezet. Ook zelfherstellend: als een job
+        // eerder onterecht op "geannuleerd" werd gezet door een kortstondige
+        // sensor-glitch, corrigeert dit hem alsnog naar "voltooid" zodra de
+        // printer 2 polls na elkaar effectief klaar toont.
         if (isDone) {
+          _doneStreak[p.id] = (_doneStreak[p.id] || 0) + 1;
+        } else {
+          _doneStreak[p.id] = 0;
+        }
+        if (isDone && _doneStreak[p.id] === 2) {
           api.get(`/jobs?printer_id=${p.id}`).then(jobs => {
             const kandidaat = jobs.find(j => j.printer_id === p.id && ['bezig', 'geannuleerd'].includes(j.status));
             if (kandidaat) api.patch(`/jobs/${kandidaat.id}/status`, { status: 'voltooid' }).catch(() => {});
@@ -192,30 +202,75 @@ export function usePrinterData() {
 
         // Automatische jobaanmaak bij start van een print — optioneel per printer,
         // pauzeerbaar via de toggle in de printerkaart (bv. tijdens filament-
-        // kalibratie). Zelfherstellend, net als de finish/failed-detectie hierboven:
-        // elke poll opnieuw checken i.p.v. enkel bij een gedetecteerde overgang naar
-        // actief printen. Dat laatste (wasBusy-transitie) miste een print zodra Auto-job
+        // kalibratie). Zelfherstellend, net als de detecties hierboven: elke poll
+        // opnieuw checken i.p.v. enkel bij een gedetecteerde overgang naar actief
+        // printen. Dat laatste (wasBusy-transitie) miste een print zodra Auto-job
         // pas ná de start werd aangezet, of de printer al actief was bij het openen
         // van een nieuwe browsersessie — dan kwam er nooit meer een job bij, want de
-        // "overgang" was al voorbij. De heeftAlJob-check hieronder blijft de enige en
-        // afdoende bescherming tegen dubbele aanmaak (blokkeert ook bij een bestaande
-        // geplande/wachtrij-job, zoals voorheen).
-        if (p.auto_job_aanmaken && isActief) {
+        // "overgang" was al voorbij.
+        function maakAutoJob() {
+          const totalSec = elapsed + remaining;
+          const urenGeschat = totalSec > 0 ? Math.round(totalSec / 360) / 10 : null;
+          api.post('/jobs', {
+            printer_id: p.id,
+            naam: s.filename || `Auto — ${new Date().toLocaleString('nl-BE')}`,
+            status: 'bezig',
+            gestart_op: new Date().toISOString(),
+            stl_bestandsnaam: s.filename || null,
+            print_uren_geschat: urenGeschat,
+            notities: '🤖 Automatisch aangemaakt bij start van de print — vul klant/materialen aan.',
+          }).catch(() => {});
+        }
+
+        // Bestandsnaam-mismatch: de bezig-job op deze printer hoort bij een
+        // ander bestand dan wat de printer nu live toont, terwijl er effectief
+        // actief geprint wordt — de vorige print is dus afgelopen zonder dat de
+        // finish-detectie hierboven dat heeft opgemerkt (bv. een te snelle
+        // overgang, of dezelfde soort sensor-glitch). Zonder correctie blijft
+        // de oude job voor altijd "bezig" staan en blokkeert die (bewust, zie
+        // PrinterCard.jsx) de aanmaak van een nieuwe job voor de huidige print.
+        // Pas na 2 opeenvolgende polls (~10s) bevestigd — zelfde bescherming
+        // als hierboven — zodat een eenmalige lege of foutieve
+        // bestandsnaam-sensorwaarde niet meteen een nog geldige job afsluit.
+        const huidigBestand    = s.filename && s.filename !== 'unavailable' && s.filename !== 'unknown' ? s.filename : null;
+        const mismatchMogelijk = isActief && !!huidigBestand;
+
+        if (mismatchMogelijk) {
+          api.get(`/jobs?printer_id=${p.id}`).then(jobs => {
+            const bezigJob = jobs.find(j => j.status === 'bezig');
+            const mismatch = !!bezigJob && !!bezigJob.stl_bestandsnaam && bezigJob.stl_bestandsnaam !== huidigBestand;
+
+            if (mismatch) {
+              _bestandMismatchStreak[p.id] = (_bestandMismatchStreak[p.id] || 0) + 1;
+            } else {
+              _bestandMismatchStreak[p.id] = 0;
+            }
+
+            const moetSluiten = mismatch && _bestandMismatchStreak[p.id] === 2;
+            const afgehandeld = moetSluiten
+              ? api.patch(`/jobs/${bezigJob.id}/status`, { status: 'voltooid' }).catch(() => {})
+              : Promise.resolve();
+
+            if (p.auto_job_aanmaken) {
+              afgehandeld.then(() => {
+                // `moetSluiten` telt hier bewust niet mee als "al een job" —
+                // anders zou de job die we hierboven net hebben afgesloten de
+                // aanmaak van de vervangende job blijven blokkeren.
+                const heeftAlJob = moetSluiten
+                  ? jobs.some(j => ['gepland', 'in te plannen'].includes(j.status))
+                  : jobs.some(j => ['bezig', 'gepland', 'in te plannen'].includes(j.status));
+                if (!heeftAlJob) maakAutoJob();
+              });
+            }
+          }).catch(() => {});
+        } else if (p.auto_job_aanmaken && isActief) {
+          // Geen bruikbare live bestandsnaam beschikbaar — mismatch-detectie
+          // hierboven kan dan niet draaien, maar de oorspronkelijke, simpele
+          // auto-aanmaak-check moet wel gewoon blijven werken (bv. voor een
+          // printer zonder bestandsnaam-sensor).
           api.get(`/jobs?printer_id=${p.id}`).then(jobs => {
             const heeftAlJob = jobs.some(j => ['bezig', 'gepland', 'in te plannen'].includes(j.status));
-            if (!heeftAlJob) {
-              const totalSec = elapsed + remaining;
-              const urenGeschat = totalSec > 0 ? Math.round(totalSec / 360) / 10 : null;
-              api.post('/jobs', {
-                printer_id: p.id,
-                naam: s.filename || `Auto — ${new Date().toLocaleString('nl-BE')}`,
-                status: 'bezig',
-                gestart_op: new Date().toISOString(),
-                stl_bestandsnaam: s.filename || null,
-                print_uren_geschat: urenGeschat,
-                notities: '🤖 Automatisch aangemaakt bij start van de print — vul klant/materialen aan.',
-              }).catch(() => {});
-            }
+            if (!heeftAlJob) maakAutoJob();
           }).catch(() => {});
         }
 
