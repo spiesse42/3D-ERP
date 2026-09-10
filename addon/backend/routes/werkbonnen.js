@@ -30,7 +30,7 @@ import { sendPdfEmail } from '../email.js';
 // (bewust een andere, kleinere validatie — enkel handmatig_bedrag, geen
 // aantal-check — die werkt op reeds-bevroren regels bij PUT /:id). Beide
 // blijven naast elkaar bestaan i.p.v. de bestaande PUT-validatie te wijzigen.
-import { berekenOfferteRegels, valideerRegels as valideerNieuweRegels } from '../lib/regelmotor.js';
+import { berekenOfferteRegels, berekenRegel, valideerRegels as valideerNieuweRegels } from '../lib/regelmotor.js';
 
 const r = Router();
 
@@ -381,6 +381,50 @@ r.put('/:id', (req, res) => {
   res.json({ ok: true, ...ber, btw_bedrag, totaal });
 });
 
+// ── POST losse regel toevoegen (ook aan een offerte-afgeleide werkbon) ──
+// Los van PUT /:id hierboven: die herrekent op een offerte-afgeleide
+// werkbon bewust NIETS (bevroren offerteprijs) — hier voegen we net 1
+// nieuwe regel TOE zonder de bestaande, al goedgekeurde regels aan te
+// raken. Enkel 'extra'/'artikel' toegelaten: die hebben geen printtijd en
+// beïnvloeden dus nooit de marge_pct-drempel van de rest van de werkbon
+// (in tegenstelling tot een 'printen'-regel) — vandaar veilig om zomaar
+// bij te voegen aan een bevroren werkbon. Zie ux-verbeterlijst 2026-09-10, #6.
+r.post('/:id/regels', (req, res) => {
+  const db = getDb();
+  const existing = db.prepare('SELECT * FROM werkbonnen WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Niet gevonden' });
+
+  const { type, object_naam, filament_type_id, bedrag, aantal } = req.body;
+  if (!['extra', 'artikel'].includes(type)) {
+    return res.status(400).json({ error: 'Kan hier enkel een "extra kosten/dienst"- of "artikel"-regel toevoegen' });
+  }
+  const nieuw = { type, object_naam: object_naam || '', filament_type_id: filament_type_id || null, bedrag, aantal: aantal || 1 };
+  const regelFout = valideerNieuweRegels([nieuw]);
+  if (regelFout) return res.status(400).json({ error: regelFout });
+
+  const t = getTarieven(db);
+  const berekendNieuw = berekenRegel(db, nieuw, t);
+  if (!(berekendNieuw.bedrag > 0)) return res.status(400).json({ error: 'Bedrag moet groter zijn dan 0' });
+
+  let bestaandeRegels = [];
+  try { bestaandeRegels = JSON.parse(existing.regels_json || '[]'); } catch {}
+  const alleRegels = [...bestaandeRegels, { ...nieuw, _berekend: berekendNieuw }];
+
+  // Zelfde bevroren-marge-logica als PUT /:id hierboven: marge_pct blijft
+  // exact wat hij was (nooit herbepaald op basis van tijd), enkel de
+  // marge-/vast-sommen en totalen worden herrekend met de extra regel erbij.
+  const ber = berekenWerkbonRegels(alleRegels)(existing.marge_pct);
+  const btw_bedrag = Math.round(ber.verkoopprijs_basis * existing.btw_pct) / 100;
+  const totaal = Math.round((ber.verkoopprijs + btw_bedrag) * 100) / 100;
+
+  db.prepare(`
+    UPDATE werkbonnen SET regels_json=?, subtotaal=?, verkoopprijs_basis=?, verkoopprijs=?, btw_bedrag=?, totaal=?
+    WHERE id=?
+  `).run(JSON.stringify(ber.regels), ber.subtotaal, ber.verkoopprijs_basis, ber.verkoopprijs, btw_bedrag, totaal, req.params.id);
+
+  res.json({ ok: true, ...ber, btw_bedrag, totaal });
+});
+
 // ── PATCH status (facturatie-lifecycle — verhuisd van jobs.status) ──────
 r.patch('/:id/status', (req, res) => {
   const db = getDb();
@@ -402,7 +446,28 @@ r.patch('/:id/betaald', (req, res) => {
   const db = getDb();
   const betaald = req.body.betaald ? 1 : 0;
   const betaald_op = betaald ? new Date().toISOString() : null;
-  db.prepare('UPDATE werkbonnen SET betaald=?, betaald_op=? WHERE id=?').run(betaald, betaald_op, req.params.id);
+
+  // Uitvinken terwijl de status nog 'betaald' staat zette de werkbon
+  // voorheen in een niemandsland: niet meer geteld als betaald inkomen
+  // (rapportage.js `/stats/financien` leest immers `betaald=1`), maar ook
+  // niet meer zichtbaar in de "openstaande facturatie"-opvolging (die enkel
+  // status gecontroleerd/gefactureerd toont — zie `/facturatie` hierboven).
+  // Val in dat geval terug op 'gefactureerd' zodat de werkbon daar weer
+  // verschijnt. Aanvinken raakt de status bewust NIET aan — blijft dus
+  // mogelijk om een vooruitbetaling te registreren vóór de status zo ver
+  // staat (bv. een aanbetaling vóór facturatie). Zie ux-verbeterlijst
+  // 2026-09-10, #9.
+  let statusVeld = '';
+  const params = [betaald, betaald_op];
+  if (!betaald) {
+    const bestaand = db.prepare('SELECT status FROM werkbonnen WHERE id = ?').get(req.params.id);
+    if (bestaand?.status === 'betaald') {
+      statusVeld = ', status=?';
+      params.push('gefactureerd');
+    }
+  }
+  params.push(req.params.id);
+  db.prepare(`UPDATE werkbonnen SET betaald=?, betaald_op=?${statusVeld} WHERE id=?`).run(...params);
   res.json({ ok: true });
 });
 

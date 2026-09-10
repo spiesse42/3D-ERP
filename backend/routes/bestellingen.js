@@ -314,14 +314,28 @@ r.post('/bestelling-items/:id/ontvangen', (req, res) => {
 
       const nieuwOntvangenAantal = (item.ontvangen_aantal || 0) + aantalDezeKeer;
       const volledigDitItem = nieuwOntvangenAantal >= totaalAantal;
+
+      // Werkelijk betaald bedrag doorvoeren i.p.v. de schatting van bij het
+      // bestellen — Financiën (rapportage.js `/stats/financien`) leest
+      // materiaalkosten rechtstreeks uit prijs_totaal, gegroepeerd op
+      // besteld_op (blijft bewust zo, zie voetnoot in Financien.jsx). Som van
+      // aankoopprijs_eur over ALLE rollen van dit item (dus ook eerdere
+      // gedeeltelijke ontvangsten) — idempotent en klopt ook bij een leeg/
+      // afwijkend prijs_totaal van bij het bestellen. Zie ux-verbeterlijst
+      // 2026-09-10, #8.
+      const werkelijkTotaal = db.prepare(
+        'SELECT ROUND(SUM(aankoopprijs_eur), 2) as totaal FROM filament_rollen WHERE bestelling_item_id = ?'
+      ).get(item.id).totaal || 0;
+
       db.prepare(`
         UPDATE bestelling_items
-        SET ontvangen_aantal = ?, ontvangen = ?, ontvangen_op = ?, filament_rol_id = ?
+        SET ontvangen_aantal = ?, ontvangen = ?, ontvangen_op = ?, filament_rol_id = ?, prijs_totaal = ?
         WHERE id = ?
       `).run(
         nieuwOntvangenAantal, volledigDitItem ? 1 : 0,
         volledigDitItem ? vandaag : item.ontvangen_op,
         nieuweRolIds[nieuweRolIds.length - 1],
+        werkelijkTotaal,
         item.id
       );
 

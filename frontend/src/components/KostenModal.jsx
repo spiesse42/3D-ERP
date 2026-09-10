@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api, BASE } from '../lib/api.js';
+import { api } from '../lib/api.js';
 
 // Valt terug op de standaardwaarde enkel als er écht niets bruikbaars werd
 // meegegeven — niet bij een bewust ingevulde 0 (bv. €0 ontwerptarief voor
@@ -34,8 +34,6 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
   const [dienstAantal,    setDienstAantal]    = useState('');
   const [result,          setResult]          = useState(null);
   const [saving,          setSaving]          = useState(false);
-  const [emailTo,         setEmailTo]         = useState('');
-  const [emailStatus,     setEmailStatus]     = useState('');
   const [selectedKlantId, setSelectedKlantId] = useState(String(job.klant_id || ''));
   const [autoCalc,        setAutoCalc]        = useState(true);
 
@@ -310,16 +308,6 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     finally { if (manual) setSaving(false); }
   }
 
-  async function stuurEmail() {
-    if (!emailTo) return alert('Vul een e-mailadres in');
-    setEmailStatus('Bezig...');
-    try {
-      await api.post(`/kosten/email/${job.id}`, { to: emailTo, extra_velden: { aantal: parseInt(aantal) } });
-      setEmailStatus('✓ Verstuurd!');
-      setTimeout(() => setEmailStatus(''), 4000);
-    } catch(e) { setEmailStatus('✗ ' + e.message); }
-  }
-
   const t          = tarieven;
   const arbTarief  = getalOfDefault(t.arbeid_per_uur, 15);
   const totaleUren = parseInt(printUren) + parseInt(printMin) / 60;
@@ -370,7 +358,7 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
     }}>
       <div className="modal" style={{ width:580, maxHeight:'93vh', overflowY:'auto' }}>
         <div className="modal-header">
-          <h2 style={{ fontSize:14 }}>Werkbon — {job.naam}</h2>
+          <h2 style={{ fontSize:14 }}>Kostprijs — {job.naam}</h2>
           <div style={{ display:'flex', gap:6, alignItems:'center' }}>
             <label style={{ fontSize:11, display:'flex', alignItems:'center', gap:4, cursor:'pointer', color:'var(--muted)' }}>
               <input type="checkbox" checked={autoCalc} onChange={e => setAutoCalc(e.target.checked)} />
@@ -765,50 +753,6 @@ export default function KostenModal({ job, printerLiveData, klanten, onClose, on
               <span style={{ fontSize:22, color: isBezig ? 'var(--warn)' : 'var(--accent2)' }}>{isBezig ? '~' : ''}€{result.verkoopprijs?.toFixed(2)}</span>
             </div>
             {aantal > 1 && <div style={{ textAlign:'right', fontSize:11, color:'var(--muted)' }}>€{(result.verkoopprijs / aantal).toFixed(2)}/stuk</div>}
-
-            {/* STATUS ACTIES */}
-            <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:6 }}>
-              {job.status === 'voltooid' && (
-                <button className="btn primary" style={{ width:'100%' }} onClick={async () => {
-                  await api.patch(`/jobs/${job.id}/status`, { status: 'gecontroleerd' });
-                  onJobUpdated?.();
-                  onClose();
-                }}>✓ Markeer als gecontroleerd</button>
-              )}
-              {['gecontroleerd','gefactureerd'].includes(job.status) && (
-                <button className="btn" style={{ width:'100%' }} onClick={async () => {
-                  await api.patch(`/jobs/${job.id}/status`, { status: 'voltooid' });
-                  onJobUpdated?.();
-                  onClose();
-                }}>↺ Heropen (terug naar voltooid)</button>
-              )}
-            </div>
-
-            <div style={{ marginTop:'0.75rem', paddingTop:'0.75rem', borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:6 }}>
-              <div style={{ display:'flex', gap:6 }}>
-                <a className="btn" style={{ flex:1, textAlign:'center' }}
-                  href={`${BASE}/kosten/pdf/${job.id}?aantal=${aantal}`}
-                  target="_blank" rel="noopener noreferrer">
-                  👁 Preview werkbon
-                </a>
-                <a className="btn" style={{ flex:1, textAlign:'center' }}
-                  href={`${BASE}/kosten/pdf/${job.id}?aantal=${aantal}`}
-                  download
-                  onClick={async () => {
-                    if (['gecontroleerd'].includes(job.status)) {
-                      await api.patch(`/jobs/${job.id}/status`, { status: 'gefactureerd' });
-                      onJobUpdated?.();
-                    }
-                  }}>
-                  ↓ Download
-                </a>
-              </div>
-              <div style={{ display:'flex', gap:6 }}>
-                <input value={emailTo} onChange={e => setEmailTo(e.target.value)} placeholder="E-mail voor werkbon" style={{ flex:1 }} />
-                <button className="btn" onClick={stuurEmail}>✉ Mail</button>
-              </div>
-              {emailStatus && <div style={{ fontSize:11, color: emailStatus.includes('✓') ? 'var(--accent2)' : 'var(--danger)' }}>{emailStatus}</div>}
-            </div>
           </div>
         )}
 

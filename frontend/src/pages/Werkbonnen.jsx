@@ -119,6 +119,14 @@ export default function Werkbonnen() {
   const [printFormKey, setPrintFormKey] = useState(null);
   const [printForm, setPrintForm] = useState({});
 
+  // Inline "+ Regel toevoegen"-formulier — enkel voor een offerte-afgeleide
+  // werkbon (bevroren offerteprijs, geen "✏ Bewerken" mogelijk), laat exact 1
+  // nieuwe 'extra'- of 'artikel'-regel toevoegen zonder bestaande regels aan
+  // te raken/te herberekenen. Zie POST /werkbonnen/:id/regels (backend) en
+  // ux-verbeterlijst 2026-09-10, #6. Key = werkbonId (max 1 form open).
+  const [nieuweRegelKey, setNieuweRegelKey] = useState(null);
+  const [nieuweRegelForm, setNieuweRegelForm] = useState({});
+
   // Korte "✓ Toegepast"-bevestiging na "Gebruik gemeten data" — de knop zelf
   // blijft zichtbaar/herbruikbaar (bewust herhaalbaar, zie backend-commentaar),
   // dit voegt enkel de ontbrekende terugkoppeling toe. Zie ux-verbeterlijst
@@ -233,7 +241,38 @@ export default function Werkbonnen() {
     } catch (e) { alert('Versturen mislukt: ' + e.message); }
   }
 
+  function toggleNieuweRegel(werkbonId) {
+    if (nieuweRegelKey === werkbonId) { setNieuweRegelKey(null); return; }
+    setNieuweRegelKey(werkbonId);
+    setNieuweRegelForm({ type: 'extra', filament_type_id: '', object_naam: '', bedrag: '', aantal: 1 });
+  }
+
+  async function voegRegelToe(werkbonId) {
+    const { type, filament_type_id, object_naam, bedrag, aantal } = nieuweRegelForm;
+    if (type === 'artikel' && !filament_type_id) { alert('Kies een artikeltype'); return; }
+    let payload;
+    if (type === 'artikel') {
+      const a = parseInt(aantal);
+      if (!Number.isFinite(a) || a <= 0) { alert('Aantal moet een geheel getal groter dan 0 zijn'); return; }
+      payload = { type, object_naam: object_naam || '', filament_type_id: parseInt(filament_type_id), aantal: a };
+    } else {
+      const b = parseFloat(bedrag);
+      if (!Number.isFinite(b) || b <= 0) { alert('Bedrag moet groter dan 0 zijn'); return; }
+      payload = { type, object_naam: object_naam || '', filament_type_id: filament_type_id ? parseInt(filament_type_id) : null, bedrag: b };
+    }
+    try {
+      await api.post(`/werkbonnen/${werkbonId}/regels`, payload);
+      setNieuweRegelKey(null);
+      loadDetail(werkbonId); loadList();
+    } catch (e) { alert(e.message); }
+  }
+
   const onbekoppeldeJobs = jobs.filter(j => j.type === 'print' && !j.werkbon_id);
+
+  // Zelfde categorie-conventie als elders (KostenModal, WerkbonModal, ...):
+  // filamenttype-lijsten filteren op categorie 'filament', dienst-/
+  // artikeltypes zijn alles daarbuiten (categorie ontbreekt = 'filament').
+  const artikelTypes = filamentTypes.filter(f => (f.categorie || 'filament') !== 'filament');
 
   const filteredWerkbonnen = werkbonnen
     .filter(w => !filter || w.status === filter)
@@ -487,6 +526,70 @@ export default function Werkbonnen() {
                                 )}
                               </div>
                             ))}
+
+                            {/* Enkel voor een offerte-afgeleide werkbon — een standalone
+                                werkbon heeft hiervoor al de volledige "✏ Bewerken"-modal.
+                                Bewust beperkt tot 'extra'/'artikel' (tijd_u altijd 0, kan de
+                                bevroren marge_pct-tier dus nooit doen kantelen). Zie
+                                POST /werkbonnen/:id/regels en ux-verbeterlijst 2026-09-10, #6. */}
+                            {w.offerte_id && (
+                              nieuweRegelKey !== w.id ? (
+                                <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
+                                  onClick={() => toggleNieuweRegel(w.id)}>+ Regel toevoegen</button>
+                              ) : (
+                                <div className="card" style={{ padding: '0.6rem 0.75rem' }}>
+                                  <div className="form-row" style={{ marginBottom: 6 }}>
+                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                      <label style={{ fontSize: 11 }}>Type</label>
+                                      <select value={nieuweRegelForm.type}
+                                        onChange={e => setNieuweRegelForm(f => ({ ...f, type: e.target.value }))}
+                                        style={{ fontSize: 12 }}>
+                                        <option value="extra">Extra kosten/dienst</option>
+                                        <option value="artikel">Artikel</option>
+                                      </select>
+                                    </div>
+                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                      <label style={{ fontSize: 11 }}>Artikeltype{nieuweRegelForm.type === 'artikel' ? ' *' : ' (optioneel)'}</label>
+                                      <select value={nieuweRegelForm.filament_type_id}
+                                        onChange={e => setNieuweRegelForm(f => ({ ...f, filament_type_id: e.target.value }))}
+                                        style={{ fontSize: 12 }}>
+                                        <option value="">— geen —</option>
+                                        {artikelTypes.map(a => <option key={a.id} value={a.id}>{a.naam}</option>)}
+                                      </select>
+                                    </div>
+                                  </div>
+                                  <div className="form-row" style={{ marginBottom: 6 }}>
+                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                      <label style={{ fontSize: 11 }}>Omschrijving</label>
+                                      <input type="text" value={nieuweRegelForm.object_naam}
+                                        onChange={e => setNieuweRegelForm(f => ({ ...f, object_naam: e.target.value }))}
+                                        style={{ fontSize: 12 }} />
+                                    </div>
+                                    {nieuweRegelForm.type === 'extra' ? (
+                                      <div className="form-group" style={{ marginBottom: 0 }}>
+                                        <label style={{ fontSize: 11 }}>Bedrag (€)</label>
+                                        <input type="number" min="0" step="0.01" value={nieuweRegelForm.bedrag}
+                                          onChange={e => setNieuweRegelForm(f => ({ ...f, bedrag: e.target.value }))}
+                                          style={{ fontSize: 12 }} />
+                                      </div>
+                                    ) : (
+                                      <div className="form-group" style={{ marginBottom: 0 }}>
+                                        <label style={{ fontSize: 11 }}>Aantal</label>
+                                        <input type="number" min="1" step="1" value={nieuweRegelForm.aantal}
+                                          onChange={e => setNieuweRegelForm(f => ({ ...f, aantal: e.target.value }))}
+                                          style={{ fontSize: 12 }} />
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 8 }}>
+                                    <button className="btn primary" style={{ fontSize: 11, padding: '4px 8px' }}
+                                      onClick={() => voegRegelToe(w.id)}>Opslaan</button>
+                                    <button className="btn" style={{ fontSize: 11, padding: '4px 8px' }}
+                                      onClick={() => setNieuweRegelKey(null)}>Annuleer</button>
+                                  </div>
+                                </div>
+                              )
+                            )}
                           </div>
 
                           <div>
