@@ -46,6 +46,7 @@ import { migrateDbV42 } from './db_migration_v42.js';
 import { migrateDbV43 } from './db_migration_v43.js';
 import { migrateDbV44 } from './db_migration_v44.js';
 import { migrateDbV45 } from './db_migration_v45.js';
+import { migrateDbV46 } from './db_migration_v46.js';
 import { migrateDbV47 } from './db_migration_v47.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -207,6 +208,7 @@ migrateDbV10(db);
   migrateDbV43(db);
   migrateDbV44(db);
   migrateDbV45(db);
+  migrateDbV46(db);
   migrateDbV47(db);
 
   // Per printer op naam controleren (i.p.v. "tabel is leeg") — zo blokkeert een
